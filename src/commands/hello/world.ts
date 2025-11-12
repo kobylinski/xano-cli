@@ -1,6 +1,6 @@
-import {Command} from '@oclif/core'
+import BaseCommand from '../../base-command.js'
 
-export default class World extends Command {
+export default class World extends BaseCommand {
   static args = {}
   static description = 'Say hello world'
   static examples = [
@@ -8,7 +8,9 @@ export default class World extends Command {
 hello world! (./src/commands/hello/world.ts)
 `,
   ]
-  static flags = {}
+  static override flags = {
+    ...BaseCommand.baseFlags,
+  }
 
   async run(): Promise<void> {
     this.log('hello world! (./src/commands/hello/world.ts)')

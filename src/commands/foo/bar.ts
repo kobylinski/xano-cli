@@ -1,6 +1,7 @@
-import {Args, Command, Flags} from '@oclif/core'
+import {Args, Flags} from '@oclif/core'
+import BaseCommand from '../../base-command.js'
 
-export default class FooBar extends Command {
+export default class FooBar extends BaseCommand {
   static override args = {
     file: Args.string({description: 'file to read'}),
   }
@@ -9,6 +10,7 @@ export default class FooBar extends Command {
     '<%= config.bin %> <%= command.id %>',
   ]
   static override flags = {
+    ...BaseCommand.baseFlags,
     // flag with no value (-f, --force)
     force: Flags.boolean({char: 'f'}),
     // flag with a value (-n, --name=VALUE)

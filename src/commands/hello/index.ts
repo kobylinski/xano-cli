@@ -1,6 +1,7 @@
-import {Args, Command, Flags} from '@oclif/core'
+import {Args, Flags} from '@oclif/core'
+import BaseCommand from '../../base-command.js'
 
-export default class Hello extends Command {
+export default class Hello extends BaseCommand {
   static args = {
     person: Args.string({description: 'Person to say hello to', required: true}),
   }
@@ -10,7 +11,8 @@ export default class Hello extends Command {
 hello friend from oclif! (./src/commands/hello/index.ts)
 `,
   ]
-  static flags = {
+  static override flags = {
+    ...BaseCommand.baseFlags,
     from: Flags.string({char: 'f', description: 'Who is saying hello', required: true}),
   }
 

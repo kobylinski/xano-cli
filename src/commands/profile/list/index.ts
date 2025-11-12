@@ -1,0 +1,144 @@
+import {Command, Flags} from '@oclif/core'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import * as yaml from 'js-yaml'
+
+interface ProfileConfig {
+  name: string
+  account_origin: string
+  instance_origin: string
+  access_token: string
+  workspace?: string
+  branch?: string
+}
+
+interface CredentialsFile {
+  profiles: {
+    [key: string]: Omit<ProfileConfig, 'name'>
+  }
+}
+
+export default class ProfileList extends Command {
+  static override flags = {
+    details: Flags.boolean({
+      char: 'd',
+      description: 'Show detailed information for each profile',
+      required: false,
+      default: false,
+    }),
+  }
+
+  static description = 'List all available profile configurations'
+
+  static examples = [
+    `$ xscli profile:list
+Available profiles:
+  - default
+  - production
+  - staging
+  - development
+`,
+    `$ xscli profile:list --details
+Available profiles:
+
+Profile: default
+  Account Origin: https://account.xano.com
+  Instance Origin: https://instance.xano.com
+  Access Token: ***...***
+  Workspace: my-workspace
+  Branch: main
+
+Profile: production
+  Account Origin: https://account.xano.com
+  Instance Origin: https://prod-instance.xano.com
+  Access Token: ***...***
+`,
+    `$ xscli profile:list -d
+Available profiles:
+
+Profile: default
+  Account Origin: https://account.xano.com
+  Instance Origin: https://instance.xano.com
+  Access Token: ***...***
+  Workspace: my-workspace
+  Branch: main
+`,
+  ]
+
+  async run(): Promise<void> {
+    const {flags} = await this.parse(ProfileList)
+
+    const configDir = path.join(os.homedir(), '.xano')
+    const credentialsPath = path.join(configDir, 'credentials.yaml')
+
+    // Check if credentials file exists
+    if (!fs.existsSync(credentialsPath)) {
+      this.log(`No profiles found. The credentials file does not exist at ${credentialsPath}`)
+      this.log(`Create a profile using 'xscli profile:create'`)
+      return
+    }
+
+    // Read credentials file
+    let credentials: CredentialsFile
+    try {
+      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const parsed = yaml.load(fileContent) as CredentialsFile
+
+      if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {
+        this.error('Credentials file has invalid format.')
+      }
+
+      credentials = parsed
+    } catch (error) {
+      this.error(`Failed to parse credentials file: ${error}`)
+    }
+
+    // Get profile names
+    const profileNames = Object.keys(credentials.profiles)
+
+    if (profileNames.length === 0) {
+      this.log('No profiles found in credentials file.')
+      this.log(`Create a profile using 'xscli profile:create'`)
+      return
+    }
+
+    // Display profiles
+    if (flags.details) {
+      this.log('Available profiles:\n')
+
+      for (const name of profileNames.sort()) {
+        const profile = credentials.profiles[name]
+        this.log(`Profile: ${name}`)
+        this.log(`  Account Origin: ${profile.account_origin || '(not set)'}`)
+        this.log(`  Instance Origin: ${profile.instance_origin}`)
+        this.log(`  Access Token: ${this.maskToken(profile.access_token)}`)
+
+        if (profile.workspace) {
+          this.log(`  Workspace: ${profile.workspace}`)
+        }
+
+        if (profile.branch) {
+          this.log(`  Branch: ${profile.branch}`)
+        }
+
+        this.log('') // Empty line between profiles
+      }
+    } else {
+      this.log('Available profiles:')
+      for (const name of profileNames.sort()) {
+        this.log(`  - ${name}`)
+      }
+    }
+  }
+
+  private maskToken(token: string): string {
+    if (token.length <= 8) {
+      return '***'
+    }
+
+    const start = token.slice(0, 3)
+    const end = token.slice(-3)
+    return `${start}...${end}`
+  }
+}

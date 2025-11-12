@@ -1,0 +1,134 @@
+import {Args, Command, Flags} from '@oclif/core'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import * as yaml from 'js-yaml'
+import BaseCommand from '../../../base-command.js'
+
+interface ProfileConfig {
+  name: string
+  account_origin: string
+  instance_origin: string
+  access_token: string
+  workspace?: string
+  branch?: string
+}
+
+interface CredentialsFile {
+  profiles: {
+    [key: string]: Omit<ProfileConfig, 'name'>
+  }
+}
+
+export default class ProfileCreate extends Command {
+  static args = {
+    name: Args.string({
+      description: 'Profile name',
+      required: true,
+    }),
+  }
+
+  static override flags = {
+    account_origin: Flags.string({
+      char: 'a',
+      description: 'Account origin URL. Optional for self hosted installs.',
+      required: false,
+    }),
+    instance_origin: Flags.string({
+      char: 'i',
+      description: 'Instance origin URL',
+      required: true,
+    }),
+    access_token: Flags.string({
+      char: 't',
+      description: 'Access token for the Xano Metadata API',
+      required: true,
+    }),
+    workspace: Flags.string({
+      char: 'w',
+      description: 'Workspace name',
+      required: false,
+    }),
+    branch: Flags.string({
+      char: 'b',
+      description: 'Branch name',
+      required: false,
+    }),
+  }
+
+  static description = 'Create a new profile configuration'
+
+  static examples = [
+    `$ xscli profile:create production --account_origin https://account.xano.com --instance_origin https://instance.xano.com --access_token token123
+Profile 'production' created successfully at ~/.xano/credentials.yaml
+`,
+    `$ xscli profile:create staging -a https://staging-account.xano.com -i https://staging-instance.xano.com -t token456
+Profile 'staging' created successfully at ~/.xano/credentials.yaml
+`,
+    `$ xscli profile:create dev -i https://dev-instance.xano.com -t token789 -w my-workspace -b feature-branch
+Profile 'dev' created successfully at ~/.xano/credentials.yaml
+`,
+  ]
+
+  async run(): Promise<void> {
+    const {args, flags} = await this.parse(ProfileCreate)
+
+    const configDir = path.join(os.homedir(), '.xano')
+    const credentialsPath = path.join(configDir, 'credentials.yaml')
+
+    // Ensure the .xano directory exists
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, {recursive: true})
+      this.log(`Created directory: ${configDir}`)
+    }
+
+    // Read existing credentials file or create new structure
+    let credentials: CredentialsFile = {profiles: {}}
+
+    if (fs.existsSync(credentialsPath)) {
+      try {
+        const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+        const parsed = yaml.load(fileContent) as CredentialsFile
+
+        if (parsed && typeof parsed === 'object' && 'profiles' in parsed) {
+          credentials = parsed
+        } else {
+          this.warn('Existing credentials file has invalid format. Creating new structure.')
+        }
+      } catch (error) {
+        this.warn(`Failed to parse existing credentials file: ${error}`)
+        this.warn('Creating new credentials file.')
+      }
+    }
+
+    // Add or update the profile
+    const profileExists = args.name in credentials.profiles
+
+    credentials.profiles[args.name] = {
+      account_origin: flags.account_origin ?? '',
+      instance_origin: flags.instance_origin,
+      access_token: flags.access_token,
+      ...(flags.workspace && {workspace: flags.workspace}),
+      ...(flags.branch && {branch: flags.branch}),
+    }
+
+    // Write the updated credentials back to the file
+    try {
+      const yamlContent = yaml.dump(credentials, {
+        indent: 2,
+        lineWidth: -1,
+        noRefs: true,
+      })
+
+      fs.writeFileSync(credentialsPath, yamlContent, 'utf8')
+
+      if (profileExists) {
+        this.log(`Profile '${args.name}' updated successfully at ${credentialsPath}`)
+      } else {
+        this.log(`Profile '${args.name}' created successfully at ${credentialsPath}`)
+      }
+    } catch (error) {
+      this.error(`Failed to write credentials file: ${error}`)
+    }
+  }
+}

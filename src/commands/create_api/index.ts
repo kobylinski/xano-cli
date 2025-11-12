@@ -1,6 +1,7 @@
-import {Args, Command, Flags} from '@oclif/core'
+import {Args, Flags} from '@oclif/core'
+import BaseCommand from '../../base-command.js'
 
-export default class CreateApi extends Command {
+export default class CreateApi extends BaseCommand {
   static args = {
     // api_key: Args.string({
     //   env: 'XANO_API_KEY',
@@ -10,6 +11,7 @@ export default class CreateApi extends Command {
   }
 
   static override flags = {
+    ...BaseCommand.baseFlags,
     // flag with no value (-f, --force)
     access_token: Flags.string({
       char: 't',
@@ -21,7 +23,7 @@ export default class CreateApi extends Command {
     // name: Flags.string({char: 'n', description: 'name to print'}),
   }
 
-  static description = 'Create API with the provided key'
+  static description = 'Create API swith the provided key'
 
   static examples = [
     `hello this is an example
@@ -31,6 +33,9 @@ export default class CreateApi extends Command {
   async run(): Promise<void> {
     const {args, flags} = await this.parse(CreateApi)
 
-    this.log(flags.api_key)
+    this.log(flags.access_token)
+    if (flags.profile) {
+      this.log(`Using profile: ${flags.profile}`)
+    }
   }
 }
