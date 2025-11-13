@@ -220,7 +220,7 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
         access_token: accessToken,
         workspace,
         branch,
-      })
+      }, true)
 
       this.log('')
       this.log(`✓ Profile '${profileName}' created successfully!`)
@@ -382,7 +382,7 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
     }
   }
 
-  private async saveProfile(profile: ProfileConfig): Promise<void> {
+  private async saveProfile(profile: ProfileConfig, setAsDefault: boolean = false): Promise<void> {
     const configDir = path.join(os.homedir(), '.xano')
     const credentialsPath = path.join(configDir, 'credentials.yaml')
 
@@ -414,6 +414,11 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
       access_token: profile.access_token,
       ...(profile.workspace && {workspace: profile.workspace}),
       ...(profile.branch && {branch: profile.branch}),
+    }
+
+    // Set as default if requested
+    if (setAsDefault) {
+      credentials.default = profile.name
     }
 
     // Write the updated credentials back to the file
