@@ -17,6 +17,7 @@ interface CredentialsFile {
   profiles: {
     [key: string]: Omit<ProfileConfig, 'name'>
   }
+  default?: string
 }
 
 export default class ProfileList extends Command {
@@ -109,7 +110,8 @@ Profile: default
 
       for (const name of profileNames.sort()) {
         const profile = credentials.profiles[name]
-        this.log(`Profile: ${name}`)
+        const isDefault = credentials.default === name ? ' [DEFAULT]' : ''
+        this.log(`Profile: ${name}${isDefault}`)
         this.log(`  Account Origin: ${profile.account_origin || '(not set)'}`)
         this.log(`  Instance Origin: ${profile.instance_origin}`)
         this.log(`  Access Token: ${this.maskToken(profile.access_token)}`)
@@ -127,7 +129,8 @@ Profile: default
     } else {
       this.log('Available profiles:')
       for (const name of profileNames.sort()) {
-        this.log(`  - ${name}`)
+        const isDefault = credentials.default === name ? ' [DEFAULT]' : ''
+        this.log(`  - ${name}${isDefault}`)
       }
     }
   }

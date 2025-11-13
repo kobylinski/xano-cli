@@ -18,6 +18,7 @@ interface CredentialsFile {
   profiles: {
     [key: string]: Omit<ProfileConfig, 'name'>
   }
+  default?: string
 }
 
 export default class ProfileDelete extends Command {
@@ -92,8 +93,21 @@ Profile 'old-profile' deleted successfully from ~/.xano/credentials.yaml
       }
     }
 
+    // Check if deleting the default profile
+    const wasDefault = credentials.default === args.name
+
     // Delete the profile
     delete credentials.profiles[args.name]
+
+    // If deleted profile was the default, update to first available profile
+    if (wasDefault) {
+      const remainingProfiles = Object.keys(credentials.profiles)
+      if (remainingProfiles.length > 0) {
+        credentials.default = remainingProfiles[0]
+      } else {
+        delete credentials.default
+      }
+    }
 
     // Write the updated credentials back to the file
     try {
@@ -105,6 +119,14 @@ Profile 'old-profile' deleted successfully from ~/.xano/credentials.yaml
 
       fs.writeFileSync(credentialsPath, yamlContent, 'utf8')
       this.log(`Profile '${args.name}' deleted successfully from ${credentialsPath}`)
+
+      if (wasDefault) {
+        if (credentials.default) {
+          this.log(`Default profile changed to '${credentials.default}'`)
+        } else {
+          this.log(`Default profile removed (no profiles remaining)`)
+        }
+      }
     } catch (error) {
       this.error(`Failed to write credentials file: ${error}`)
     }

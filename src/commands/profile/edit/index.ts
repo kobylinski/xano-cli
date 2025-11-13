@@ -18,6 +18,7 @@ interface CredentialsFile {
   profiles: {
     [key: string]: Omit<ProfileConfig, 'name'>
   }
+  default?: string
 }
 
 export default class ProfileEdit extends Command {

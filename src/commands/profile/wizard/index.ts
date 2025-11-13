@@ -18,6 +18,7 @@ interface CredentialsFile {
   profiles: {
     [key: string]: Omit<ProfileConfig, 'name'>
   }
+  default?: string
 }
 
 interface Instance {
@@ -121,12 +122,13 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
       const selectedInstance = instances.find((inst) => inst.id === instanceId)!
 
       // Step 4: Get profile name
+      const defaultProfileName = flags.name || this.getDefaultProfileName()
       const {profileName} = await inquirer.prompt([
         {
           type: 'input',
           name: 'profileName',
           message: 'Profile name',
-          default: flags.name || 'default',
+          default: defaultProfileName,
           validate: (input: string) => {
             if (!input || input.trim() === '') {
               return 'Profile name cannot be empty'
@@ -356,6 +358,28 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
     }
 
     return []
+  }
+
+  private getDefaultProfileName(): string {
+    try {
+      const configDir = path.join(os.homedir(), '.xano')
+      const credentialsPath = path.join(configDir, 'credentials.yaml')
+
+      if (!fs.existsSync(credentialsPath)) {
+        return 'default'
+      }
+
+      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const parsed = yaml.load(fileContent) as CredentialsFile
+
+      if (parsed && typeof parsed === 'object' && 'default' in parsed && parsed.default) {
+        return parsed.default
+      }
+
+      return 'default'
+    } catch {
+      return 'default'
+    }
   }
 
   private async saveProfile(profile: ProfileConfig): Promise<void> {

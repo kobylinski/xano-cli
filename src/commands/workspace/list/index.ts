@@ -17,6 +17,7 @@ interface CredentialsFile {
   profiles: {
     [key: string]: ProfileConfig
   }
+  default?: string
 }
 
 interface Workspace {
@@ -87,7 +88,7 @@ Available workspaces:
     const {flags} = await this.parse(WorkspaceList)
 
     // Get profile name (default or from flag/env)
-    const profileName = flags.profile || 'default'
+    const profileName = flags.profile || this.getDefaultProfile()
 
     // Load credentials
     const credentials = this.loadCredentials()

@@ -18,6 +18,7 @@ interface CredentialsFile {
   profiles: {
     [key: string]: Omit<ProfileConfig, 'name'>
   }
+  default?: string
 }
 
 export default class ProfileCreate extends Command {
@@ -54,6 +55,11 @@ export default class ProfileCreate extends Command {
       description: 'Branch name',
       required: false,
     }),
+    default: Flags.boolean({
+      description: 'Set this profile as the default',
+      required: false,
+      default: false,
+    }),
   }
 
   static description = 'Create a new profile configuration'
@@ -67,6 +73,10 @@ Profile 'staging' created successfully at ~/.xano/credentials.yaml
 `,
     `$ xscli profile:create dev -i https://dev-instance.xano.com -t token789 -w my-workspace -b feature-branch
 Profile 'dev' created successfully at ~/.xano/credentials.yaml
+`,
+    `$ xscli profile:create production --account_origin https://account.xano.com --instance_origin https://instance.xano.com --access_token token123 --default
+Profile 'production' created successfully at ~/.xano/credentials.yaml
+Default profile set to 'production'
 `,
   ]
 
@@ -112,6 +122,11 @@ Profile 'dev' created successfully at ~/.xano/credentials.yaml
       ...(flags.branch && {branch: flags.branch}),
     }
 
+    // Set default if flag is provided
+    if (flags.default) {
+      credentials.default = args.name
+    }
+
     // Write the updated credentials back to the file
     try {
       const yamlContent = yaml.dump(credentials, {
@@ -126,6 +141,10 @@ Profile 'dev' created successfully at ~/.xano/credentials.yaml
         this.log(`Profile '${args.name}' updated successfully at ${credentialsPath}`)
       } else {
         this.log(`Profile '${args.name}' created successfully at ${credentialsPath}`)
+      }
+
+      if (flags.default) {
+        this.log(`Default profile set to '${args.name}'`)
       }
     } catch (error) {
       this.error(`Failed to write credentials file: ${error}`)

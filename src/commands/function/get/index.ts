@@ -17,6 +17,7 @@ interface CredentialsFile {
   profiles: {
     [key: string]: ProfileConfig
   }
+  default?: string
 }
 
 interface Function {
@@ -103,7 +104,7 @@ function yo {
     const {args, flags} = await this.parse(FunctionGet)
 
     // Get profile name (default or from flag/env)
-    const profileName = flags.profile || 'default'
+    const profileName = flags.profile || this.getDefaultProfile()
 
     // Load credentials
     const credentials = this.loadCredentials()

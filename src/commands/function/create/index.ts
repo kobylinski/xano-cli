@@ -18,6 +18,7 @@ interface CredentialsFile {
   profiles: {
     [key: string]: ProfileConfig
   }
+  default?: string
 }
 
 interface CreateFunctionResponse {
@@ -97,7 +98,7 @@ Name: my_function
     const {args, flags} = await this.parse(FunctionCreate)
 
     // Get profile name (default or from flag/env)
-    const profileName = flags.profile || 'default'
+    const profileName = flags.profile || this.getDefaultProfile()
 
     // Load credentials
     const credentials = this.loadCredentials()
