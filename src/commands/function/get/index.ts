@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import * as yaml from 'js-yaml'
+import inquirer from 'inquirer'
 import BaseCommand from '../../../base-command.js'
 
 interface ProfileConfig {
@@ -31,20 +32,27 @@ interface Function {
   // Add other function properties as needed
 }
 
+interface FunctionListResponse {
+  functions?: Function[]
+  items?: Function[]
+  // Handle both array and object responses
+}
+
 export default class FunctionGet extends BaseCommand {
   static args = {
     function_id: Args.string({
       description: 'Function ID',
-      required: true,
-    }),
-    workspace_id: Args.string({
-      description: 'Workspace ID (or name if stored in profile)',
       required: false,
     }),
   }
 
   static override flags = {
     ...BaseCommand.baseFlags,
+    workspace: Flags.string({
+      char: 'w',
+      description: 'Workspace ID (optional if set in profile)',
+      required: false,
+    }),
     output: Flags.string({
       char: 'o',
       description: 'Output format',
@@ -67,7 +75,7 @@ export default class FunctionGet extends BaseCommand {
   static description = 'Get a specific function from a workspace'
 
   static examples = [
-    `$ xscli function:get 145 40
+    `$ xscli function:get 145 -w 40
 Function: yo (ID: 145)
 Created: 2025-10-10 10:30:00
 Description: Sample function
@@ -76,7 +84,12 @@ Description: Sample function
 Function: yo (ID: 145)
 Created: 2025-10-10 10:30:00
 `,
-    `$ xscli function:get 145 40 --output json
+    `$ xscli function:get
+Select a function:
+  ❯ yo (ID: 145) - Sample function
+    another-func (ID: 146)
+`,
+    `$ xscli function:get 145 -w 40 --output json
 {
   "id": 145,
   "name": "yo",
@@ -128,18 +141,26 @@ function yo {
       this.error(`Profile '${profileName}' is missing access_token`)
     }
 
-    // Determine workspace_id from argument or profile
+    // Determine workspace_id from flag or profile
     let workspaceId: string
-    if (args.workspace_id) {
-      workspaceId = args.workspace_id
+    if (flags.workspace) {
+      workspaceId = flags.workspace
     } else if (profile.workspace) {
       workspaceId = profile.workspace
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as an argument: xscli function:get ${args.function_id} <workspace_id>\n` +
+        `  1. Provide it as a flag: xscli function:get [function_id] -w <workspace_id>\n` +
         `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
       )
+    }
+
+    // If function_id is not provided, prompt user to select from list
+    let functionId: string
+    if (args.function_id) {
+      functionId = args.function_id
+    } else {
+      functionId = await this.promptForFunctionId(profile, workspaceId)
     }
 
     // Build query parameters
@@ -152,7 +173,7 @@ function yo {
     })
 
     // Construct the API URL
-    const apiUrl = `${profile.instance_origin}/api:meta/workspace/${workspaceId}/function/${args.function_id}?${queryParams.toString()}`
+    const apiUrl = `${profile.instance_origin}/api:meta/workspace/${workspaceId}/function/${functionId}?${queryParams.toString()}`
 
     // Fetch function from the API
     try {
@@ -219,6 +240,80 @@ function yo {
         this.error(`Failed to fetch function: ${error.message}`)
       } else {
         this.error(`Failed to fetch function: ${String(error)}`)
+      }
+    }
+  }
+
+  private async promptForFunctionId(profile: ProfileConfig, workspaceId: string): Promise<string> {
+    try {
+      // Fetch list of functions
+      const queryParams = new URLSearchParams({
+        include_draft: 'false',
+        include_xanoscript: 'false',
+        page: '1',
+        per_page: '50',
+        sort: 'created_at',
+        order: 'desc',
+      })
+
+      const listUrl = `${profile.instance_origin}/api:meta/workspace/${workspaceId}/function?${queryParams.toString()}`
+
+      const response = await fetch(listUrl, {
+        method: 'GET',
+        headers: {
+          'accept': 'application/json',
+          'Authorization': `Bearer ${profile.access_token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        this.error(
+          `Failed to fetch function list: ${response.status} ${response.statusText}\n${errorText}`,
+        )
+      }
+
+      const data = await response.json() as FunctionListResponse | Function[]
+
+      // Handle different response formats
+      let functions: Function[]
+
+      if (Array.isArray(data)) {
+        functions = data
+      } else if (data && typeof data === 'object' && 'functions' in data && Array.isArray(data.functions)) {
+        functions = data.functions
+      } else if (data && typeof data === 'object' && 'items' in data && Array.isArray(data.items)) {
+        functions = data.items
+      } else {
+        this.error('Unexpected API response format')
+      }
+
+      if (functions.length === 0) {
+        this.error('No functions found in workspace')
+      }
+
+      // Create choices for inquirer
+      const choices = functions.map(func => ({
+        name: `${func.name} (ID: ${func.id})${func.description ? ` - ${func.description}` : ''}`,
+        value: func.id.toString(),
+      }))
+
+      // Prompt user to select a function
+      const answer = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'functionId',
+          message: 'Select a function:',
+          choices,
+        },
+      ])
+
+      return answer.functionId
+    } catch (error) {
+      if (error instanceof Error) {
+        this.error(`Failed to prompt for function: ${error.message}`)
+      } else {
+        this.error(`Failed to prompt for function: ${String(error)}`)
       }
     }
   }

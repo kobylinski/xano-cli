@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import * as yaml from 'js-yaml'
+import inquirer from 'inquirer'
 import BaseCommand from '../../../base-command.js'
 
 interface ProfileConfig {
@@ -21,6 +22,21 @@ interface CredentialsFile {
   default?: string
 }
 
+interface Function {
+  id: number
+  name: string
+  description?: string
+  type?: string
+  created_at?: number | string
+  updated_at?: number | string
+  xanoscript?: any
+}
+
+interface FunctionListResponse {
+  functions?: Function[]
+  items?: Function[]
+}
+
 interface EditFunctionResponse {
   id: number
   name: string
@@ -31,33 +47,29 @@ export default class FunctionEdit extends BaseCommand {
   static args = {
     function_id: Args.string({
       description: 'Function ID to edit',
-      required: true,
-    }),
-    workspace_id: Args.string({
-      description: 'Workspace ID (optional if set in profile)',
       required: false,
     }),
   }
 
   static override flags = {
     ...BaseCommand.baseFlags,
+    workspace: Flags.string({
+      char: 'w',
+      description: 'Workspace ID (optional if set in profile)',
+      required: false,
+    }),
     file: Flags.string({
       char: 'f',
       description: 'Path to file containing XanoScript code',
       required: false,
-      exclusive: ['stdin', 'fetch'],
+      exclusive: ['stdin'],
     }),
     stdin: Flags.boolean({
       char: 's',
       description: 'Read XanoScript code from stdin',
       required: false,
       default: false,
-      exclusive: ['file', 'fetch'],
-    }),
-    fetch: Flags.boolean({
-      description: 'Fetch the current function code and open in editor',
-      required: false,
-      default: false,
+      exclusive: ['file'],
     }),
     edit: Flags.boolean({
       char: 'e',
@@ -82,24 +94,35 @@ export default class FunctionEdit extends BaseCommand {
   static description = 'Edit a function in a workspace'
 
   static examples = [
+    `$ xscli function:edit 163
+# Fetches the function code and opens it in $EDITOR for editing
+Function updated successfully!
+ID: 163
+Name: my_function
+`,
+    `$ xscli function:edit
+# Prompts for function, fetches the code and opens it in $EDITOR for editing
+Select a function to edit:
+  ❯ my_function (ID: 163) - Sample function
+    another-func (ID: 164)
+`,
     `$ xscli function:edit 163 -f function.xs
 Function updated successfully!
 ID: 163
 Name: my_function
 `,
-    `$ xscli function:edit 163 40 -f function.xs
+    `$ xscli function:edit 163 -w 40 -f function.xs
 Function updated successfully!
 ID: 163
 Name: my_function
+`,
+    `$ xscli function:edit -f function.xs
+Select a function to edit:
+  ❯ my_function (ID: 163) - Sample function
+    another-func (ID: 164)
 `,
     `$ xscli function:edit 163 -f function.xs --edit
 # Opens function.xs in $EDITOR, then updates function with edited content
-Function updated successfully!
-ID: 163
-Name: my_function
-`,
-    `$ xscli function:edit 163 --fetch
-# Fetches the function code and opens it in $EDITOR for editing
 Function updated successfully!
 ID: 163
 Name: my_function
@@ -151,35 +174,31 @@ Name: my_function
       this.error('The --edit flag requires --file to be specified')
     }
 
-    // Get function_id (required)
-    const functionId = args.function_id
-
-    // Determine workspace_id from argument or profile
+    // Determine workspace_id from flag or profile
     let workspaceId: string
-    if (args.workspace_id) {
-      workspaceId = args.workspace_id
+    if (flags.workspace) {
+      workspaceId = flags.workspace
     } else if (profile.workspace) {
       workspaceId = profile.workspace
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as an argument: xscli function:edit <function_id> <workspace_id>\n` +
+        `  1. Provide it as a flag: xscli function:edit [function_id] -w <workspace_id>\n` +
         `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
       )
     }
 
+    // If function_id is not provided, prompt user to select from list
+    let functionId: string
+    if (args.function_id) {
+      functionId = args.function_id
+    } else {
+      functionId = await this.promptForFunctionId(profile, workspaceId)
+    }
+
     // Read XanoScript content
     let xanoscript: string
-    if (flags.fetch) {
-      // Fetch from API and open in editor
-      try {
-        xanoscript = await this.fetchFunctionCode(profile, workspaceId, functionId)
-        // Automatically open in editor when fetching
-        xanoscript = await this.editFunctionContent(xanoscript)
-      } catch (error) {
-        this.error(`Failed to fetch function: ${error}`)
-      }
-    } else if (flags.file) {
+    if (flags.file) {
       // Read from file
       let fileToRead = flags.file
 
@@ -210,7 +229,14 @@ Name: my_function
         this.error(`Failed to read from stdin: ${error}`)
       }
     } else {
-      this.error('Either --file, --stdin, or --fetch must be specified to provide XanoScript code')
+      // Default: Fetch from API and open in editor
+      try {
+        xanoscript = await this.fetchFunctionCode(profile, workspaceId, functionId)
+        // Automatically open in editor when fetching
+        xanoscript = await this.editFunctionContent(xanoscript)
+      } catch (error) {
+        this.error(`Failed to fetch function: ${error}`)
+      }
     }
 
     // Validate xanoscript is not empty
@@ -436,6 +462,80 @@ Name: my_function
       // Resume stdin if it was paused
       process.stdin.resume()
     })
+  }
+
+  private async promptForFunctionId(profile: ProfileConfig, workspaceId: string): Promise<string> {
+    try {
+      // Fetch list of functions
+      const queryParams = new URLSearchParams({
+        include_draft: 'false',
+        include_xanoscript: 'false',
+        page: '1',
+        per_page: '50',
+        sort: 'created_at',
+        order: 'desc',
+      })
+
+      const listUrl = `${profile.instance_origin}/api:meta/workspace/${workspaceId}/function?${queryParams.toString()}`
+
+      const response = await fetch(listUrl, {
+        method: 'GET',
+        headers: {
+          'accept': 'application/json',
+          'Authorization': `Bearer ${profile.access_token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        this.error(
+          `Failed to fetch function list: ${response.status} ${response.statusText}\n${errorText}`,
+        )
+      }
+
+      const data = await response.json() as FunctionListResponse | Function[]
+
+      // Handle different response formats
+      let functions: Function[]
+
+      if (Array.isArray(data)) {
+        functions = data
+      } else if (data && typeof data === 'object' && 'functions' in data && Array.isArray(data.functions)) {
+        functions = data.functions
+      } else if (data && typeof data === 'object' && 'items' in data && Array.isArray(data.items)) {
+        functions = data.items
+      } else {
+        this.error('Unexpected API response format')
+      }
+
+      if (functions.length === 0) {
+        this.error('No functions found in workspace')
+      }
+
+      // Create choices for inquirer
+      const choices = functions.map(func => ({
+        name: `${func.name} (ID: ${func.id})${func.description ? ` - ${func.description}` : ''}`,
+        value: func.id.toString(),
+      }))
+
+      // Prompt user to select a function
+      const answer = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'functionId',
+          message: 'Select a function to edit:',
+          choices,
+        },
+      ])
+
+      return answer.functionId
+    } catch (error) {
+      if (error instanceof Error) {
+        this.error(`Failed to prompt for function: ${error.message}`)
+      } else {
+        this.error(`Failed to prompt for function: ${String(error)}`)
+      }
+    }
   }
 
   private loadCredentials(): CredentialsFile {

@@ -1,4 +1,4 @@
-import {Args, Flags} from '@oclif/core'
+import {Flags} from '@oclif/core'
 import {execSync} from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -28,15 +28,15 @@ interface CreateFunctionResponse {
 }
 
 export default class FunctionCreate extends BaseCommand {
-  static args = {
-    workspace_id: Args.string({
-      description: 'Workspace ID (or name if stored in profile)',
-      required: false,
-    }),
-  }
+  static args = {}
 
   static override flags = {
     ...BaseCommand.baseFlags,
+    workspace: Flags.string({
+      char: 'w',
+      description: 'Workspace ID (optional if set in profile)',
+      required: false,
+    }),
     file: Flags.string({
       char: 'f',
       description: 'Path to file containing XanoScript code',
@@ -69,23 +69,28 @@ export default class FunctionCreate extends BaseCommand {
   static description = 'Create a new function in a workspace'
 
   static examples = [
-    `$ xscli function:create 40 -f function.xs
+    `$ xscli function:create -w 40 -f function.xs
 Function created successfully!
 ID: 123
 Name: my_function
 `,
-    `$ xscli function:create 40 -f function.xs --edit
+    `$ xscli function:create -f function.xs
+Function created successfully!
+ID: 123
+Name: my_function
+`,
+    `$ xscli function:create -w 40 -f function.xs --edit
 # Opens function.xs in $EDITOR, then creates function with edited content
 Function created successfully!
 ID: 123
 Name: my_function
 `,
-    `$ cat function.xs | xscli function:create 40 --stdin
+    `$ cat function.xs | xscli function:create -w 40 --stdin
 Function created successfully!
 ID: 123
 Name: my_function
 `,
-    `$ xscli function:create 40 -f function.xs -o json
+    `$ xscli function:create -w 40 -f function.xs -o json
 {
   "id": 123,
   "name": "my_function",
@@ -95,7 +100,7 @@ Name: my_function
   ]
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(FunctionCreate)
+    const {flags} = await this.parse(FunctionCreate)
 
     // Get profile name (default or from flag/env)
     const profileName = flags.profile || this.getDefaultProfile()
@@ -122,16 +127,16 @@ Name: my_function
       this.error(`Profile '${profileName}' is missing access_token`)
     }
 
-    // Determine workspace_id from argument or profile
+    // Determine workspace_id from flag or profile
     let workspaceId: string
-    if (args.workspace_id) {
-      workspaceId = args.workspace_id
+    if (flags.workspace) {
+      workspaceId = flags.workspace
     } else if (profile.workspace) {
       workspaceId = profile.workspace
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as an argument: xscli function:create <workspace_id>\n` +
+        `  1. Provide it as a flag: xscli function:create -w <workspace_id>\n` +
         `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
       )
     }

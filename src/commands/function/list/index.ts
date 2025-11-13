@@ -1,4 +1,4 @@
-import {Args, Flags} from '@oclif/core'
+import {Flags} from '@oclif/core'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -37,15 +37,15 @@ interface FunctionListResponse {
 }
 
 export default class FunctionList extends BaseCommand {
-  static args = {
-    workspace_id: Args.string({
-      description: 'Workspace ID (or name if stored in profile)',
-      required: false,
-    }),
-  }
+  static args = {}
 
   static override flags = {
     ...BaseCommand.baseFlags,
+    workspace: Flags.string({
+      char: 'w',
+      description: 'Workspace ID (optional if set in profile)',
+      required: false,
+    }),
     output: Flags.string({
       char: 'o',
       description: 'Output format',
@@ -89,7 +89,7 @@ export default class FunctionList extends BaseCommand {
   static description = 'List all functions in a workspace from the Xano Metadata API'
 
   static examples = [
-    `$ xscli function:list 40
+    `$ xscli function:list -w 40
 Available functions:
   - function-1 (ID: 1)
   - function-2 (ID: 2)
@@ -100,7 +100,7 @@ Available functions:
   - my-function (ID: 1)
   - another-function (ID: 2)
 `,
-    `$ xscli function:list 40 --output json
+    `$ xscli function:list -w 40 --output json
 [
   {
     "id": 1,
@@ -119,7 +119,7 @@ Available functions:
   ]
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(FunctionList)
+    const {flags} = await this.parse(FunctionList)
 
     // Get profile name (default or from flag/env)
     const profileName = flags.profile || this.getDefaultProfile()
@@ -146,16 +146,16 @@ Available functions:
       this.error(`Profile '${profileName}' is missing access_token`)
     }
 
-    // Determine workspace_id from argument or profile
+    // Determine workspace_id from flag or profile
     let workspaceId: string
-    if (args.workspace_id) {
-      workspaceId = args.workspace_id
+    if (flags.workspace) {
+      workspaceId = flags.workspace
     } else if (profile.workspace) {
       workspaceId = profile.workspace
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as an argument: xscli function:list <workspace_id>\n` +
+        `  1. Provide it as a flag: xscli function:list -w <workspace_id>\n` +
         `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
       )
     }
