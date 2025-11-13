@@ -161,7 +161,7 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
             message: 'Select a workspace (or skip to use default)',
             choices: [
               {name: '(Skip workspace)', value: ''},
-              ...workspaces.map(ws => ({
+              ...workspaces.map((ws) => ({
                 name: ws.name,
                 value: ws.id,
               })),
@@ -174,48 +174,39 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
         // If a workspace was selected, ask about branch preference
         if (workspace) {
           this.log('')
-          const {useLiveBranch} = await inquirer.prompt([
-            {
-              type: 'confirm',
-              name: 'useLiveBranch',
-              message: 'Use the live branch (recommended)?',
-              default: true,
-            },
-          ])
 
-          // If they don't want to use live branch, fetch branches and let them choose
-          if (!useLiveBranch) {
+          this.log('')
+          this.log('Fetching available branches...')
+          let branches: Branch[] = []
+
+          try {
+            branches = await this.fetchBranches(accessToken, selectedInstance.origin, workspace)
+          } catch (error) {
+            this.warn(`Failed to fetch branches: ${error instanceof Error ? error.message : String(error)}`)
+          }
+
+          // If branches were fetched, let user select one
+          if (branches.length > 0) {
             this.log('')
-            this.log('Fetching available branches...')
-            let branches: Branch[] = []
-
-            try {
-              branches = await this.fetchBranches(accessToken, selectedInstance.origin, workspace)
-            } catch (error) {
-              this.warn(`Failed to fetch branches: ${error instanceof Error ? error.message : String(error)}`)
-            }
-
-            // If branches were fetched, let user select one
-            if (branches.length > 0) {
-              this.log('')
-              const {selectedBranch} = await inquirer.prompt([
-                {
-                  type: 'list',
-                  name: 'selectedBranch',
-                  message: 'Select a branch',
-                  choices: branches.map(br => {
+            const {selectedBranch} = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedBranch',
+                message: 'Select a branch',
+                choices: [
+                  {name: '(Skip and use live branch)', value: ''},
+                  ...branches.map((br) => {
                     return {
                       name: br.label,
                       value: br.id,
                     }
                   }),
-                },
-              ])
+                ],
+              },
+            ])
 
-              branch = selectedBranch || undefined
-            }
+            branch = selectedBranch || undefined
           }
-          // If useLiveBranch is true, branch stays undefined (which uses live branch by default)
         }
       }
 
@@ -326,11 +317,7 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
     return []
   }
 
-  private async fetchBranches(
-    accessToken: string,
-    origin: string,
-    workspaceId: string,
-  ): Promise<Branch[]> {
+  private async fetchBranches(accessToken: string, origin: string, workspaceId: string): Promise<Branch[]> {
     const response = await fetch(`${origin}/api:meta/workspace/${workspaceId}/branch`, {
       method: 'GET',
       headers: {
