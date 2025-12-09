@@ -65,7 +65,7 @@ export default class EphemeralRunService extends BaseCommand {
     }),
     file: Flags.string({
       char: 'f',
-      description: 'Path to file containing XanoScript code',
+      description: 'Path or URL to file containing XanoScript code',
       required: false,
       exclusive: ['stdin'],
     }),
@@ -165,27 +165,18 @@ Service created successfully!
     // Read XanoScript content
     let xanoscript: string
     if (flags.file) {
-      // Read from file
-      let fileToRead = flags.file
-
-      // If edit flag is set, copy to temp file and open in editor
-      if (flags.edit) {
-        fileToRead = await this.editFile(flags.file)
-      }
-
-      try {
+      // If edit flag is set and source is not a URL, copy to temp file and open in editor
+      if (flags.edit && !this.isUrl(flags.file)) {
+        const fileToRead = await this.editFile(flags.file)
         xanoscript = fs.readFileSync(fileToRead, 'utf8')
-
-        // Clean up temp file if it was created
-        if (flags.edit && fileToRead !== flags.file) {
-          try {
-            fs.unlinkSync(fileToRead)
-          } catch {
-            // Ignore cleanup errors
-          }
+        // Clean up temp file
+        try {
+          fs.unlinkSync(fileToRead)
+        } catch {
+          // Ignore cleanup errors
         }
-      } catch (error) {
-        this.error(`Failed to read file '${fileToRead}': ${error}`)
+      } else {
+        xanoscript = await this.fetchContent(flags.file)
       }
     } else if (flags.stdin) {
       // Read from stdin
@@ -343,6 +334,30 @@ Service created successfully!
       // Resume stdin if it was paused
       process.stdin.resume()
     })
+  }
+
+  private isUrl(str: string): boolean {
+    return str.startsWith('http://') || str.startsWith('https://')
+  }
+
+  private async fetchContent(source: string): Promise<string> {
+    if (this.isUrl(source)) {
+      try {
+        const response = await fetch(source)
+        if (!response.ok) {
+          this.error(`Failed to fetch '${source}': ${response.status} ${response.statusText}`)
+        }
+        return await response.text()
+      } catch (error) {
+        this.error(`Failed to fetch '${source}': ${error}`)
+      }
+    } else {
+      try {
+        return fs.readFileSync(source, 'utf8')
+      } catch (error) {
+        this.error(`Failed to read file '${source}': ${error}`)
+      }
+    }
   }
 
   private loadCredentials(): CredentialsFile {

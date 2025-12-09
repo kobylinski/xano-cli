@@ -52,7 +52,7 @@ export default class EphemeralRunJob extends BaseCommand {
     }),
     file: Flags.string({
       char: 'f',
-      description: 'Path to file containing XanoScript code',
+      description: 'Path or URL to file containing XanoScript code',
       required: false,
       exclusive: ['stdin'],
     }),
@@ -79,7 +79,7 @@ export default class EphemeralRunJob extends BaseCommand {
     }),
     args: Flags.string({
       char: 'a',
-      description: 'Path to JSON file containing input arguments',
+      description: 'Path or URL to JSON file containing input arguments',
       required: false,
     }),
   }
@@ -162,27 +162,18 @@ Job executed successfully!
     // Read XanoScript content
     let xanoscript: string
     if (flags.file) {
-      // Read from file
-      let fileToRead = flags.file
-
-      // If edit flag is set, copy to temp file and open in editor
-      if (flags.edit) {
-        fileToRead = await this.editFile(flags.file)
-      }
-
-      try {
+      // If edit flag is set and source is not a URL, copy to temp file and open in editor
+      if (flags.edit && !this.isUrl(flags.file)) {
+        const fileToRead = await this.editFile(flags.file)
         xanoscript = fs.readFileSync(fileToRead, 'utf8')
-
-        // Clean up temp file if it was created
-        if (flags.edit && fileToRead !== flags.file) {
-          try {
-            fs.unlinkSync(fileToRead)
-          } catch {
-            // Ignore cleanup errors
-          }
+        // Clean up temp file
+        try {
+          fs.unlinkSync(fileToRead)
+        } catch {
+          // Ignore cleanup errors
         }
-      } catch (error) {
-        this.error(`Failed to read file '${fileToRead}': ${error}`)
+      } else {
+        xanoscript = await this.fetchContent(flags.file)
       }
     } else if (flags.stdin) {
       // Read from stdin
@@ -200,14 +191,14 @@ Job executed successfully!
       this.error('XanoScript content is empty')
     }
 
-    // Load args from JSON file if provided
+    // Load args from JSON file or URL if provided
     let inputArgs: Record<string, unknown> | undefined
     if (flags.args) {
       try {
-        const argsContent = fs.readFileSync(flags.args, 'utf8')
+        const argsContent = await this.fetchContent(flags.args)
         inputArgs = JSON.parse(argsContent)
       } catch (error) {
-        this.error(`Failed to read or parse args file '${flags.args}': ${error}`)
+        this.error(`Failed to read or parse args '${flags.args}': ${error}`)
       }
     }
 
@@ -360,6 +351,30 @@ Job executed successfully!
       // Resume stdin if it was paused
       process.stdin.resume()
     })
+  }
+
+  private isUrl(str: string): boolean {
+    return str.startsWith('http://') || str.startsWith('https://')
+  }
+
+  private async fetchContent(source: string): Promise<string> {
+    if (this.isUrl(source)) {
+      try {
+        const response = await fetch(source)
+        if (!response.ok) {
+          this.error(`Failed to fetch '${source}': ${response.status} ${response.statusText}`)
+        }
+        return await response.text()
+      } catch (error) {
+        this.error(`Failed to fetch '${source}': ${error}`)
+      }
+    } else {
+      try {
+        return fs.readFileSync(source, 'utf8')
+      } catch (error) {
+        this.error(`Failed to read file '${source}': ${error}`)
+      }
+    }
   }
 
   private loadCredentials(): CredentialsFile {
