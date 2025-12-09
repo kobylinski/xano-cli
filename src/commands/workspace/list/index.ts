@@ -47,18 +47,18 @@ export default class WorkspaceList extends BaseCommand {
   static description = 'List all workspaces from the Xano Metadata API'
 
   static examples = [
-    `$ xscli workspace:list
+    `$ xano workspace:list
 Available workspaces:
   - workspace-1 (ID: 1)
   - workspace-2 (ID: 2)
   - workspace-3 (ID: 3)
 `,
-    `$ xscli workspace:list --profile production
+    `$ xano workspace:list --profile production
 Available workspaces:
   - my-app (ID: 1)
   - staging-env (ID: 2)
 `,
-    `$ xscli workspace:list --output json
+    `$ xano workspace:list --output json
 {
   "workspaces": [
     {
@@ -72,7 +72,7 @@ Available workspaces:
   ]
 }
 `,
-    `$ xscli workspace:list -p staging -o json
+    `$ xano workspace:list -p staging -o json
 {
   "workspaces": [
     {
@@ -97,7 +97,7 @@ Available workspaces:
     if (!(profileName in credentials.profiles)) {
       this.error(
         `Profile '${profileName}' not found. Available profiles: ${Object.keys(credentials.profiles).join(', ')}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 
@@ -180,7 +180,7 @@ Available workspaces:
     if (!fs.existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 

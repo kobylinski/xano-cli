@@ -61,24 +61,24 @@ export default class StaticHostBuildGet extends BaseCommand {
   static description = 'Get details of a specific build for a static host'
 
   static examples = [
-    `$ xscli static_host:build:get default 52
+    `$ xano static_host:build:get default 52
 Build Details:
 ID: 52
 Name: v1.0.0
 Status: completed
 `,
-    `$ xscli static_host:build:get default 52 -w 40
+    `$ xano static_host:build:get default 52 -w 40
 Build Details:
 ID: 52
 Name: v1.0.0
 Status: completed
 `,
-    `$ xscli static_host:build:get myhost 123 --profile production
+    `$ xano static_host:build:get myhost 123 --profile production
 Build Details:
 ID: 123
 Name: production-build
 `,
-    `$ xscli static_host:build:get default 52 -o json
+    `$ xano static_host:build:get default 52 -o json
 {
   "id": 52,
   "name": "v1.0.0",
@@ -100,7 +100,7 @@ Name: production-build
     if (!(profileName in credentials.profiles)) {
       this.error(
         `Profile '${profileName}' not found. Available profiles: ${Object.keys(credentials.profiles).join(', ')}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 
@@ -124,8 +124,8 @@ Name: production-build
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as a flag: xscli static_host:build:get <static_host> <build_id> -w <workspace_id>\n` +
-        `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
+        `  1. Provide it as a flag: xano static_host:build:get <static_host> <build_id> -w <workspace_id>\n` +
+        `  2. Set it in your profile using: xano profile:edit ${profileName} -w <workspace_id>`,
       )
     }
 
@@ -198,7 +198,7 @@ Name: production-build
     if (!fs.existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 

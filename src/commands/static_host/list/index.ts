@@ -68,17 +68,17 @@ export default class StaticHostList extends BaseCommand {
   static description = 'List all static hosts in a workspace from the Xano Metadata API'
 
   static examples = [
-    `$ xscli static_host:list -w 40
+    `$ xano static_host:list -w 40
 Available static hosts:
   - my-static-host (ID: 1)
   - another-host (ID: 2)
 `,
-    `$ xscli static_host:list --profile production
+    `$ xano static_host:list --profile production
 Available static hosts:
   - my-static-host (ID: 1)
   - another-host (ID: 2)
 `,
-    `$ xscli static_host:list -w 40 --output json
+    `$ xano static_host:list -w 40 --output json
 [
   {
     "id": 1,
@@ -87,7 +87,7 @@ Available static hosts:
   }
 ]
 `,
-    `$ xscli static_host:list -p staging -o json --page 2
+    `$ xano static_host:list -p staging -o json --page 2
 [
   {
     "id": 3,
@@ -110,7 +110,7 @@ Available static hosts:
     if (!(profileName in credentials.profiles)) {
       this.error(
         `Profile '${profileName}' not found. Available profiles: ${Object.keys(credentials.profiles).join(', ')}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 
@@ -134,8 +134,8 @@ Available static hosts:
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as a flag: xscli static_host:list -w <workspace_id>\n` +
-        `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
+        `  1. Provide it as a flag: xano static_host:list -w <workspace_id>\n` +
+        `  2. Set it in your profile using: xano profile:edit ${profileName} -w <workspace_id>`,
       )
     }
 
@@ -220,7 +220,7 @@ Available static hosts:
     if (!fs.existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 

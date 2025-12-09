@@ -56,7 +56,7 @@ export default class ProfileWizard extends Command {
   static description = 'Create a new profile configuration using an interactive wizard'
 
   static examples = [
-    `$ xscli profile:wizard
+    `$ xano profile:wizard
 Welcome to the Xano Profile Wizard!
 ? Enter your access token: ***...***
 ? Select an instance:

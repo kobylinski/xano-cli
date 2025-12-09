@@ -75,34 +75,34 @@ export default class FunctionGet extends BaseCommand {
   static description = 'Get a specific function from a workspace'
 
   static examples = [
-    `$ xscli function:get 145 -w 40
+    `$ xano function:get 145 -w 40
 Function: yo (ID: 145)
 Created: 2025-10-10 10:30:00
 Description: Sample function
 `,
-    `$ xscli function:get 145 --profile production
+    `$ xano function:get 145 --profile production
 Function: yo (ID: 145)
 Created: 2025-10-10 10:30:00
 `,
-    `$ xscli function:get
+    `$ xano function:get
 Select a function:
   ❯ yo (ID: 145) - Sample function
     another-func (ID: 146)
 `,
-    `$ xscli function:get 145 -w 40 --output json
+    `$ xano function:get 145 -w 40 --output json
 {
   "id": 145,
   "name": "yo",
   "description": "Sample function"
 }
 `,
-    `$ xscli function:get 145 -p staging -o json --include_draft
+    `$ xano function:get 145 -p staging -o json --include_draft
 {
   "id": 145,
   "name": "yo"
 }
 `,
-    `$ xscli function:get 145 -p staging -o xs
+    `$ xano function:get 145 -p staging -o xs
 function yo {
   input {
   }
@@ -126,7 +126,7 @@ function yo {
     if (!(profileName in credentials.profiles)) {
       this.error(
         `Profile '${profileName}' not found. Available profiles: ${Object.keys(credentials.profiles).join(', ')}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 
@@ -150,8 +150,8 @@ function yo {
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as a flag: xscli function:get [function_id] -w <workspace_id>\n` +
-        `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
+        `  1. Provide it as a flag: xano function:get [function_id] -w <workspace_id>\n` +
+        `  2. Set it in your profile using: xano profile:edit ${profileName} -w <workspace_id>`,
       )
     }
 
@@ -326,7 +326,7 @@ function yo {
     if (!fs.existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 

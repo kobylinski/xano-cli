@@ -65,16 +65,16 @@ export default class ProfileCreate extends Command {
   static description = 'Create a new profile configuration'
 
   static examples = [
-    `$ xscli profile:create production --account_origin https://account.xano.com --instance_origin https://instance.xano.com --access_token token123
+    `$ xano profile:create production --account_origin https://account.xano.com --instance_origin https://instance.xano.com --access_token token123
 Profile 'production' created successfully at ~/.xano/credentials.yaml
 `,
-    `$ xscli profile:create staging -a https://staging-account.xano.com -i https://staging-instance.xano.com -t token456
+    `$ xano profile:create staging -a https://staging-account.xano.com -i https://staging-instance.xano.com -t token456
 Profile 'staging' created successfully at ~/.xano/credentials.yaml
 `,
-    `$ xscli profile:create dev -i https://dev-instance.xano.com -t token789 -w my-workspace -b feature-branch
+    `$ xano profile:create dev -i https://dev-instance.xano.com -t token789 -w my-workspace -b feature-branch
 Profile 'dev' created successfully at ~/.xano/credentials.yaml
 `,
-    `$ xscli profile:create production --account_origin https://account.xano.com --instance_origin https://instance.xano.com --access_token token123 --default
+    `$ xano profile:create production --account_origin https://account.xano.com --instance_origin https://instance.xano.com --access_token token123 --default
 Profile 'production' created successfully at ~/.xano/credentials.yaml
 Default profile set to 'production'
 `,

@@ -69,19 +69,19 @@ export default class StaticHostBuildCreate extends BaseCommand {
   static description = 'Create a new build for a static host'
 
   static examples = [
-    `$ xscli static_host:build:create default -f ./build.zip -n "v1.0.0"
+    `$ xano static_host:build:create default -f ./build.zip -n "v1.0.0"
 Build created successfully!
 ID: 123
 Name: v1.0.0
 Status: pending
 `,
-    `$ xscli static_host:build:create default -w 40 -f ./dist.zip -n "production" -d "Production build"
+    `$ xano static_host:build:create default -w 40 -f ./dist.zip -n "production" -d "Production build"
 Build created successfully!
 ID: 124
 Name: production
 Description: Production build
 `,
-    `$ xscli static_host:build:create myhost -f ./app.zip -n "release-1.2" -o json
+    `$ xano static_host:build:create myhost -f ./app.zip -n "release-1.2" -o json
 {
   "id": 125,
   "name": "release-1.2",
@@ -103,7 +103,7 @@ Description: Production build
     if (!(profileName in credentials.profiles)) {
       this.error(
         `Profile '${profileName}' not found. Available profiles: ${Object.keys(credentials.profiles).join(', ')}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 
@@ -127,8 +127,8 @@ Description: Production build
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as a flag: xscli static_host:build:create <static_host> -f <file> -n <name> -w <workspace_id>\n` +
-        `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
+        `  1. Provide it as a flag: xano static_host:build:create <static_host> -f <file> -n <name> -w <workspace_id>\n` +
+        `  2. Set it in your profile using: xano profile:edit ${profileName} -w <workspace_id>`,
       )
     }
 
@@ -227,7 +227,7 @@ Description: Production build
     if (!fs.existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 

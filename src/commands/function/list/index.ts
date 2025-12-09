@@ -89,18 +89,18 @@ export default class FunctionList extends BaseCommand {
   static description = 'List all functions in a workspace from the Xano Metadata API'
 
   static examples = [
-    `$ xscli function:list -w 40
+    `$ xano function:list -w 40
 Available functions:
   - function-1 (ID: 1)
   - function-2 (ID: 2)
   - function-3 (ID: 3)
 `,
-    `$ xscli function:list --profile production
+    `$ xano function:list --profile production
 Available functions:
   - my-function (ID: 1)
   - another-function (ID: 2)
 `,
-    `$ xscli function:list -w 40 --output json
+    `$ xano function:list -w 40 --output json
 [
   {
     "id": 1,
@@ -108,7 +108,7 @@ Available functions:
   }
 ]
 `,
-    `$ xscli function:list -p staging -o json --include_draft
+    `$ xano function:list -p staging -o json --include_draft
 [
   {
     "id": 1,
@@ -131,7 +131,7 @@ Available functions:
     if (!(profileName in credentials.profiles)) {
       this.error(
         `Profile '${profileName}' not found. Available profiles: ${Object.keys(credentials.profiles).join(', ')}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 
@@ -155,8 +155,8 @@ Available functions:
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as a flag: xscli function:list -w <workspace_id>\n` +
-        `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
+        `  1. Provide it as a flag: xano function:list -w <workspace_id>\n` +
+        `  2. Set it in your profile using: xano profile:edit ${profileName} -w <workspace_id>`,
       )
     }
 
@@ -240,7 +240,7 @@ Available functions:
     if (!fs.existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 

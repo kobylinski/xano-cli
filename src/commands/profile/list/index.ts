@@ -33,14 +33,14 @@ export default class ProfileList extends Command {
   static description = 'List all available profile configurations'
 
   static examples = [
-    `$ xscli profile:list
+    `$ xano profile:list
 Available profiles:
   - default
   - production
   - staging
   - development
 `,
-    `$ xscli profile:list --details
+    `$ xano profile:list --details
 Available profiles:
 
 Profile: default
@@ -55,7 +55,7 @@ Profile: production
   Instance Origin: https://prod-instance.xano.com
   Access Token: ***...***
 `,
-    `$ xscli profile:list -d
+    `$ xano profile:list -d
 Available profiles:
 
 Profile: default
@@ -76,7 +76,7 @@ Profile: default
     // Check if credentials file exists
     if (!fs.existsSync(credentialsPath)) {
       this.log(`No profiles found. The credentials file does not exist at ${credentialsPath}`)
-      this.log(`Create a profile using 'xscli profile:create'`)
+      this.log(`Create a profile using 'xano profile:create'`)
       return
     }
 
@@ -100,7 +100,7 @@ Profile: default
 
     if (profileNames.length === 0) {
       this.log('No profiles found in credentials file.')
-      this.log(`Create a profile using 'xscli profile:create'`)
+      this.log(`Create a profile using 'xano profile:create'`)
       return
     }
 

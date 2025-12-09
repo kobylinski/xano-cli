@@ -1,12 +1,12 @@
-xscli
+xano
 =================
 
 XanoScript CLI for Xano's Metadata API
 
 
 [![oclif](https://img.shields.io/badge/cli-oclif-brightgreen.svg)](https://oclif.io)
-[![Version](https://img.shields.io/npm/v/xscli.svg)](https://npmjs.org/package/xscli)
-[![Downloads/week](https://img.shields.io/npm/dw/xscli.svg)](https://npmjs.org/package/xscli)
+[![Version](https://img.shields.io/npm/v/xano.svg)](https://npmjs.org/package/xano)
+[![Downloads/week](https://img.shields.io/npm/dw/xano.svg)](https://npmjs.org/package/xano)
 
 
 <!-- toc -->
@@ -16,42 +16,42 @@ XanoScript CLI for Xano's Metadata API
 # Usage
 <!-- usage -->
 ```sh-session
-$ npm install -g xscli
-$ xscli COMMAND
+$ npm install -g xano
+$ xano COMMAND
 running command...
-$ xscli (--version)
-xscli/0.0.1 darwin-arm64 node-v22.19.0
-$ xscli --help [COMMAND]
+$ xano (--version)
+xano/0.0.1 darwin-arm64 node-v22.19.0
+$ xano --help [COMMAND]
 USAGE
-  $ xscli COMMAND
+  $ xano COMMAND
 ...
 ```
 <!-- usagestop -->
 # Commands
 <!-- commands -->
-* [`xscli create_api`](#xscli-create_api)
-* [`xscli foo bar [FILE]`](#xscli-foo-bar-file)
-* [`xscli hello PERSON`](#xscli-hello-person)
-* [`xscli hello world`](#xscli-hello-world)
-* [`xscli help [COMMAND]`](#xscli-help-command)
-* [`xscli plugins`](#xscli-plugins)
-* [`xscli plugins add PLUGIN`](#xscli-plugins-add-plugin)
-* [`xscli plugins:inspect PLUGIN...`](#xscli-pluginsinspect-plugin)
-* [`xscli plugins install PLUGIN`](#xscli-plugins-install-plugin)
-* [`xscli plugins link PATH`](#xscli-plugins-link-path)
-* [`xscli plugins remove [PLUGIN]`](#xscli-plugins-remove-plugin)
-* [`xscli plugins reset`](#xscli-plugins-reset)
-* [`xscli plugins uninstall [PLUGIN]`](#xscli-plugins-uninstall-plugin)
-* [`xscli plugins unlink [PLUGIN]`](#xscli-plugins-unlink-plugin)
-* [`xscli plugins update`](#xscli-plugins-update)
+* [`xano create_api`](#xano-create_api)
+* [`xano foo bar [FILE]`](#xano-foo-bar-file)
+* [`xano hello PERSON`](#xano-hello-person)
+* [`xano hello world`](#xano-hello-world)
+* [`xano help [COMMAND]`](#xano-help-command)
+* [`xano plugins`](#xano-plugins)
+* [`xano plugins add PLUGIN`](#xano-plugins-add-plugin)
+* [`xano plugins:inspect PLUGIN...`](#xano-pluginsinspect-plugin)
+* [`xano plugins install PLUGIN`](#xano-plugins-install-plugin)
+* [`xano plugins link PATH`](#xano-plugins-link-path)
+* [`xano plugins remove [PLUGIN]`](#xano-plugins-remove-plugin)
+* [`xano plugins reset`](#xano-plugins-reset)
+* [`xano plugins uninstall [PLUGIN]`](#xano-plugins-uninstall-plugin)
+* [`xano plugins unlink [PLUGIN]`](#xano-plugins-unlink-plugin)
+* [`xano plugins update`](#xano-plugins-update)
 
-## `xscli create_api`
+## `xano create_api`
 
 Create API with the provided key
 
 ```
 USAGE
-  $ xscli create_api -k <value>
+  $ xano create_api -k <value>
 
 FLAGS
   -k, --api_key=<value>  [env: XANO_API_KEY]  (required) API key for the service
@@ -63,15 +63,15 @@ EXAMPLES
   hello this is an example
 ```
 
-_See code: [src/commands/create_api/index.ts](https://github.com/git/xscli/blob/v0.0.1/src/commands/create_api/index.ts)_
+_See code: [src/commands/create_api/index.ts](https://github.com/git/xano/blob/v0.0.1/src/commands/create_api/index.ts)_
 
-## `xscli foo bar [FILE]`
+## `xano foo bar [FILE]`
 
 describe the command here
 
 ```
 USAGE
-  $ xscli foo bar [FILE] [-f] [-n <value>]
+  $ xano foo bar [FILE] [-f] [-n <value>]
 
 ARGUMENTS
   FILE  file to read
@@ -84,18 +84,18 @@ DESCRIPTION
   describe the command here
 
 EXAMPLES
-  $ xscli foo bar
+  $ xano foo bar
 ```
 
-_See code: [src/commands/foo/bar.ts](https://github.com/git/xscli/blob/v0.0.1/src/commands/foo/bar.ts)_
+_See code: [src/commands/foo/bar.ts](https://github.com/git/xano/blob/v0.0.1/src/commands/foo/bar.ts)_
 
-## `xscli hello PERSON`
+## `xano hello PERSON`
 
 Say hello
 
 ```
 USAGE
-  $ xscli hello PERSON -f <value>
+  $ xano hello PERSON -f <value>
 
 ARGUMENTS
   PERSON  Person to say hello to
@@ -107,37 +107,37 @@ DESCRIPTION
   Say hello
 
 EXAMPLES
-  $ xscli hello friend --from oclif
+  $ xano hello friend --from oclif
   hello friend from oclif! (./src/commands/hello/index.ts)
 ```
 
-_See code: [src/commands/hello/index.ts](https://github.com/git/xscli/blob/v0.0.1/src/commands/hello/index.ts)_
+_See code: [src/commands/hello/index.ts](https://github.com/git/xano/blob/v0.0.1/src/commands/hello/index.ts)_
 
-## `xscli hello world`
+## `xano hello world`
 
 Say hello world
 
 ```
 USAGE
-  $ xscli hello world
+  $ xano hello world
 
 DESCRIPTION
   Say hello world
 
 EXAMPLES
-  $ xscli hello world
+  $ xano hello world
   hello world! (./src/commands/hello/world.ts)
 ```
 
-_See code: [src/commands/hello/world.ts](https://github.com/git/xscli/blob/v0.0.1/src/commands/hello/world.ts)_
+_See code: [src/commands/hello/world.ts](https://github.com/git/xano/blob/v0.0.1/src/commands/hello/world.ts)_
 
-## `xscli help [COMMAND]`
+## `xano help [COMMAND]`
 
-Display help for xscli.
+Display help for xano.
 
 ```
 USAGE
-  $ xscli help [COMMAND...] [-n]
+  $ xano help [COMMAND...] [-n]
 
 ARGUMENTS
   COMMAND...  Command to show help for.
@@ -146,18 +146,18 @@ FLAGS
   -n, --nested-commands  Include all nested commands in the output.
 
 DESCRIPTION
-  Display help for xscli.
+  Display help for xano.
 ```
 
 _See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v6.2.33/src/commands/help.ts)_
 
-## `xscli plugins`
+## `xano plugins`
 
 List installed plugins.
 
 ```
 USAGE
-  $ xscli plugins [--json] [--core]
+  $ xano plugins [--json] [--core]
 
 FLAGS
   --core  Show core plugins.
@@ -169,18 +169,18 @@ DESCRIPTION
   List installed plugins.
 
 EXAMPLES
-  $ xscli plugins
+  $ xano plugins
 ```
 
 _See code: [@oclif/plugin-plugins](https://github.com/oclif/plugin-plugins/blob/v5.4.49/src/commands/plugins/index.ts)_
 
-## `xscli plugins add PLUGIN`
+## `xano plugins add PLUGIN`
 
-Installs a plugin into xscli.
+Installs a plugin into xano.
 
 ```
 USAGE
-  $ xscli plugins add PLUGIN... [--json] [-f] [-h] [-s | -v]
+  $ xano plugins add PLUGIN... [--json] [-f] [-h] [-s | -v]
 
 ARGUMENTS
   PLUGIN...  Plugin to install.
@@ -195,39 +195,39 @@ GLOBAL FLAGS
   --json  Format output as json.
 
 DESCRIPTION
-  Installs a plugin into xscli.
+  Installs a plugin into xano.
 
   Uses npm to install plugins.
 
   Installation of a user-installed plugin will override a core plugin.
 
-  Use the XSCLI_NPM_LOG_LEVEL environment variable to set the npm loglevel.
-  Use the XSCLI_NPM_REGISTRY environment variable to set the npm registry.
+  Use the xano_NPM_LOG_LEVEL environment variable to set the npm loglevel.
+  Use the xano_NPM_REGISTRY environment variable to set the npm registry.
 
 ALIASES
-  $ xscli plugins add
+  $ xano plugins add
 
 EXAMPLES
   Install a plugin from npm registry.
 
-    $ xscli plugins add myplugin
+    $ xano plugins add myplugin
 
   Install a plugin from a github url.
 
-    $ xscli plugins add https://github.com/someuser/someplugin
+    $ xano plugins add https://github.com/someuser/someplugin
 
   Install a plugin from a github slug.
 
-    $ xscli plugins add someuser/someplugin
+    $ xano plugins add someuser/someplugin
 ```
 
-## `xscli plugins:inspect PLUGIN...`
+## `xano plugins:inspect PLUGIN...`
 
 Displays installation properties of a plugin.
 
 ```
 USAGE
-  $ xscli plugins inspect PLUGIN...
+  $ xano plugins inspect PLUGIN...
 
 ARGUMENTS
   PLUGIN...  [default: .] Plugin to inspect.
@@ -243,18 +243,18 @@ DESCRIPTION
   Displays installation properties of a plugin.
 
 EXAMPLES
-  $ xscli plugins inspect myplugin
+  $ xano plugins inspect myplugin
 ```
 
 _See code: [@oclif/plugin-plugins](https://github.com/oclif/plugin-plugins/blob/v5.4.49/src/commands/plugins/inspect.ts)_
 
-## `xscli plugins install PLUGIN`
+## `xano plugins install PLUGIN`
 
-Installs a plugin into xscli.
+Installs a plugin into xano.
 
 ```
 USAGE
-  $ xscli plugins install PLUGIN... [--json] [-f] [-h] [-s | -v]
+  $ xano plugins install PLUGIN... [--json] [-f] [-h] [-s | -v]
 
 ARGUMENTS
   PLUGIN...  Plugin to install.
@@ -269,41 +269,41 @@ GLOBAL FLAGS
   --json  Format output as json.
 
 DESCRIPTION
-  Installs a plugin into xscli.
+  Installs a plugin into xano.
 
   Uses npm to install plugins.
 
   Installation of a user-installed plugin will override a core plugin.
 
-  Use the XSCLI_NPM_LOG_LEVEL environment variable to set the npm loglevel.
-  Use the XSCLI_NPM_REGISTRY environment variable to set the npm registry.
+  Use the xano_NPM_LOG_LEVEL environment variable to set the npm loglevel.
+  Use the xano_NPM_REGISTRY environment variable to set the npm registry.
 
 ALIASES
-  $ xscli plugins add
+  $ xano plugins add
 
 EXAMPLES
   Install a plugin from npm registry.
 
-    $ xscli plugins install myplugin
+    $ xano plugins install myplugin
 
   Install a plugin from a github url.
 
-    $ xscli plugins install https://github.com/someuser/someplugin
+    $ xano plugins install https://github.com/someuser/someplugin
 
   Install a plugin from a github slug.
 
-    $ xscli plugins install someuser/someplugin
+    $ xano plugins install someuser/someplugin
 ```
 
 _See code: [@oclif/plugin-plugins](https://github.com/oclif/plugin-plugins/blob/v5.4.49/src/commands/plugins/install.ts)_
 
-## `xscli plugins link PATH`
+## `xano plugins link PATH`
 
 Links a plugin into the CLI for development.
 
 ```
 USAGE
-  $ xscli plugins link PATH [-h] [--install] [-v]
+  $ xano plugins link PATH [-h] [--install] [-v]
 
 ARGUMENTS
   PATH  [default: .] path to plugin
@@ -323,18 +323,18 @@ DESCRIPTION
 
 
 EXAMPLES
-  $ xscli plugins link myplugin
+  $ xano plugins link myplugin
 ```
 
 _See code: [@oclif/plugin-plugins](https://github.com/oclif/plugin-plugins/blob/v5.4.49/src/commands/plugins/link.ts)_
 
-## `xscli plugins remove [PLUGIN]`
+## `xano plugins remove [PLUGIN]`
 
 Removes a plugin from the CLI.
 
 ```
 USAGE
-  $ xscli plugins remove [PLUGIN...] [-h] [-v]
+  $ xano plugins remove [PLUGIN...] [-h] [-v]
 
 ARGUMENTS
   PLUGIN...  plugin to uninstall
@@ -347,20 +347,20 @@ DESCRIPTION
   Removes a plugin from the CLI.
 
 ALIASES
-  $ xscli plugins unlink
-  $ xscli plugins remove
+  $ xano plugins unlink
+  $ xano plugins remove
 
 EXAMPLES
-  $ xscli plugins remove myplugin
+  $ xano plugins remove myplugin
 ```
 
-## `xscli plugins reset`
+## `xano plugins reset`
 
 Remove all user-installed and linked plugins.
 
 ```
 USAGE
-  $ xscli plugins reset [--hard] [--reinstall]
+  $ xano plugins reset [--hard] [--reinstall]
 
 FLAGS
   --hard       Delete node_modules and package manager related files in addition to uninstalling plugins.
@@ -369,13 +369,13 @@ FLAGS
 
 _See code: [@oclif/plugin-plugins](https://github.com/oclif/plugin-plugins/blob/v5.4.49/src/commands/plugins/reset.ts)_
 
-## `xscli plugins uninstall [PLUGIN]`
+## `xano plugins uninstall [PLUGIN]`
 
 Removes a plugin from the CLI.
 
 ```
 USAGE
-  $ xscli plugins uninstall [PLUGIN...] [-h] [-v]
+  $ xano plugins uninstall [PLUGIN...] [-h] [-v]
 
 ARGUMENTS
   PLUGIN...  plugin to uninstall
@@ -388,22 +388,22 @@ DESCRIPTION
   Removes a plugin from the CLI.
 
 ALIASES
-  $ xscli plugins unlink
-  $ xscli plugins remove
+  $ xano plugins unlink
+  $ xano plugins remove
 
 EXAMPLES
-  $ xscli plugins uninstall myplugin
+  $ xano plugins uninstall myplugin
 ```
 
 _See code: [@oclif/plugin-plugins](https://github.com/oclif/plugin-plugins/blob/v5.4.49/src/commands/plugins/uninstall.ts)_
 
-## `xscli plugins unlink [PLUGIN]`
+## `xano plugins unlink [PLUGIN]`
 
 Removes a plugin from the CLI.
 
 ```
 USAGE
-  $ xscli plugins unlink [PLUGIN...] [-h] [-v]
+  $ xano plugins unlink [PLUGIN...] [-h] [-v]
 
 ARGUMENTS
   PLUGIN...  plugin to uninstall
@@ -416,20 +416,20 @@ DESCRIPTION
   Removes a plugin from the CLI.
 
 ALIASES
-  $ xscli plugins unlink
-  $ xscli plugins remove
+  $ xano plugins unlink
+  $ xano plugins remove
 
 EXAMPLES
-  $ xscli plugins unlink myplugin
+  $ xano plugins unlink myplugin
 ```
 
-## `xscli plugins update`
+## `xano plugins update`
 
 Update installed plugins.
 
 ```
 USAGE
-  $ xscli plugins update [-h] [-v]
+  $ xano plugins update [-h] [-v]
 
 FLAGS
   -h, --help     Show CLI help.

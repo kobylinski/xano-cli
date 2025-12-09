@@ -24,10 +24,10 @@ export default class ProfileGetDefault extends Command {
   static description = 'Get the current default profile name'
 
   static examples = [
-    `$ xscli profile:get-default
+    `$ xano profile:get-default
 production
 `,
-    `$ xscli profile:get-default
+    `$ xano profile:get-default
 No default profile set
 `,
   ]

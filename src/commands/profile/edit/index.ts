@@ -70,16 +70,16 @@ export default class ProfileEdit extends Command {
   static description = 'Edit an existing profile configuration'
 
   static examples = [
-    `$ xscli profile:edit production --access_token new_token123
+    `$ xano profile:edit production --access_token new_token123
 Profile 'production' updated successfully at ~/.xano/credentials.yaml
 `,
-    `$ xscli profile:edit staging -i https://new-staging-instance.xano.com -t new_token456
+    `$ xano profile:edit staging -i https://new-staging-instance.xano.com -t new_token456
 Profile 'staging' updated successfully at ~/.xano/credentials.yaml
 `,
-    `$ xscli profile:edit dev -w new-workspace -b new-branch
+    `$ xano profile:edit dev -w new-workspace -b new-branch
 Profile 'dev' updated successfully at ~/.xano/credentials.yaml
 `,
-    `$ xscli profile:edit dev --remove-workspace
+    `$ xano profile:edit dev --remove-workspace
 Profile 'dev' updated successfully at ~/.xano/credentials.yaml
 `,
   ]

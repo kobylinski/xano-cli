@@ -31,10 +31,10 @@ export default class ProfileSetDefault extends Command {
   static description = 'Set the default profile'
 
   static examples = [
-    `$ xscli profile:set-default production
+    `$ xano profile:set-default production
 Default profile set to 'production'
 `,
-    `$ xscli profile:set-default staging
+    `$ xano profile:set-default staging
 Default profile set to 'staging'
 `,
   ]

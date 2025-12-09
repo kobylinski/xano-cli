@@ -41,14 +41,14 @@ export default class ProfileDelete extends Command {
   static description = 'Delete a profile configuration'
 
   static examples = [
-    `$ xscli profile:delete old-profile
+    `$ xano profile:delete old-profile
 Are you sure you want to delete profile 'old-profile'? (y/n): y
 Profile 'old-profile' deleted successfully from ~/.xano/credentials.yaml
 `,
-    `$ xscli profile:delete old-profile --force
+    `$ xano profile:delete old-profile --force
 Profile 'old-profile' deleted successfully from ~/.xano/credentials.yaml
 `,
-    `$ xscli profile:delete old-profile -f
+    `$ xano profile:delete old-profile -f
 Profile 'old-profile' deleted successfully from ~/.xano/credentials.yaml
 `,
   ]

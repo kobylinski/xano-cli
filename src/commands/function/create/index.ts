@@ -69,28 +69,28 @@ export default class FunctionCreate extends BaseCommand {
   static description = 'Create a new function in a workspace'
 
   static examples = [
-    `$ xscli function:create -w 40 -f function.xs
+    `$ xano function:create -w 40 -f function.xs
 Function created successfully!
 ID: 123
 Name: my_function
 `,
-    `$ xscli function:create -f function.xs
+    `$ xano function:create -f function.xs
 Function created successfully!
 ID: 123
 Name: my_function
 `,
-    `$ xscli function:create -w 40 -f function.xs --edit
+    `$ xano function:create -w 40 -f function.xs --edit
 # Opens function.xs in $EDITOR, then creates function with edited content
 Function created successfully!
 ID: 123
 Name: my_function
 `,
-    `$ cat function.xs | xscli function:create -w 40 --stdin
+    `$ cat function.xs | xano function:create -w 40 --stdin
 Function created successfully!
 ID: 123
 Name: my_function
 `,
-    `$ xscli function:create -w 40 -f function.xs -o json
+    `$ xano function:create -w 40 -f function.xs -o json
 {
   "id": 123,
   "name": "my_function",
@@ -112,7 +112,7 @@ Name: my_function
     if (!(profileName in credentials.profiles)) {
       this.error(
         `Profile '${profileName}' not found. Available profiles: ${Object.keys(credentials.profiles).join(', ')}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 
@@ -136,8 +136,8 @@ Name: my_function
     } else {
       this.error(
         `Workspace ID is required. Either:\n` +
-        `  1. Provide it as a flag: xscli function:create -w <workspace_id>\n` +
-        `  2. Set it in your profile using: xscli profile:edit ${profileName} -w <workspace_id>`,
+        `  1. Provide it as a flag: xano function:create -w <workspace_id>\n` +
+        `  2. Set it in your profile using: xano profile:edit ${profileName} -w <workspace_id>`,
       )
     }
 
@@ -263,7 +263,7 @@ Name: my_function
 
     // Create a temporary file with the same extension
     const ext = path.extname(filePath)
-    const tmpFile = path.join(os.tmpdir(), `xscli-edit-${Date.now()}${ext}`)
+    const tmpFile = path.join(os.tmpdir(), `xano-edit-${Date.now()}${ext}`)
 
     // Copy content to temp file
     try {
@@ -317,7 +317,7 @@ Name: my_function
     if (!fs.existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
-        `Create a profile using 'xscli profile:create'`,
+        `Create a profile using 'xano profile:create'`,
       )
     }
 
