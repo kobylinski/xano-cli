@@ -36,11 +36,16 @@ interface Endpoint {
   input: EndpointInput[]
 }
 
+interface MetadataApi {
+  url: string
+}
+
 interface EphemeralServiceResult {
   pre_time: number
   boot_time: number
   pre_result: any
   endpoints?: Endpoint[]
+  metadata_api?: MetadataApi
 }
 
 interface EphemeralServiceResponse {
@@ -263,6 +268,11 @@ Service created successfully!
                 }
               }
             }
+            this.log('')
+          }
+          if (result.result.metadata_api) {
+            this.log('  Metadata API:')
+            this.log(`    ${result.result.metadata_api.url}`)
           }
         }
       }
