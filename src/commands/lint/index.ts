@@ -1,5 +1,5 @@
 import { Args, Command, Flags } from '@oclif/core'
-import { execSync, spawnSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -8,6 +8,10 @@ import {
   loadLocalConfig,
 } from '../../lib/project.js'
 
+// Import xanoscript-lint library
+// @ts-expect-error - xanoscript-lint doesn't have TypeScript types
+import { XanoScriptValidator } from 'xanoscript-lint/lib/validator.js'
+
 export default class Lint extends Command {
   static args = {
     files: Args.string({
@@ -15,14 +19,17 @@ export default class Lint extends Command {
       required: false,
     }),
   }
-static description = 'Lint XanoScript files using xs-lint'
-static examples = [
+
+  static description = 'Lint XanoScript files'
+
+  static examples = [
     '<%= config.bin %> lint functions/my_function.xs',
     '<%= config.bin %> lint functions/',
     '<%= config.bin %> lint --staged',
     '<%= config.bin %> lint --all',
   ]
-static flags = {
+
+  static flags = {
     all: Flags.boolean({
       default: false,
       description: 'Lint all .xs files in project',
@@ -36,20 +43,12 @@ static flags = {
       description: 'Lint git-staged .xs files',
     }),
   }
-static strict = false // Allow multiple file arguments
+
+  static strict = false // Allow multiple file arguments
 
   async run(): Promise<void> {
     const { argv, flags } = await this.parse(Lint)
     const files = argv as string[]
-
-    // Check if xs-lint is available
-    if (!this.isXsLintAvailable()) {
-      this.error(
-        'xs-lint not found. Install it with:\n\n' +
-        '  npm install -g xanoscript-lint\n\n' +
-        'Then run "xs-setup" to configure it.'
-      )
-    }
 
     const projectRoot = findProjectRoot() || process.cwd()
 
@@ -78,30 +77,77 @@ static strict = false // Allow multiple file arguments
 
     this.log(`Linting ${filesToLint.length} file(s)...\n`)
 
-    // Run xs-lint on each file
-    let errorCount = 0
-    let warningCount = 0
+    // Use xanoscript-lint library for efficient batch validation
+    let validator: InstanceType<typeof XanoScriptValidator> | null = null
 
-    for (const file of filesToLint) {
-      const result = this.lintFile(projectRoot, file)
+    try {
+      validator = new XanoScriptValidator()
+      await validator.start()
 
-      if (result.hasErrors) {
-        errorCount++
+      // Convert relative paths to absolute paths
+      const absolutePaths = filesToLint.map((f) => path.join(projectRoot, f))
+
+      // Validate all files with single LSP instance
+      const results = await validator.validateFiles(absolutePaths)
+
+      // Display results
+      let filesWithErrors = 0
+      let filesWithWarnings = 0
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i]
+        const relativePath = filesToLint[i]
+
+        if (result.error) {
+          this.log(`${relativePath}: error`)
+          this.log(`  ❌ ${result.error}`)
+          filesWithErrors++
+        } else if (result.errorCount > 0) {
+          this.log(`${relativePath}: errors`)
+          for (const diag of result.diagnostics) {
+            if (diag.severity === 'error') {
+              this.log(`  ❌ Line ${diag.line}:${diag.column} - ${diag.message}`)
+            }
+          }
+          filesWithErrors++
+        } else if (result.warningCount > 0) {
+          this.log(`${relativePath}: warnings`)
+          for (const diag of result.diagnostics) {
+            if (diag.severity === 'warning') {
+              this.log(`  ⚠️  Line ${diag.line}:${diag.column} - ${diag.message}`)
+            }
+          }
+          filesWithWarnings++
+        } else {
+          this.log(`${relativePath}: ok`)
+        }
       }
 
-      if (result.hasWarnings) {
-        warningCount++
+      // Summary
+      const summary = validator.getSummary()
+      this.log('')
+      this.log('────────────────────────────────────────────────────────────')
+      this.log('📊 Summary:')
+      this.log(`   Files checked: ${summary.totalFiles}`)
+      this.log(`   Files with issues: ${summary.filesWithIssues}`)
+      if (summary.totalErrors > 0) {
+        this.log(`   ❌ Errors: ${summary.totalErrors}`)
       }
-    }
+      if (summary.totalWarnings > 0) {
+        this.log(`   ⚠️  Warnings: ${summary.totalWarnings}`)
+      }
+      if (summary.totalErrors === 0 && summary.totalWarnings === 0) {
+        this.log('   ✅ All files passed!')
+      }
 
-    // Summary
-    this.log('')
-    if (errorCount === 0 && warningCount === 0) {
-      this.log('All files passed.')
-    } else {
-      this.log(`Lint complete: ${errorCount} error(s), ${warningCount} warning(s)`)
-      if (errorCount > 0) {
+      if (summary.hasErrors) {
         this.exit(1)
+      }
+    } catch (error: any) {
+      this.error(`Lint failed: ${error.message}\n\nMake sure the XanoScript VS Code extension is installed.`)
+    } finally {
+      if (validator) {
+        await validator.shutdown()
       }
     }
   }
@@ -162,55 +208,6 @@ static strict = false // Allow multiple file arguments
     } catch {
       this.warn('Failed to get git staged files.')
       return []
-    }
-  }
-
-  private isXsLintAvailable(): boolean {
-    try {
-      execSync('which xs-lint', { stdio: 'ignore' })
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  private lintFile(
-    projectRoot: string,
-    file: string
-  ): { hasErrors: boolean; hasWarnings: boolean } {
-    const fullPath = path.join(projectRoot, file)
-
-    try {
-      const result = spawnSync('xs-lint', [fullPath], {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-
-      const output = (result.stdout || '') + (result.stderr || '')
-
-      if (result.status === 0) {
-        // Check if output contains warnings
-        if (output.includes('warning')) {
-          this.log(`${file}: warnings`)
-          this.log(output)
-          return { hasErrors: false, hasWarnings: true }
-        }
-
-        this.log(`${file}: ok`)
-        return { hasErrors: false, hasWarnings: false }
-      }
- 
-        this.log(`${file}: errors`)
-        if (output) {
-          this.log(output)
-        }
-
-        return { hasErrors: true, hasWarnings: false }
-      
-    } catch (error: any) {
-      this.log(`${file}: failed to lint (${error.message})`)
-      return { hasErrors: true, hasWarnings: false }
     }
   }
 

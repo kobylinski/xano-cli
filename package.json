@@ -12,7 +12,8 @@
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
     "inquirer": "^8.2.5",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "xanoscript-lint": "^0.0.3"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
