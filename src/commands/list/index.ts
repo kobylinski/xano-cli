@@ -1,68 +1,67 @@
-import { Command, Flags, Args } from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
 import * as path from 'node:path'
-import {
-  findProjectRoot,
-  loadLocalConfig,
-  isInitialized,
-} from '../../lib/project.js'
-import {
-  loadObjects,
-  findObjectByPath,
-} from '../../lib/objects.js'
+
+import type {
+  XanoLocalConfig,
+  XanoObjectType,
+} from '../../lib/types.js'
+
 import {
   getProfile,
   XanoApi,
 } from '../../lib/api.js'
-import type {
-  XanoObjectType,
-  XanoLocalConfig,
-} from '../../lib/types.js'
+import {
+  findObjectByPath,
+  loadObjects,
+} from '../../lib/objects.js'
+import {
+  findProjectRoot,
+  isInitialized,
+  loadLocalConfig,
+} from '../../lib/project.js'
 
 interface RemoteObject {
+  apigroup_name?: string
   id: number
+  localPath?: string
   name: string
   type: XanoObjectType
-  localPath?: string
-  apigroup_name?: string
   verb?: string
 }
 
 export default class List extends Command {
-  static description = 'List objects on Xano server'
-
-  static examples = [
-    '<%= config.bin %> list',
-    '<%= config.bin %> list tables/',
-    '<%= config.bin %> list functions',
-    '<%= config.bin %> list apis/ --remote-only',
-    '<%= config.bin %> list -l',
-  ]
-
   static args = {
     type: Args.string({
       description: 'Object type to list (functions/, tables/, apis/, tasks/) - trailing slash optional',
       required: false,
     }),
   }
-
-  static flags = {
+static description = 'List objects on Xano server'
+static examples = [
+    '<%= config.bin %> list',
+    '<%= config.bin %> list tables/',
+    '<%= config.bin %> list functions',
+    '<%= config.bin %> list apis/ --remote-only',
+    '<%= config.bin %> list -l',
+  ]
+static flags = {
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON',
+    }),
+    long: Flags.boolean({
+      char: 'l',
+      default: false,
+      description: 'Long format with details',
+    }),
     profile: Flags.string({
       char: 'p',
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
-    long: Flags.boolean({
-      char: 'l',
-      description: 'Long format with details',
-      default: false,
-    }),
     'remote-only': Flags.boolean({
+      default: false,
       description: 'Show only objects not pulled locally',
-      default: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output as JSON',
-      default: false,
     }),
   }
 
@@ -89,7 +88,7 @@ export default class List extends Command {
     }
 
     // Parse type and optional subfilter from argument
-    const { type: typeFilter, subFilter } = this.parseTypeArg(args.type, config)
+    const { subFilter, type: typeFilter } = this.parseTypeArg(args.type, config)
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
     const objects = loadObjects(projectRoot)
@@ -135,78 +134,11 @@ export default class List extends Command {
     this.outputHuman(filtered, typeFilter, config, flags.long, flags['remote-only'])
   }
 
-  private parseTypeArg(
-    arg: string | undefined,
-    config: XanoLocalConfig
-  ): { type: XanoObjectType | null; subFilter: string | null } {
-    if (!arg) return { type: null, subFilter: null }
-
-    // Trim trailing slash
-    const cleaned = arg.replace(/\/$/, '')
-
-    // Direct type name mapping
-    const directMapping: Record<string, XanoObjectType> = {
-      'functions': 'function',
-      'function': 'function',
-      'tables': 'table',
-      'table': 'table',
-      'apis': 'api_endpoint',
-      'api': 'api_endpoint',
-      'api_endpoint': 'api_endpoint',
-      'tasks': 'task',
-      'task': 'task',
-    }
-
-    // Check direct match first
-    if (directMapping[cleaned]) {
-      return { type: directMapping[cleaned], subFilter: null }
-    }
-
-    // Check if path starts with a known directory (e.g., apis/auth → api_endpoint with subFilter)
-    const pathPrefixes: Array<[string, XanoObjectType]> = [
-      [config.paths.functions, 'function'],
-      [config.paths.tables, 'table'],
-      [config.paths.apis, 'api_endpoint'],
-      [config.paths.tasks, 'task'],
-    ]
-
-    for (const [prefix, type] of pathPrefixes) {
-      if (cleaned === prefix) {
-        return { type, subFilter: null }
-      }
-      if (cleaned.startsWith(prefix + '/')) {
-        // Extract subpath after prefix (e.g., "apis/auth" → "auth")
-        const subFilter = cleaned.slice(prefix.length + 1)
-        return { type, subFilter: subFilter || null }
-      }
-    }
-
-    return { type: null, subFilter: null }
-  }
-
-  private async fetchFunctions(
-    api: XanoApi,
-    results: RemoteObject[],
-    localPaths: Map<string, string>
-  ): Promise<void> {
-    const response = await api.listFunctions(1, 1000)
-    if (response.ok && response.data?.items) {
-      for (const fn of response.data.items) {
-        results.push({
-          id: fn.id,
-          name: fn.name,
-          type: 'function',
-          localPath: localPaths.get(`function:${fn.id}`),
-        })
-      }
-    }
-  }
-
   private async fetchApis(
     api: XanoApi,
     results: RemoteObject[],
     localPaths: Map<string, string>,
-    groupFilter?: string | null
+    groupFilter?: null | string
   ): Promise<void> {
     // First fetch groups for names
     const groups = new Map<number, string>()
@@ -232,23 +164,39 @@ export default class List extends Command {
       const groupName = groups.get(ep.apigroup_id)
 
       // Filter by group if specified (case-insensitive)
-      if (groupFilter && groupName) {
-        if (groupName.toLowerCase() !== groupFilter.toLowerCase()) {
+      if (groupFilter && groupName && groupName.toLowerCase() !== groupFilter.toLowerCase()) {
           continue
         }
-      }
 
       // API might return 'path', 'endpoint', or 'name' for the route
       const endpointPath = ep.path || ep.endpoint || ep.name || ep.route || '(unknown)'
 
       results.push({
+        apigroup_name: groupName,
         id: ep.id,
+        localPath: localPaths.get(`api_endpoint:${ep.id}`),
         name: endpointPath,
         type: 'api_endpoint',
-        localPath: localPaths.get(`api_endpoint:${ep.id}`),
-        apigroup_name: groupName,
         verb: ep.verb || ep.method || 'GET',
       })
+    }
+  }
+
+  private async fetchFunctions(
+    api: XanoApi,
+    results: RemoteObject[],
+    localPaths: Map<string, string>
+  ): Promise<void> {
+    const response = await api.listFunctions(1, 1000)
+    if (response.ok && response.data?.items) {
+      for (const fn of response.data.items) {
+        results.push({
+          id: fn.id,
+          localPath: localPaths.get(`function:${fn.id}`),
+          name: fn.name,
+          type: 'function',
+        })
+      }
     }
   }
 
@@ -262,9 +210,9 @@ export default class List extends Command {
       for (const t of response.data.items) {
         results.push({
           id: t.id,
+          localPath: localPaths.get(`table:${t.id}`),
           name: t.name,
           type: 'table',
-          localPath: localPaths.get(`table:${t.id}`),
         })
       }
     }
@@ -280,9 +228,9 @@ export default class List extends Command {
       for (const t of response.data.items) {
         results.push({
           id: t.id,
+          localPath: localPaths.get(`task:${t.id}`),
           name: t.name,
           type: 'task',
-          localPath: localPaths.get(`task:${t.id}`),
         })
       }
     }
@@ -290,7 +238,7 @@ export default class List extends Command {
 
   private outputHuman(
     objects: RemoteObject[],
-    typeFilter: XanoObjectType | null,
+    typeFilter: null | XanoObjectType,
     config: XanoLocalConfig,
     long: boolean,
     remoteOnly: boolean
@@ -309,14 +257,14 @@ export default class List extends Command {
     }
 
     const typeLabels: Record<XanoObjectType, string> = {
-      function: 'Functions',
-      api_endpoint: 'API Endpoints',
-      table: 'Tables',
-      task: 'Tasks',
-      api_group: 'API Groups',
-      table_trigger: 'Table Triggers',
-      middleware: 'Middleware',
       addon: 'Addons',
+      api_endpoint: 'API Endpoints',
+      api_group: 'API Groups',
+      function: 'Functions',
+      middleware: 'Middleware',
+      table: 'Tables',
+      table_trigger: 'Table Triggers',
+      task: 'Tasks',
     }
 
     for (const [type, list] of byType) {
@@ -337,21 +285,9 @@ export default class List extends Command {
     }
   }
 
-  private outputShortFormat(obj: RemoteObject): void {
-    const status = obj.localPath ? '✓' : '-'
-    let name = obj.name
-
-    if (obj.type === 'api_endpoint') {
-      const group = obj.apigroup_name || 'default'
-      name = `${obj.verb} ${obj.name} [${group}]`
-    }
-
-    this.log(`  ${status} ${name}`)
-  }
-
   private outputLongFormat(obj: RemoteObject, config: XanoLocalConfig): void {
     const status = obj.localPath ? '✓' : '-'
-    let name = obj.name
+    let {name} = obj
 
     if (obj.type === 'api_endpoint') {
       const group = obj.apigroup_name || 'default'
@@ -361,5 +297,67 @@ export default class List extends Command {
     const localInfo = obj.localPath || '(not pulled)'
     this.log(`  ${status} ${name}`)
     this.log(`      id: ${obj.id}, local: ${localInfo}`)
+  }
+
+  private outputShortFormat(obj: RemoteObject): void {
+    const status = obj.localPath ? '✓' : '-'
+    let {name} = obj
+
+    if (obj.type === 'api_endpoint') {
+      const group = obj.apigroup_name || 'default'
+      name = `${obj.verb} ${obj.name} [${group}]`
+    }
+
+    this.log(`  ${status} ${name}`)
+  }
+
+  private parseTypeArg(
+    arg: string | undefined,
+    config: XanoLocalConfig
+  ): { subFilter: null | string; type: null | XanoObjectType; } {
+    if (!arg) return { subFilter: null, type: null }
+
+    // Trim trailing slash
+    const cleaned = arg.replace(/\/$/, '')
+
+    // Direct type name mapping
+    const directMapping: Record<string, XanoObjectType> = {
+      'api': 'api_endpoint',
+      'api_endpoint': 'api_endpoint',
+      'apis': 'api_endpoint',
+      'function': 'function',
+      'functions': 'function',
+      'table': 'table',
+      'tables': 'table',
+      'task': 'task',
+      'tasks': 'task',
+    }
+
+    // Check direct match first
+    if (directMapping[cleaned]) {
+      return { subFilter: null, type: directMapping[cleaned] }
+    }
+
+    // Check if path starts with a known directory (e.g., apis/auth → api_endpoint with subFilter)
+    const pathPrefixes: Array<[string, XanoObjectType]> = [
+      [config.paths.functions, 'function'],
+      [config.paths.tables, 'table'],
+      [config.paths.apis, 'api_endpoint'],
+      [config.paths.tasks, 'task'],
+    ]
+
+    for (const [prefix, type] of pathPrefixes) {
+      if (cleaned === prefix) {
+        return { subFilter: null, type }
+      }
+
+      if (cleaned.startsWith(prefix + '/')) {
+        // Extract subpath after prefix (e.g., "apis/auth" → "auth")
+        const subFilter = cleaned.slice(prefix.length + 1)
+        return { subFilter: subFilter || null, type }
+      }
+    }
+
+    return { subFilter: null, type: null }
   }
 }

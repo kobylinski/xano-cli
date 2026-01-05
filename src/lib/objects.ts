@@ -3,10 +3,12 @@
  * Handles .xano/objects.json (VSCode compatible)
  */
 
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as crypto from 'node:crypto'
+
 import type { XanoObject, XanoObjectsFile, XanoObjectType } from './types.js'
+
 import { ensureXanoDir, getXanoDirPath } from './project.js'
 
 const OBJECTS_JSON = 'objects.json'
@@ -29,7 +31,7 @@ export function loadObjects(projectRoot: string): XanoObjectsFile {
   }
 
   try {
-    const content = fs.readFileSync(filePath, 'utf-8')
+    const content = fs.readFileSync(filePath, 'utf8')
     return JSON.parse(content) as XanoObjectsFile
   } catch {
     return []
@@ -48,14 +50,14 @@ export function saveObjects(projectRoot: string, objects: XanoObjectsFile): void
 /**
  * Find object by file path
  */
-export function findObjectByPath(objects: XanoObjectsFile, filePath: string): XanoObject | undefined {
+export function findObjectByPath(objects: XanoObjectsFile, filePath: string): undefined | XanoObject {
   return objects.find((obj) => obj.path === filePath)
 }
 
 /**
  * Find object by ID
  */
-export function findObjectById(objects: XanoObjectsFile, id: number): XanoObject | undefined {
+export function findObjectById(objects: XanoObjectsFile, id: number): undefined | XanoObject {
   return objects.find((obj) => obj.id === id)
 }
 
@@ -76,12 +78,12 @@ export function computeSha256(content: string): string {
 /**
  * Compute SHA256 hash of file
  */
-export function computeFileSha256(filePath: string): string | null {
+export function computeFileSha256(filePath: string): null | string {
   if (!fs.existsSync(filePath)) {
     return null
   }
 
-  const content = fs.readFileSync(filePath, 'utf-8')
+  const content = fs.readFileSync(filePath, 'utf8')
   return computeSha256(content)
 }
 
@@ -108,22 +110,22 @@ export function upsertObject(
   data: Partial<XanoObject> & { id: number; type: XanoObjectType }
 ): XanoObjectsFile {
   const existingIndex = objects.findIndex((obj) => obj.path === filePath)
-  const fileContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : ''
+  const fileContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : ''
 
   const newObject: XanoObject = {
     id: data.id,
-    type: data.type,
-    path: filePath,
-    status: data.status ?? 'unchanged',
-    staged: data.staged ?? false,
-    sha256: data.sha256 ?? computeSha256(fileContent),
     original: data.original ?? encodeBase64(fileContent),
+    path: filePath,
+    sha256: data.sha256 ?? computeSha256(fileContent),
+    staged: data.staged ?? false,
+    status: data.status ?? 'unchanged',
+    type: data.type,
   }
 
-  if (existingIndex >= 0) {
-    objects[existingIndex] = newObject
-  } else {
+  if (existingIndex === -1) {
     objects.push(newObject)
+  } else {
+    objects[existingIndex] = newObject
   }
 
   return objects
@@ -176,13 +178,13 @@ export function markObjectSynced(
 ): XanoObjectsFile {
   const index = objects.findIndex((obj) => obj.path === filePath)
 
-  if (index >= 0) {
+  if (index !== -1) {
     objects[index] = {
       ...objects[index],
-      status: 'unchanged',
-      staged: false,
-      sha256: computeSha256(content),
       original: encodeBase64(content),
+      sha256: computeSha256(content),
+      staged: false,
+      status: 'unchanged',
     }
   }
 
@@ -194,4 +196,27 @@ export function markObjectSynced(
  */
 export function getAllObjectPaths(objects: XanoObjectsFile): string[] {
   return objects.map((obj) => obj.path)
+}
+
+/**
+ * Extract xanoscript string from API response
+ * Handles both string format and object format { value, status }
+ */
+export function extractXanoscript(xs: unknown): null | string {
+  if (!xs) {
+    return null
+  }
+
+  if (typeof xs === 'string') {
+    return xs
+  }
+
+  if (typeof xs === 'object' && xs !== null && 'value' in xs) {
+    const {value} = (xs as { value: unknown })
+    if (typeof value === 'string') {
+      return value
+    }
+  }
+
+  return null
 }

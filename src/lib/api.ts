@@ -3,20 +3,21 @@
  * Handles all API calls to Xano
  */
 
-import * as fs from 'node:fs'
-import * as path from 'node:path'
 import * as yaml from 'js-yaml'
+import * as fs from 'node:fs'
 import * as os from 'node:os'
+import * as path from 'node:path'
+
 import type {
-  XanoCredentials,
-  XanoProfile,
   XanoApiBranch,
-  XanoApiFunction,
   XanoApiEndpoint,
+  XanoApiFunction,
   XanoApiGroup,
   XanoApiTable,
   XanoApiTask,
+  XanoCredentials,
   XanoObjectType,
+  XanoProfile,
 } from './types.js'
 
 const CREDENTIALS_PATH = path.join(os.homedir(), '.xano', 'credentials.yaml')
@@ -24,13 +25,13 @@ const CREDENTIALS_PATH = path.join(os.homedir(), '.xano', 'credentials.yaml')
 /**
  * Load credentials from ~/.xano/credentials.yaml
  */
-export function loadCredentials(): XanoCredentials | null {
+export function loadCredentials(): null | XanoCredentials {
   if (!fs.existsSync(CREDENTIALS_PATH)) {
     return null
   }
 
   try {
-    const content = fs.readFileSync(CREDENTIALS_PATH, 'utf-8')
+    const content = fs.readFileSync(CREDENTIALS_PATH, 'utf8')
     return yaml.load(content) as XanoCredentials
   } catch {
     return null
@@ -40,7 +41,7 @@ export function loadCredentials(): XanoCredentials | null {
 /**
  * Get profile by name or default
  */
-export function getProfile(profileName?: string): XanoProfile | null {
+export function getProfile(profileName?: string): null | XanoProfile {
   const credentials = loadCredentials()
   if (!credentials) return null
 
@@ -51,7 +52,7 @@ export function getProfile(profileName?: string): XanoProfile | null {
 /**
  * Get default profile name
  */
-export function getDefaultProfileName(): string | null {
+export function getDefaultProfileName(): null | string {
   const credentials = loadCredentials()
   return credentials?.default || null
 }
@@ -69,11 +70,11 @@ export function listProfileNames(): string[] {
  * API response wrapper
  */
 export interface ApiResponse<T> {
-  ok: boolean
-  status: number
   data?: T
   error?: string
   etag?: string
+  ok: boolean
+  status: number
 }
 
 /**
@@ -83,7 +84,7 @@ async function apiRequest<T>(
   profile: XanoProfile,
   method: string,
   endpoint: string,
-  body?: string | object,
+  body?: object | string,
   contentType: string = 'application/json'
 ): Promise<ApiResponse<T>> {
   const url = `${profile.instance_origin}${endpoint}`
@@ -101,9 +102,9 @@ async function apiRequest<T>(
 
   try {
     const response = await fetch(url, {
-      method,
-      headers,
       body: requestBody,
+      headers,
+      method,
     })
 
     const etag = response.headers.get('etag') || undefined
@@ -118,25 +119,25 @@ async function apiRequest<T>(
       }
 
       return {
-        ok: false,
-        status: response.status,
         error: errorMessage,
         etag,
+        ok: false,
+        status: response.status,
       }
     }
 
     const data = await response.json() as T
     return {
-      ok: true,
-      status: response.status,
       data,
       etag,
+      ok: true,
+      status: response.status,
     }
   } catch (error) {
     return {
+      error: error instanceof Error ? error.message : 'Unknown error',
       ok: false,
       status: 0,
-      error: error instanceof Error ? error.message : 'Unknown error',
     }
   }
 }
@@ -157,31 +158,17 @@ export class XanoApi {
 
   // ========== Branches ==========
 
-  async listBranches(): Promise<ApiResponse<XanoApiBranch[]>> {
-    return apiRequest<XanoApiBranch[]>(
+  async createApiEndpoint(xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
+    return apiRequest(
       this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/branch`
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/api?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
     )
   }
 
   // ========== Functions ==========
-
-  async listFunctions(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiFunction[] }>> {
-    return apiRequest(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/function?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
-    )
-  }
-
-  async getFunction(id: number): Promise<ApiResponse<XanoApiFunction>> {
-    return apiRequest(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/function/${id}?${this.branchParam}&include_xanoscript=true`
-    )
-  }
 
   async createFunction(xanoscript: string): Promise<ApiResponse<XanoApiFunction>> {
     return apiRequest(
@@ -193,15 +180,62 @@ export class XanoApi {
     )
   }
 
-  async updateFunction(id: number, xanoscript: string): Promise<ApiResponse<XanoApiFunction>> {
+  /**
+   * Create object by type
+   */
+  async createObject(type: XanoObjectType, xanoscript: string): Promise<ApiResponse<{ id: number; name?: string }>> {
+    switch (type) {
+      case 'api_endpoint': {
+        return this.createApiEndpoint(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'function': {
+        return this.createFunction(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'table': {
+        return this.createTable(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'task': {
+        return this.createTask(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      default: {
+        return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
+      }
+    }
+  }
+
+  async createTable(xanoscript: string): Promise<ApiResponse<XanoApiTable>> {
     return apiRequest(
       this.profile,
-      'PUT',
-      `/api:meta/workspace/${this.workspaceId}/function/${id}?${this.branchParam}`,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/table?${this.branchParam}`,
       xanoscript,
       'text/x-xanoscript'
     )
   }
+
+  async createTask(xanoscript: string): Promise<ApiResponse<XanoApiTask>> {
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/task?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  async deleteApiEndpoint(id: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/api/${id}?${this.branchParam}`
+    )
+  }
+
+  // ========== API Groups ==========
 
   async deleteFunction(id: number): Promise<ApiResponse<void>> {
     return apiRequest(
@@ -211,13 +245,56 @@ export class XanoApi {
     )
   }
 
-  // ========== API Groups ==========
+  /**
+   * Delete object by type and ID
+   */
+  async deleteObject(type: XanoObjectType, id: number): Promise<ApiResponse<void>> {
+    switch (type) {
+      case 'api_endpoint': {
+        return this.deleteApiEndpoint(id)
+      }
 
-  async listApiGroups(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiGroup[] }>> {
+      case 'function': {
+        return this.deleteFunction(id)
+      }
+
+      case 'table': {
+        return this.deleteTable(id)
+      }
+
+      case 'task': {
+        return this.deleteTask(id)
+      }
+
+      default: {
+        return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
+      }
+    }
+  }
+
+  // ========== API Endpoints ==========
+
+  async deleteTable(id: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/table/${id}?${this.branchParam}`
+    )
+  }
+
+  async deleteTask(id: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/task/${id}?${this.branchParam}`
+    )
+  }
+
+  async getApiEndpoint(id: number): Promise<ApiResponse<XanoApiEndpoint>> {
     return apiRequest(
       this.profile,
       'GET',
-      `/api:meta/workspace/${this.workspaceId}/apigroup?${this.branchParam}&page=${page}&per_page=${perPage}`
+      `/api:meta/workspace/${this.workspaceId}/api/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
 
@@ -229,7 +306,58 @@ export class XanoApi {
     )
   }
 
-  // ========== API Endpoints ==========
+  async getFunction(id: number): Promise<ApiResponse<XanoApiFunction>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/function/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
+
+  // ========== Tables ==========
+
+  /**
+   * Get object by type and ID
+   */
+  async getObject(type: XanoObjectType, id: number): Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>> {
+    switch (type) {
+      case 'api_endpoint': {
+        return this.getApiEndpoint(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
+      case 'function': {
+        return this.getFunction(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
+      case 'table': {
+        return this.getTable(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
+      case 'task': {
+        return this.getTask(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
+      default: {
+        return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
+      }
+    }
+  }
+
+  async getTable(id: number): Promise<ApiResponse<XanoApiTable>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
+
+  async getTask(id: number): Promise<ApiResponse<XanoApiTask>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/task/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
 
   async listApiEndpoints(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiEndpoint[] }>> {
     // First try workspace-level API listing
@@ -267,27 +395,51 @@ export class XanoApi {
     }
 
     return {
+      data: { items: allEndpoints },
       ok: true,
       status: 200,
-      data: { items: allEndpoints },
     }
   }
 
-  async getApiEndpoint(id: number): Promise<ApiResponse<XanoApiEndpoint>> {
+  async listApiGroups(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiGroup[] }>> {
     return apiRequest(
       this.profile,
       'GET',
-      `/api:meta/workspace/${this.workspaceId}/api/${id}?${this.branchParam}&include_xanoscript=true`
+      `/api:meta/workspace/${this.workspaceId}/apigroup?${this.branchParam}&page=${page}&per_page=${perPage}`
     )
   }
 
-  async createApiEndpoint(xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
+  // ========== Tasks ==========
+
+  async listBranches(): Promise<ApiResponse<XanoApiBranch[]>> {
+    return apiRequest<XanoApiBranch[]>(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/branch`
+    )
+  }
+
+  async listFunctions(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiFunction[] }>> {
     return apiRequest(
       this.profile,
-      'POST',
-      `/api:meta/workspace/${this.workspaceId}/api?${this.branchParam}`,
-      xanoscript,
-      'text/x-xanoscript'
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/function?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
+    )
+  }
+
+  async listTables(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiTable[] }>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
+    )
+  }
+
+  async listTasks(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiTask[] }>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/task?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
     )
   }
 
@@ -301,40 +453,43 @@ export class XanoApi {
     )
   }
 
-  async deleteApiEndpoint(id: number): Promise<ApiResponse<void>> {
+  // ========== Generic object operations ==========
+
+  async updateFunction(id: number, xanoscript: string): Promise<ApiResponse<XanoApiFunction>> {
     return apiRequest(
       this.profile,
-      'DELETE',
-      `/api:meta/workspace/${this.workspaceId}/api/${id}?${this.branchParam}`
-    )
-  }
-
-  // ========== Tables ==========
-
-  async listTables(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiTable[] }>> {
-    return apiRequest(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/table?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
-    )
-  }
-
-  async getTable(id: number): Promise<ApiResponse<XanoApiTable>> {
-    return apiRequest(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/table/${id}?${this.branchParam}&include_xanoscript=true`
-    )
-  }
-
-  async createTable(xanoscript: string): Promise<ApiResponse<XanoApiTable>> {
-    return apiRequest(
-      this.profile,
-      'POST',
-      `/api:meta/workspace/${this.workspaceId}/table?${this.branchParam}`,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/function/${id}?${this.branchParam}`,
       xanoscript,
       'text/x-xanoscript'
     )
+  }
+
+  /**
+   * Update object by type and ID
+   */
+  async updateObject(type: XanoObjectType, id: number, xanoscript: string): Promise<ApiResponse<{ id: number; name?: string }>> {
+    switch (type) {
+      case 'api_endpoint': {
+        return this.updateApiEndpoint(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'function': {
+        return this.updateFunction(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'table': {
+        return this.updateTable(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'task': {
+        return this.updateTask(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      default: {
+        return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
+      }
+    }
   }
 
   async updateTable(id: number, xanoscript: string): Promise<ApiResponse<XanoApiTable>> {
@@ -342,42 +497,6 @@ export class XanoApi {
       this.profile,
       'PUT',
       `/api:meta/workspace/${this.workspaceId}/table/${id}?${this.branchParam}`,
-      xanoscript,
-      'text/x-xanoscript'
-    )
-  }
-
-  async deleteTable(id: number): Promise<ApiResponse<void>> {
-    return apiRequest(
-      this.profile,
-      'DELETE',
-      `/api:meta/workspace/${this.workspaceId}/table/${id}?${this.branchParam}`
-    )
-  }
-
-  // ========== Tasks ==========
-
-  async listTasks(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiTask[] }>> {
-    return apiRequest(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/task?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
-    )
-  }
-
-  async getTask(id: number): Promise<ApiResponse<XanoApiTask>> {
-    return apiRequest(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/task/${id}?${this.branchParam}&include_xanoscript=true`
-    )
-  }
-
-  async createTask(xanoscript: string): Promise<ApiResponse<XanoApiTask>> {
-    return apiRequest(
-      this.profile,
-      'POST',
-      `/api:meta/workspace/${this.workspaceId}/task?${this.branchParam}`,
       xanoscript,
       'text/x-xanoscript'
     )
@@ -392,88 +511,6 @@ export class XanoApi {
       'text/x-xanoscript'
     )
   }
-
-  async deleteTask(id: number): Promise<ApiResponse<void>> {
-    return apiRequest(
-      this.profile,
-      'DELETE',
-      `/api:meta/workspace/${this.workspaceId}/task/${id}?${this.branchParam}`
-    )
-  }
-
-  // ========== Generic object operations ==========
-
-  /**
-   * Create object by type
-   */
-  async createObject(type: XanoObjectType, xanoscript: string): Promise<ApiResponse<{ id: number; name?: string }>> {
-    switch (type) {
-      case 'function':
-        return this.createFunction(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
-      case 'api_endpoint':
-        return this.createApiEndpoint(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
-      case 'table':
-        return this.createTable(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
-      case 'task':
-        return this.createTask(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
-      default:
-        return { ok: false, status: 0, error: `Unsupported type: ${type}` }
-    }
-  }
-
-  /**
-   * Update object by type and ID
-   */
-  async updateObject(type: XanoObjectType, id: number, xanoscript: string): Promise<ApiResponse<{ id: number; name?: string }>> {
-    switch (type) {
-      case 'function':
-        return this.updateFunction(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
-      case 'api_endpoint':
-        return this.updateApiEndpoint(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
-      case 'table':
-        return this.updateTable(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
-      case 'task':
-        return this.updateTask(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
-      default:
-        return { ok: false, status: 0, error: `Unsupported type: ${type}` }
-    }
-  }
-
-  /**
-   * Delete object by type and ID
-   */
-  async deleteObject(type: XanoObjectType, id: number): Promise<ApiResponse<void>> {
-    switch (type) {
-      case 'function':
-        return this.deleteFunction(id)
-      case 'api_endpoint':
-        return this.deleteApiEndpoint(id)
-      case 'table':
-        return this.deleteTable(id)
-      case 'task':
-        return this.deleteTask(id)
-      default:
-        return { ok: false, status: 0, error: `Unsupported type: ${type}` }
-    }
-  }
-
-  /**
-   * Get object by type and ID
-   */
-  async getObject(type: XanoObjectType, id: number): Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>> {
-    switch (type) {
-      case 'function':
-        return this.getFunction(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
-      case 'api_endpoint':
-        return this.getApiEndpoint(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
-      case 'table':
-        return this.getTable(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
-      case 'task':
-        return this.getTask(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
-      default:
-        return { ok: false, status: 0, error: `Unsupported type: ${type}` }
-    }
-  }
 }
 
 /**
@@ -486,8 +523,8 @@ export function createApiClient(
   branch: string
 ): XanoApi {
   const profile: XanoProfile = {
-    instance_origin: instanceOrigin,
     access_token: accessToken,
+    instance_origin: instanceOrigin,
   }
 
   return new XanoApi(profile, workspaceId, branch)
@@ -500,7 +537,7 @@ export function createApiClientFromProfile(
   profileName: string | undefined,
   workspaceId: number,
   branch: string
-): XanoApi | null {
+): null | XanoApi {
   const profile = getProfile(profileName)
   if (!profile) return null
 

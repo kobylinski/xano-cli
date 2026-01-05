@@ -7,7 +7,6 @@
 import { expect } from 'chai'
 
 import { XanoApi } from '../../src/lib/api.js'
-
 import {
   INTEGRATION_ENABLED,
   skipIfNoIntegration,
@@ -16,7 +15,7 @@ import {
 
 describe('Integration: XanoApi', function () {
   // Increase timeout for API calls
-  this.timeout(30000)
+  this.timeout(30_000)
 
   before(function () {
     if (!INTEGRATION_ENABLED) {

@@ -9,11 +9,12 @@
  * Run with: npm run test:integration
  */
 
-import { getProfile, listProfileNames } from '../../src/lib/api.js'
 import type { XanoProfile } from '../../src/lib/types.js'
 
+import { getProfile, listProfileNames } from '../../src/lib/api.js'
+
 export const INTEGRATION_ENABLED = process.env.XANO_INTEGRATION_TEST === 'true'
-export const TEST_WORKSPACE_ID = parseInt(process.env.XANO_TEST_WORKSPACE_ID || '0', 10)
+export const TEST_WORKSPACE_ID = Number.parseInt(process.env.XANO_TEST_WORKSPACE_ID || '0', 10)
 export const TEST_BRANCH = process.env.XANO_TEST_BRANCH || 'main'
 export const TEST_INSTANCE = process.env.XANO_TEST_INSTANCE || ''
 
@@ -47,7 +48,7 @@ export function getTestProfile(): XanoProfile {
 /**
  * Validate integration test configuration
  */
-export function validateConfig(): { profile: XanoProfile; workspaceId: number; branch: string; instance: string } {
+export function validateConfig(): { branch: string; instance: string; profile: XanoProfile; workspaceId: number; } {
   if (!INTEGRATION_ENABLED) {
     throw new Error('Integration tests not enabled')
   }

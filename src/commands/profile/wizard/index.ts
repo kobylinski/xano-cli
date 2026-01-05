@@ -1,30 +1,30 @@
 import {Args, Command, Flags} from '@oclif/core'
+import inquirer from 'inquirer'
+import * as yaml from 'js-yaml'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import * as yaml from 'js-yaml'
-import inquirer from 'inquirer'
 
 interface ProfileConfig {
-  name: string
-  account_origin: string
-  instance_origin: string
   access_token: string
-  workspace?: string
+  account_origin: string
   branch?: string
+  instance_origin: string
+  name: string
+  workspace?: string
 }
 
 interface CredentialsFile {
+  default?: string
   profiles: {
     [key: string]: Omit<ProfileConfig, 'name'>
   }
-  default?: string
 }
 
 interface Instance {
+  display: string
   id: string
   name: string
-  display: string
   origin: string
 }
 
@@ -39,23 +39,8 @@ interface Branch {
 }
 
 export default class ProfileWizard extends Command {
-  static override flags = {
-    name: Flags.string({
-      char: 'n',
-      description: 'Profile name (skip prompt if provided)',
-      required: false,
-    }),
-    origin: Flags.string({
-      char: 'o',
-      description: 'Xano instance origin URL',
-      required: false,
-      default: 'https://app.xano.com',
-    }),
-  }
-
   static description = 'Create a new profile configuration using an interactive wizard'
-
-  static examples = [
+static examples = [
     `$ xano profile:wizard
 Welcome to the Xano Profile Wizard!
 ? Enter your access token: ***...***
@@ -66,6 +51,19 @@ Welcome to the Xano Profile Wizard!
 Profile 'production' created successfully at ~/.xano/credentials.yaml
 `,
   ]
+static override flags = {
+    name: Flags.string({
+      char: 'n',
+      description: 'Profile name (skip prompt if provided)',
+      required: false,
+    }),
+    origin: Flags.string({
+      char: 'o',
+      default: 'https://app.xano.com',
+      description: 'Xano instance origin URL',
+      required: false,
+    }),
+  }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(ProfileWizard)
@@ -77,14 +75,15 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
       // Step 1: Get access token
       const {accessToken} = await inquirer.prompt([
         {
-          type: 'password',
-          name: 'accessToken',
-          message: 'Enter your access token',
           mask: '',
-          validate: (input: string) => {
+          message: 'Enter your access token',
+          name: 'accessToken',
+          type: 'password',
+          validate(input: string) {
             if (!input || input.trim() === '') {
               return 'Access token cannot be empty'
             }
+
             return true
           },
         },
@@ -109,13 +108,13 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
       this.log('')
       const {instanceId} = await inquirer.prompt([
         {
-          type: 'list',
-          name: 'instanceId',
-          message: 'Select an instance',
           choices: instances.map((inst) => ({
             name: `${inst.name} (${inst.display})`,
             value: inst.id,
           })),
+          message: 'Select an instance',
+          name: 'instanceId',
+          type: 'list',
         },
       ])
 
@@ -125,14 +124,15 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
       const defaultProfileName = flags.name || this.getDefaultProfileName()
       const {profileName} = await inquirer.prompt([
         {
-          type: 'input',
-          name: 'profileName',
-          message: 'Profile name',
           default: defaultProfileName,
-          validate: (input: string) => {
+          message: 'Profile name',
+          name: 'profileName',
+          type: 'input',
+          validate(input: string) {
             if (!input || input.trim() === '') {
               return 'Profile name cannot be empty'
             }
+
             return true
           },
         },
@@ -158,9 +158,6 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
         this.log('')
         const {selectedWorkspace} = await inquirer.prompt([
           {
-            type: 'list',
-            name: 'selectedWorkspace',
-            message: 'Select a workspace (or skip to use default)',
             choices: [
               {name: '(Skip workspace)', value: ''},
               ...workspaces.map((ws) => ({
@@ -168,6 +165,9 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
                 value: ws.id,
               })),
             ],
+            message: 'Select a workspace (or skip to use default)',
+            name: 'selectedWorkspace',
+            type: 'list',
           },
         ])
 
@@ -192,18 +192,16 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
             this.log('')
             const {selectedBranch} = await inquirer.prompt([
               {
-                type: 'list',
-                name: 'selectedBranch',
-                message: 'Select a branch',
                 choices: [
                   {name: '(Skip and use live branch)', value: ''},
-                  ...branches.map((br) => {
-                    return {
+                  ...branches.map((br) => ({
                       name: br.label,
                       value: br.id,
-                    }
-                  }),
+                    })),
                 ],
+                message: 'Select a branch',
+                name: 'selectedBranch',
+                type: 'list',
               },
             ])
 
@@ -214,12 +212,12 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
 
       // Save profile
       await this.saveProfile({
-        name: profileName,
-        account_origin: flags.origin,
-        instance_origin: selectedInstance.origin,
         access_token: accessToken,
-        workspace,
+        account_origin: flags.origin,
         branch,
+        instance_origin: selectedInstance.origin,
+        name: profileName,
+        workspace,
       }, true)
 
       this.log('')
@@ -229,109 +227,25 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
         this.log('Wizard cancelled.')
         process.exit(0)
       }
+
       throw error
     }
   }
 
-  private async fetchInstances(accessToken: string, origin: string): Promise<Instance[]> {
-    const response = await fetch(`${origin}/api:meta/instance`, {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-    })
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Unauthorized. Please check your access token.')
-      }
-      throw new Error(`API request failed with status ${response.status}`)
-    }
-
-    const data = (await response.json()) as any
-
-    // Transform API response to Instance format
-    // Assuming the API returns an array or object with instances
-    if (Array.isArray(data)) {
-      return data.map((inst: any) => ({
-        id: inst.id || inst.name,
-        name: inst.name,
-        display: inst.display,
-        origin: new URL(inst.meta_api).origin,
-      }))
-    }
-
-    // If it's an object, try to extract instances
-    if (data && typeof data === 'object') {
-      const instances = data.instances || data.data || []
-      if (Array.isArray(instances)) {
-        return instances.map((inst: any) => ({
-          id: inst.id || inst.name,
-          name: inst.name,
-          display: inst.display,
-          origin: new URL(inst.meta_api).origin,
-        }))
-      }
-    }
-
-    return []
-  }
-
-  private async fetchWorkspaces(accessToken: string, origin: string): Promise<Workspace[]> {
-    const response = await fetch(`${origin}/api:meta/workspace`, {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-    })
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Unauthorized. Please check your access token.')
-      }
-      throw new Error(`API request failed with status ${response.status}`)
-    }
-
-    const data = (await response.json()) as any
-
-    // Transform API response to Workspace format
-    // Assuming the API returns an array or object with workspaces
-    if (Array.isArray(data)) {
-      return data.map((ws: any) => ({
-        id: ws.id || ws.name,
-        name: ws.name,
-      }))
-    }
-
-    // If it's an object, try to extract workspaces
-    if (data && typeof data === 'object') {
-      const workspaces = data.workspaces || data.data || []
-      if (Array.isArray(workspaces)) {
-        return workspaces.map((ws: any) => ({
-          id: ws.id || ws.name,
-          name: ws.name,
-        }))
-      }
-    }
-
-    return []
-  }
-
   private async fetchBranches(accessToken: string, origin: string, workspaceId: string): Promise<Branch[]> {
     const response = await fetch(`${origin}/api:meta/workspace/${workspaceId}/branch`, {
-      method: 'GET',
       headers: {
         accept: 'application/json',
         Authorization: `Bearer ${accessToken}`,
       },
+      method: 'GET',
     })
 
     if (!response.ok) {
       if (response.status === 401) {
         throw new Error('Unauthorized. Please check your access token.')
       }
+
       throw new Error(`API request failed with status ${response.status}`)
     }
 
@@ -353,6 +267,94 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
         return branches.map((br: any) => ({
           id: br.id || br.name,
           label: br.label,
+        }))
+      }
+    }
+
+    return []
+  }
+
+  private async fetchInstances(accessToken: string, origin: string): Promise<Instance[]> {
+    const response = await fetch(`${origin}/api:meta/instance`, {
+      headers: {
+        accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      method: 'GET',
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Unauthorized. Please check your access token.')
+      }
+
+      throw new Error(`API request failed with status ${response.status}`)
+    }
+
+    const data = (await response.json()) as any
+
+    // Transform API response to Instance format
+    // Assuming the API returns an array or object with instances
+    if (Array.isArray(data)) {
+      return data.map((inst: any) => ({
+        display: inst.display,
+        id: inst.id || inst.name,
+        name: inst.name,
+        origin: new URL(inst.meta_api).origin,
+      }))
+    }
+
+    // If it's an object, try to extract instances
+    if (data && typeof data === 'object') {
+      const instances = data.instances || data.data || []
+      if (Array.isArray(instances)) {
+        return instances.map((inst: any) => ({
+          display: inst.display,
+          id: inst.id || inst.name,
+          name: inst.name,
+          origin: new URL(inst.meta_api).origin,
+        }))
+      }
+    }
+
+    return []
+  }
+
+  private async fetchWorkspaces(accessToken: string, origin: string): Promise<Workspace[]> {
+    const response = await fetch(`${origin}/api:meta/workspace`, {
+      headers: {
+        accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      method: 'GET',
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Unauthorized. Please check your access token.')
+      }
+
+      throw new Error(`API request failed with status ${response.status}`)
+    }
+
+    const data = (await response.json()) as any
+
+    // Transform API response to Workspace format
+    // Assuming the API returns an array or object with workspaces
+    if (Array.isArray(data)) {
+      return data.map((ws: any) => ({
+        id: ws.id || ws.name,
+        name: ws.name,
+      }))
+    }
+
+    // If it's an object, try to extract workspaces
+    if (data && typeof data === 'object') {
+      const workspaces = data.workspaces || data.data || []
+      if (Array.isArray(workspaces)) {
+        return workspaces.map((ws: any) => ({
+          id: ws.id || ws.name,
+          name: ws.name,
         }))
       }
     }
@@ -402,16 +404,16 @@ Profile 'production' created successfully at ~/.xano/credentials.yaml
         if (parsed && typeof parsed === 'object' && 'profiles' in parsed) {
           credentials = parsed
         }
-      } catch (error) {
+      } catch {
         // Continue with empty credentials if parse fails
       }
     }
 
     // Add or update the profile
     credentials.profiles[profile.name] = {
+      access_token: profile.access_token,
       account_origin: profile.account_origin,
       instance_origin: profile.instance_origin,
-      access_token: profile.access_token,
       ...(profile.workspace && {workspace: profile.workspace}),
       ...(profile.branch && {branch: profile.branch}),
     }

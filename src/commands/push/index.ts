@@ -1,27 +1,14 @@
-import { Command, Flags, Args } from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
+import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { execSync } from 'node:child_process'
-import {
-  findProjectRoot,
-  loadLocalConfig,
-  isInitialized,
-} from '../../lib/project.js'
-import {
-  loadObjects,
-  saveObjects,
-  findObjectByPath,
-  upsertObject,
-  computeSha256,
-  encodeBase64,
-  computeFileSha256,
-} from '../../lib/objects.js'
-import {
-  loadState,
-  saveState,
-  setStateEntry,
-  getStateEntry,
-} from '../../lib/state.js'
+
+import type {
+  XanoObjectsFile,
+  XanoObjectType,
+  XanoStateFile,
+} from '../../lib/types.js'
+
 import {
   getProfile,
   XanoApi,
@@ -30,58 +17,69 @@ import {
   detectType,
   generateKey,
 } from '../../lib/detector.js'
-import type {
-  XanoObjectsFile,
-  XanoStateFile,
-  XanoObjectType,
-} from '../../lib/types.js'
+import {
+  computeFileSha256,
+  computeSha256,
+  encodeBase64,
+  findObjectByPath,
+  loadObjects,
+  saveObjects,
+  upsertObject,
+} from '../../lib/objects.js'
+import {
+  findProjectRoot,
+  isInitialized,
+  loadLocalConfig,
+} from '../../lib/project.js'
+import {
+  getStateEntry,
+  loadState,
+  saveState,
+  setStateEntry,
+} from '../../lib/state.js'
 
 export default class Push extends Command {
-  static description = 'Push local XanoScript files to Xano'
-
-  static examples = [
-    '<%= config.bin %> push functions/my_function.xs',
-    '<%= config.bin %> push --staged',
-    '<%= config.bin %> push --all',
-    '<%= config.bin %> push --force functions/my_function.xs',
-  ]
-
   static args = {
     files: Args.string({
       description: 'Files to push (space-separated)',
       required: false,
     }),
   }
-
-  static strict = false // Allow multiple file arguments
-
-  static flags = {
+static description = 'Push local XanoScript files to Xano'
+static examples = [
+    '<%= config.bin %> push functions/my_function.xs',
+    '<%= config.bin %> push --staged',
+    '<%= config.bin %> push --all',
+    '<%= config.bin %> push --force functions/my_function.xs',
+  ]
+static flags = {
+    all: Flags.boolean({
+      default: false,
+      description: 'Push all modified/new .xs files',
+    }),
+    'dry-run': Flags.boolean({
+      default: false,
+      description: 'Show what would be pushed without actually pushing',
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      default: false,
+      description: 'Force push (skip etag conflict check)',
+    }),
     profile: Flags.string({
       char: 'p',
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
     staged: Flags.boolean({
+      default: false,
       description: 'Push git-staged .xs files',
-      default: false,
-    }),
-    all: Flags.boolean({
-      description: 'Push all modified/new .xs files',
-      default: false,
-    }),
-    force: Flags.boolean({
-      char: 'f',
-      description: 'Force push (skip etag conflict check)',
-      default: false,
-    }),
-    'dry-run': Flags.boolean({
-      description: 'Show what would be pushed without actually pushing',
-      default: false,
     }),
   }
+static strict = false // Allow multiple file arguments
 
   async run(): Promise<void> {
-    const { flags, argv } = await this.parse(Push)
+    const { argv, flags } = await this.parse(Push)
     const files = argv as string[]
 
     const projectRoot = findProjectRoot()
@@ -116,6 +114,7 @@ export default class Push extends Command {
         if (path.isAbsolute(f)) {
           return path.relative(projectRoot, f)
         }
+
         return f
       })
     } else {
@@ -141,6 +140,7 @@ export default class Push extends Command {
       for (const file of filesToPush) {
         this.log(`  ${file}`)
       }
+
       return
     }
 
@@ -180,22 +180,6 @@ export default class Push extends Command {
     this.log(`Pushed: ${successCount}, Errors: ${errorCount}`)
   }
 
-  private getGitStagedFiles(projectRoot: string): string[] {
-    try {
-      const output = execSync('git diff --cached --name-only --diff-filter=ACM', {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-      })
-      return output
-        .split('\n')
-        .filter((f) => f.endsWith('.xs'))
-        .filter(Boolean)
-    } catch {
-      this.warn('Failed to get git staged files. Is this a git repository?')
-      return []
-    }
-  }
-
   private getAllChangedFiles(projectRoot: string): string[] {
     const objects = loadObjects(projectRoot)
     const changedFiles: string[] = []
@@ -233,6 +217,110 @@ export default class Push extends Command {
     return changedFiles
   }
 
+  private getGitStagedFiles(projectRoot: string): string[] {
+    try {
+      const output = execSync('git diff --cached --name-only --diff-filter=ACM', {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+      })
+      return output
+        .split('\n')
+        .filter((f) => f.endsWith('.xs'))
+        .filter(Boolean)
+    } catch {
+      this.warn('Failed to get git staged files. Is this a git repository?')
+      return []
+    }
+  }
+
+  private async pushFile(
+    projectRoot: string,
+    filePath: string,
+    api: XanoApi,
+    objects: XanoObjectsFile,
+    state: XanoStateFile,
+    force: boolean
+  ): Promise<{
+    error?: string
+    objects: XanoObjectsFile
+    state: XanoStateFile
+    success: boolean
+  }> {
+    const fullPath = path.join(projectRoot, filePath)
+
+    if (!fs.existsSync(fullPath)) {
+      return { error: 'File not found', objects, state, success: false }
+    }
+
+    const content = fs.readFileSync(fullPath, 'utf8')
+    const type = detectType(content)
+
+    if (!type) {
+      return { error: 'Cannot detect XanoScript type', objects, state, success: false }
+    }
+
+    const existingObj = findObjectByPath(objects, filePath)
+    const key = generateKey(content) || `${type}:${path.basename(filePath, '.xs')}`
+
+    let newId: number
+    let etag: string | undefined
+
+    if (existingObj?.id) {
+      // Update existing object
+      // TODO: Check etag for conflicts if not force
+      const response = await api.updateObject(type, existingObj.id, content)
+
+      if (!response.ok) {
+        return { error: response.error || 'Update failed', objects, state, success: false }
+      }
+
+      newId = existingObj.id
+      etag = response.etag
+    } else {
+      // Create new object
+      const response = await api.createObject(type, content)
+
+      if (!response.ok) {
+        // Try to find by key and update instead
+        if (response.status === 409 || response.error?.includes('already exists')) {
+          return {
+            error: 'Object already exists on Xano. Run "xano sync" to update mappings.',
+            objects,
+            state,
+            success: false,
+          }
+        }
+
+        return { error: response.error || 'Create failed', objects, state, success: false }
+      }
+
+      if (!response.data?.id) {
+        return { error: 'No ID returned from API', objects, state, success: false }
+      }
+
+      newId = response.data.id
+      etag = response.etag
+    }
+
+    // Update objects.json
+    objects = upsertObject(objects, filePath, {
+      id: newId,
+      original: encodeBase64(content),
+      sha256: computeSha256(content),
+      staged: false,
+      status: 'unchanged',
+      type,
+    })
+
+    // Update state.json
+    state = setStateEntry(state, filePath, {
+      etag,
+      key,
+    })
+
+    return { objects, state, success: true }
+  }
+
   private walkDir(
     dir: string,
     projectRoot: string,
@@ -251,92 +339,5 @@ export default class Push extends Command {
         }
       }
     }
-  }
-
-  private async pushFile(
-    projectRoot: string,
-    filePath: string,
-    api: XanoApi,
-    objects: XanoObjectsFile,
-    state: XanoStateFile,
-    force: boolean
-  ): Promise<{
-    success: boolean
-    error?: string
-    objects: XanoObjectsFile
-    state: XanoStateFile
-  }> {
-    const fullPath = path.join(projectRoot, filePath)
-
-    if (!fs.existsSync(fullPath)) {
-      return { success: false, error: 'File not found', objects, state }
-    }
-
-    const content = fs.readFileSync(fullPath, 'utf-8')
-    const type = detectType(content)
-
-    if (!type) {
-      return { success: false, error: 'Cannot detect XanoScript type', objects, state }
-    }
-
-    const existingObj = findObjectByPath(objects, filePath)
-    const key = generateKey(content) || `${type}:${path.basename(filePath, '.xs')}`
-
-    let newId: number
-    let etag: string | undefined
-
-    if (existingObj?.id) {
-      // Update existing object
-      // TODO: Check etag for conflicts if not force
-      const response = await api.updateObject(type, existingObj.id, content)
-
-      if (!response.ok) {
-        return { success: false, error: response.error || 'Update failed', objects, state }
-      }
-
-      newId = existingObj.id
-      etag = response.etag
-    } else {
-      // Create new object
-      const response = await api.createObject(type, content)
-
-      if (!response.ok) {
-        // Try to find by key and update instead
-        if (response.status === 409 || response.error?.includes('already exists')) {
-          return {
-            success: false,
-            error: 'Object already exists on Xano. Run "xano sync" to update mappings.',
-            objects,
-            state,
-          }
-        }
-        return { success: false, error: response.error || 'Create failed', objects, state }
-      }
-
-      if (!response.data?.id) {
-        return { success: false, error: 'No ID returned from API', objects, state }
-      }
-
-      newId = response.data.id
-      etag = response.etag
-    }
-
-    // Update objects.json
-    objects = upsertObject(objects, filePath, {
-      id: newId,
-      type,
-      status: 'unchanged',
-      staged: false,
-      sha256: computeSha256(content),
-      original: encodeBase64(content),
-    })
-
-    // Update state.json
-    state = setStateEntry(state, filePath, {
-      key,
-      etag,
-    })
-
-    return { success: true, objects, state }
   }
 }

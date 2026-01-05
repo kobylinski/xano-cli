@@ -1,39 +1,40 @@
 import {Flags} from '@oclif/core'
+import * as yaml from 'js-yaml'
 import {execSync} from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import * as yaml from 'js-yaml'
+
 import BaseCommand from '../../../../base-command.js'
 
 interface ProfileConfig {
-  account_origin?: string
-  instance_origin: string
   access_token: string
-  workspace?: string
+  account_origin?: string
   branch?: string
+  instance_origin: string
+  workspace?: string
 }
 
 interface CredentialsFile {
+  default?: string
   profiles: {
     [key: string]: ProfileConfig
   }
-  default?: string
 }
 
 interface EndpointInput {
-  source: string
-  name: string
-  type: string
-  nullable: boolean
   default: string
+  name: string
+  nullable: boolean
   required: boolean
+  source: string
+  type: string
 }
 
 interface Endpoint {
+  input: EndpointInput[]
   url: string
   verb: string
-  input: EndpointInput[]
 }
 
 interface MetadataApi {
@@ -41,60 +42,27 @@ interface MetadataApi {
 }
 
 interface EphemeralServiceResult {
-  pre_time: number
   boot_time: number
-  pre_result: any
   endpoints?: Endpoint[]
   metadata_api?: MetadataApi
+  pre_result: any
+  pre_time: number
 }
 
 interface EphemeralServiceResponse {
+  result: EphemeralServiceResult
   service: {
     id: number
     run: {
       id: number
     }
   }
-  result: EphemeralServiceResult
 }
 
 export default class EphemeralRunService extends BaseCommand {
   static args = {}
-
-  static override flags = {
-    ...BaseCommand.baseFlags,
-    file: Flags.string({
-      char: 'f',
-      description: 'Path or URL to file containing XanoScript code',
-      required: false,
-      exclusive: ['stdin'],
-    }),
-    stdin: Flags.boolean({
-      char: 's',
-      description: 'Read XanoScript code from stdin',
-      required: false,
-      default: false,
-      exclusive: ['file'],
-    }),
-    edit: Flags.boolean({
-      char: 'e',
-      description: 'Open file in editor before running service (requires --file)',
-      required: false,
-      default: false,
-      dependsOn: ['file'],
-    }),
-    output: Flags.string({
-      char: 'o',
-      description: 'Output format',
-      required: false,
-      default: 'summary',
-      options: ['summary', 'json'],
-    }),
-  }
-
-  static description = 'Run an ephemeral service'
-
-  static examples = [
+static description = 'Run an ephemeral service'
+static examples = [
     `$ xano ephemeral:run:service -f service.xs
 Service created successfully!
 ...
@@ -115,6 +83,36 @@ Service created successfully!
 }
 `,
   ]
+static override flags = {
+    ...BaseCommand.baseFlags,
+    edit: Flags.boolean({
+      char: 'e',
+      default: false,
+      dependsOn: ['file'],
+      description: 'Open file in editor before running service (requires --file)',
+      required: false,
+    }),
+    file: Flags.string({
+      char: 'f',
+      description: 'Path or URL to file containing XanoScript code',
+      exclusive: ['stdin'],
+      required: false,
+    }),
+    output: Flags.string({
+      char: 'o',
+      default: 'summary',
+      description: 'Output format',
+      options: ['summary', 'json'],
+      required: false,
+    }),
+    stdin: Flags.boolean({
+      char: 's',
+      default: false,
+      description: 'Read XanoScript code from stdin',
+      exclusive: ['file'],
+      required: false,
+    }),
+  }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(EphemeralRunService)
@@ -199,12 +197,12 @@ Service created successfully!
     // Run ephemeral service via API
     try {
       const response = await fetch(apiUrl, {
-        method: 'POST',
+        body: formData,
         headers: {
           'accept': 'application/json',
           'Authorization': `Bearer ${profile.access_token}`,
         },
-        body: formData,
+        method: 'POST',
       })
 
       if (!response.ok) {
@@ -228,7 +226,7 @@ Service created successfully!
         this.log('')
         if (result.result) {
           const formatTime = (time: number | undefined) =>
-            time !== undefined ? `${(time * 1000).toFixed(2)}ms` : 'N/A'
+            time === undefined ? 'N/A' : `${(time * 1000).toFixed(2)}ms`
           this.log('  Timing:')
           this.log(`    Boot:     ${formatTime(result.result.boot_time)}`)
           this.log(`    Pre:      ${formatTime(result.result.pre_time)}`)
@@ -245,8 +243,10 @@ Service created successfully!
                 }
               }
             }
+
             this.log('')
           }
+
           if (result.result.metadata_api) {
             this.log('  Metadata API:')
             this.log(`    ${result.result.metadata_api.url}`)
@@ -312,6 +312,7 @@ Service created successfully!
       } catch {
         // Ignore cleanup errors
       }
+
       this.error(`Editor exited with an error: ${error}`)
     }
 
@@ -320,27 +321,6 @@ Service created successfully!
 
   private isUrl(str: string): boolean {
     return str.startsWith('http://') || str.startsWith('https://')
-  }
-
-  private async readStdin(): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = []
-
-      process.stdin.on('data', (chunk: Buffer) => {
-        chunks.push(chunk)
-      })
-
-      process.stdin.on('end', () => {
-        resolve(Buffer.concat(chunks).toString('utf8'))
-      })
-
-      process.stdin.on('error', (error: Error) => {
-        reject(error)
-      })
-
-      // Resume stdin if it was paused
-      process.stdin.resume()
-    })
   }
 
   private loadCredentials(): CredentialsFile {
@@ -368,5 +348,26 @@ Service created successfully!
     } catch (error) {
       this.error(`Failed to parse credentials file: ${error}`)
     }
+  }
+
+  private async readStdin(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+
+      process.stdin.on('data', (chunk: Buffer) => {
+        chunks.push(chunk)
+      })
+
+      process.stdin.on('end', () => {
+        resolve(Buffer.concat(chunks).toString('utf8'))
+      })
+
+      process.stdin.on('error', (error: Error) => {
+        reject(error)
+      })
+
+      // Resume stdin if it was paused
+      process.stdin.resume()
+    })
   }
 }

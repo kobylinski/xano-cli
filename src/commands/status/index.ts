@@ -1,41 +1,41 @@
 import { Command, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import {
-  findProjectRoot,
-  loadLocalConfig,
-  isInitialized,
-} from '../../lib/project.js'
-import {
-  loadObjects,
-  findObjectByPath,
-  computeFileSha256,
-  decodeBase64,
-} from '../../lib/objects.js'
-import {
-  loadState,
-  getKey,
-} from '../../lib/state.js'
+
 import type {
+  FileStatus,
+  StatusEntry,
+  XanoLocalConfig,
   XanoObjectsFile,
   XanoStateFile,
-  XanoLocalConfig,
-  StatusEntry,
-  FileStatus,
 } from '../../lib/types.js'
+
+import {
+  computeFileSha256,
+  decodeBase64,
+  findObjectByPath,
+  loadObjects,
+} from '../../lib/objects.js'
+import {
+  findProjectRoot,
+  isInitialized,
+  loadLocalConfig,
+} from '../../lib/project.js'
+import {
+  getKey,
+  loadState,
+} from '../../lib/state.js'
 
 export default class Status extends Command {
   static description = 'Show status of local files compared to Xano'
-
-  static examples = [
+static examples = [
     '<%= config.bin %> status',
     '<%= config.bin %> status --json',
   ]
-
-  static flags = {
+static flags = {
     json: Flags.boolean({
-      description: 'Output as JSON',
       default: false,
+      description: 'Output as JSON',
     }),
   }
 
@@ -70,35 +70,35 @@ export default class Status extends Command {
       seenPaths.add(obj.path)
       const fullPath = path.join(projectRoot, obj.path)
 
-      if (!fs.existsSync(fullPath)) {
-        // File deleted locally
-        entries.push({
-          path: obj.path,
-          status: 'deleted',
-          id: obj.id,
-          type: obj.type,
-          key: getKey(state, obj.path),
-        })
-      } else {
+      if (fs.existsSync(fullPath)) {
         // Check if modified
         const currentSha256 = computeFileSha256(fullPath)
-        if (currentSha256 !== obj.sha256) {
+        if (currentSha256 === obj.sha256) {
           entries.push({
-            path: obj.path,
-            status: 'modified',
             id: obj.id,
-            type: obj.type,
             key: getKey(state, obj.path),
+            path: obj.path,
+            status: 'unchanged',
+            type: obj.type,
           })
         } else {
           entries.push({
-            path: obj.path,
-            status: 'unchanged',
             id: obj.id,
-            type: obj.type,
             key: getKey(state, obj.path),
+            path: obj.path,
+            status: 'modified',
+            type: obj.type,
           })
         }
+      } else {
+        // File deleted locally
+        entries.push({
+          id: obj.id,
+          key: getKey(state, obj.path),
+          path: obj.path,
+          status: 'deleted',
+          type: obj.type,
+        })
       }
     }
 
@@ -106,9 +106,9 @@ export default class Status extends Command {
     const newFiles = this.findNewFiles(projectRoot, config, seenPaths)
     for (const filePath of newFiles) {
       entries.push({
+        key: getKey(state, filePath),
         path: filePath,
         status: 'new',
-        key: getKey(state, filePath),
       })
     }
 
@@ -118,10 +118,10 @@ export default class Status extends Command {
         const fullPath = path.join(projectRoot, filePath)
         if (!fs.existsSync(fullPath)) {
           entries.push({
-            path: filePath,
-            status: 'orphan',
             key: stateEntry.key,
             message: 'In state.json but file and object missing',
+            path: filePath,
+            status: 'orphan',
           })
         }
       }
@@ -153,6 +153,7 @@ export default class Status extends Command {
       for (const entry of modified) {
         this.log(`  M ${entry.path}`)
       }
+
       this.log('')
     }
 
@@ -161,6 +162,7 @@ export default class Status extends Command {
       for (const entry of newEntries) {
         this.log(`  A ${entry.path}`)
       }
+
       this.log('')
     }
 
@@ -169,6 +171,7 @@ export default class Status extends Command {
       for (const entry of deleted) {
         this.log(`  D ${entry.path}`)
       }
+
       this.log('')
     }
 
@@ -177,6 +180,7 @@ export default class Status extends Command {
       for (const entry of orphans) {
         this.log(`  ? ${entry.key || entry.path}`)
       }
+
       this.log('')
     }
 

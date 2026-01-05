@@ -1,48 +1,45 @@
-import { Command, Flags, Args } from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
+import { execSync, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { execSync, spawnSync } from 'node:child_process'
+
 import {
   findProjectRoot,
   loadLocalConfig,
 } from '../../lib/project.js'
 
 export default class Lint extends Command {
-  static description = 'Lint XanoScript files using xs-lint'
-
-  static examples = [
-    '<%= config.bin %> lint functions/my_function.xs',
-    '<%= config.bin %> lint functions/',
-    '<%= config.bin %> lint --staged',
-    '<%= config.bin %> lint --all',
-  ]
-
   static args = {
     files: Args.string({
       description: 'Files or directories to lint',
       required: false,
     }),
   }
-
-  static strict = false // Allow multiple file arguments
-
-  static flags = {
-    staged: Flags.boolean({
-      description: 'Lint git-staged .xs files',
-      default: false,
-    }),
+static description = 'Lint XanoScript files using xs-lint'
+static examples = [
+    '<%= config.bin %> lint functions/my_function.xs',
+    '<%= config.bin %> lint functions/',
+    '<%= config.bin %> lint --staged',
+    '<%= config.bin %> lint --all',
+  ]
+static flags = {
     all: Flags.boolean({
-      description: 'Lint all .xs files in project',
       default: false,
+      description: 'Lint all .xs files in project',
     }),
     fix: Flags.boolean({
-      description: 'Attempt to fix issues (if supported)',
       default: false,
+      description: 'Attempt to fix issues (if supported)',
+    }),
+    staged: Flags.boolean({
+      default: false,
+      description: 'Lint git-staged .xs files',
     }),
   }
+static strict = false // Allow multiple file arguments
 
   async run(): Promise<void> {
-    const { flags, argv } = await this.parse(Lint)
+    const { argv, flags } = await this.parse(Lint)
     const files = argv as string[]
 
     // Check if xs-lint is available
@@ -91,6 +88,7 @@ export default class Lint extends Command {
       if (result.hasErrors) {
         errorCount++
       }
+
       if (result.hasWarnings) {
         warningCount++
       }
@@ -106,47 +104,6 @@ export default class Lint extends Command {
         this.exit(1)
       }
     }
-  }
-
-  private isXsLintAvailable(): boolean {
-    try {
-      execSync('which xs-lint', { stdio: 'ignore' })
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  private getGitStagedFiles(projectRoot: string): string[] {
-    try {
-      const output = execSync('git diff --cached --name-only --diff-filter=ACM', {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-      })
-      return output
-        .split('\n')
-        .filter((f) => f.endsWith('.xs'))
-        .filter(Boolean)
-    } catch {
-      this.warn('Failed to get git staged files.')
-      return []
-    }
-  }
-
-  private getAllXsFiles(projectRoot: string): string[] {
-    const config = loadLocalConfig(projectRoot)
-    const dirs = config
-      ? [config.paths.functions, config.paths.tables, config.paths.apis, config.paths.tasks]
-      : ['functions', 'tables', 'apis', 'tasks']
-
-    const files: string[] = []
-    for (const dir of dirs) {
-      const fullDir = path.join(projectRoot, dir)
-      if (fs.existsSync(fullDir)) {
-        this.walkDir(fullDir, projectRoot, files)
-      }
-    }
-    return files
   }
 
   private expandFiles(projectRoot: string, inputs: string[]): string[] {
@@ -175,15 +132,45 @@ export default class Lint extends Command {
     return files
   }
 
-  private walkDir(dir: string, projectRoot: string, files: string[]): void {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        this.walkDir(fullPath, projectRoot, files)
-      } else if (entry.name.endsWith('.xs')) {
-        files.push(path.relative(projectRoot, fullPath))
+  private getAllXsFiles(projectRoot: string): string[] {
+    const config = loadLocalConfig(projectRoot)
+    const dirs = config
+      ? [config.paths.functions, config.paths.tables, config.paths.apis, config.paths.tasks]
+      : ['functions', 'tables', 'apis', 'tasks']
+
+    const files: string[] = []
+    for (const dir of dirs) {
+      const fullDir = path.join(projectRoot, dir)
+      if (fs.existsSync(fullDir)) {
+        this.walkDir(fullDir, projectRoot, files)
       }
+    }
+
+    return files
+  }
+
+  private getGitStagedFiles(projectRoot: string): string[] {
+    try {
+      const output = execSync('git diff --cached --name-only --diff-filter=ACM', {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+      })
+      return output
+        .split('\n')
+        .filter((f) => f.endsWith('.xs'))
+        .filter(Boolean)
+    } catch {
+      this.warn('Failed to get git staged files.')
+      return []
+    }
+  }
+
+  private isXsLintAvailable(): boolean {
+    try {
+      execSync('which xs-lint', { stdio: 'ignore' })
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -209,18 +196,33 @@ export default class Lint extends Command {
           this.log(output)
           return { hasErrors: false, hasWarnings: true }
         }
+
         this.log(`${file}: ok`)
         return { hasErrors: false, hasWarnings: false }
-      } else {
+      }
+ 
         this.log(`${file}: errors`)
         if (output) {
           this.log(output)
         }
+
         return { hasErrors: true, hasWarnings: false }
-      }
+      
     } catch (error: any) {
       this.log(`${file}: failed to lint (${error.message})`)
       return { hasErrors: true, hasWarnings: false }
+    }
+  }
+
+  private walkDir(dir: string, projectRoot: string, files: string[]): void {
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        this.walkDir(fullPath, projectRoot, files)
+      } else if (entry.name.endsWith('.xs')) {
+        files.push(path.relative(projectRoot, fullPath))
+      }
     }
   }
 }

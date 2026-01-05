@@ -4,12 +4,13 @@
  */
 
 import * as path from 'node:path'
+
 import type { XanoObjectType } from './types.js'
 
 /**
  * Detect XanoScript object type from content
  */
-export function detectType(content: string): XanoObjectType | null {
+export function detectType(content: string): null | XanoObjectType {
   const trimmed = content.trim()
 
   // Check first non-comment line
@@ -43,7 +44,7 @@ export function detectType(content: string): XanoObjectType | null {
  * Extract name from XanoScript content
  * e.g., "function calculate_totals { ... }" -> "calculate_totals"
  */
-export function extractName(content: string): string | null {
+export function extractName(content: string): null | string {
   const trimmed = content.trim()
   const lines = trimmed.split('\n')
 
@@ -71,7 +72,7 @@ export function extractName(content: string): string | null {
  * Extract API endpoint details from content
  * Returns: { verb, path, group } or null
  */
-export function extractApiDetails(content: string): { verb: string; path: string; group?: string } | null {
+export function extractApiDetails(content: string): null | { group?: string; path: string; verb: string; } {
   const trimmed = content.trim()
   const lines = trimmed.split('\n')
 
@@ -88,8 +89,8 @@ export function extractApiDetails(content: string): { verb: string; path: string
     const match = cleanLine.match(/^query\s+(GET|POST|PUT|DELETE|PATCH)\s+([^\s(]+)/i)
     if (match) {
       return {
-        verb: match[1].toUpperCase(),
         path: match[2],
+        verb: match[1].toUpperCase(),
       }
     }
 
@@ -103,7 +104,7 @@ export function extractApiDetails(content: string): { verb: string; path: string
  * Extract table trigger details from content
  * Returns: { table, event } or null
  */
-export function extractTriggerDetails(content: string): { table: string; event: string } | null {
+export function extractTriggerDetails(content: string): null | { event: string; table: string; } {
   const trimmed = content.trim()
   const lines = trimmed.split('\n')
 
@@ -119,8 +120,8 @@ export function extractTriggerDetails(content: string): { table: string; event: 
     const match = cleanLine.match(/^table_trigger\s+\w+\s+on\s+(\w+)\s+(before_insert|after_insert|before_update|after_update|before_delete|after_delete)/i)
     if (match) {
       return {
-        table: match[1],
         event: match[2].toLowerCase(),
+        table: match[1],
       }
     }
 
@@ -133,16 +134,16 @@ export function extractTriggerDetails(content: string): { table: string; event: 
 /**
  * Generate natural key from content
  */
-export function generateKey(content: string): string | null {
+export function generateKey(content: string): null | string {
   const type = detectType(content)
   if (!type) return null
 
   switch (type) {
-    case 'function':
-    case 'table':
-    case 'api_group':
-    case 'middleware':
     case 'addon':
+    case 'api_group':
+    case 'function':
+    case 'middleware':
+    case 'table':
     case 'task': {
       const name = extractName(content)
       return name ? `${type}:${name}` : null
@@ -161,15 +162,16 @@ export function generateKey(content: string): string | null {
       return `trigger:${details.table}:${details.event}:${name}`
     }
 
-    default:
+    default: {
       return null
+    }
   }
 }
 
 /**
  * Generate key from file path (fallback when content not available)
  */
-export function generateKeyFromPath(filePath: string): string | null {
+export function generateKeyFromPath(filePath: string): null | string {
   const ext = path.extname(filePath)
   if (ext !== '.xs') return null
 
@@ -187,6 +189,7 @@ export function generateKeyFromPath(filePath: string): string | null {
     if (basename.includes('_trigger_') || parts.includes('triggers')) {
       return `trigger:${basename}`
     }
+
     return `table:${basename}`
   }
 
@@ -197,6 +200,7 @@ export function generateKeyFromPath(filePath: string): string | null {
       const verb = match[1].toUpperCase()
       return `api:${verb}:${basename}`
     }
+
     return `api:${basename}`
   }
 
@@ -210,7 +214,7 @@ export function generateKeyFromPath(filePath: string): string | null {
 /**
  * Detect type from file path
  */
-export function detectTypeFromPath(filePath: string): XanoObjectType | null {
+export function detectTypeFromPath(filePath: string): null | XanoObjectType {
   const dir = path.dirname(filePath)
   const parts = dir.split(path.sep)
 
@@ -220,6 +224,7 @@ export function detectTypeFromPath(filePath: string): XanoObjectType | null {
     if (basename.includes('trigger')) return 'table_trigger'
     return 'table'
   }
+
   if (parts.includes('apis')) return 'api_endpoint'
   if (parts.includes('tasks')) return 'task'
 
@@ -233,40 +238,48 @@ export function generateFilePath(
   type: XanoObjectType,
   name: string,
   id: number,
-  paths: { functions: string; tables: string; apis: string; tasks: string },
+  paths: { apis: string; functions: string; tables: string; tasks: string },
   apiGroup?: string,
   verb?: string
 ): string {
   switch (type) {
-    case 'function':
-      return `${paths.functions}/${id}_${name}.xs`
-
-    case 'table':
-      return `${paths.tables}/${id}_${name}.xs`
-
-    case 'table_trigger':
-      return `${paths.tables}/triggers/${id}_${name}.xs`
+    case 'addon': {
+      return `addons/${id}_${name}.xs`
+    }
 
     case 'api_endpoint': {
       const group = apiGroup || 'default'
       const v = verb?.toUpperCase() || 'GET'
-      const safeName = name.replace(/\//g, '_').replace(/[{}]/g, '')
+      const safeName = name.replaceAll('/', '_').replaceAll(/[{}]/g, '')
       return `${paths.apis}/${group}/${id}_${v}_${safeName}.xs`
     }
 
-    case 'api_group':
+    case 'api_group': {
       return `${paths.apis}/${name}/_group.xs`
+    }
 
-    case 'task':
-      return `${paths.tasks}/${id}_${name}.xs`
+    case 'function': {
+      return `${paths.functions}/${id}_${name}.xs`
+    }
 
-    case 'middleware':
+    case 'middleware': {
       return `middleware/${id}_${name}.xs`
+    }
 
-    case 'addon':
-      return `addons/${id}_${name}.xs`
+    case 'table': {
+      return `${paths.tables}/${id}_${name}.xs`
+    }
 
-    default:
+    case 'table_trigger': {
+      return `${paths.tables}/triggers/${id}_${name}.xs`
+    }
+
+    case 'task': {
+      return `${paths.tasks}/${id}_${name}.xs`
+    }
+
+    default: {
       return `${id}_${name}.xs`
+    }
   }
 }

@@ -5,7 +5,8 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { XanoProjectConfig, XanoLocalConfig } from './types.js'
+
+import type { XanoLocalConfig, XanoProjectConfig } from './types.js'
 
 const XANO_JSON = 'xano.json'
 const XANO_DIR = '.xano'
@@ -14,7 +15,7 @@ const CONFIG_JSON = 'config.json'
 /**
  * Find project root by looking for .xano/config.json (primary) or xano.json (fallback)
  */
-export function findProjectRoot(startDir: string = process.cwd()): string | null {
+export function findProjectRoot(startDir: string = process.cwd()): null | string {
   let currentDir = startDir
 
   while (currentDir !== path.dirname(currentDir)) {
@@ -67,7 +68,7 @@ export function getConfigJsonPath(projectRoot: string): string {
 /**
  * Load xano.json (versioned project config)
  */
-export function loadXanoJson(projectRoot: string): XanoProjectConfig | null {
+export function loadXanoJson(projectRoot: string): null | XanoProjectConfig {
   const filePath = getXanoJsonPath(projectRoot)
 
   if (!fs.existsSync(filePath)) {
@@ -75,7 +76,7 @@ export function loadXanoJson(projectRoot: string): XanoProjectConfig | null {
   }
 
   try {
-    const content = fs.readFileSync(filePath, 'utf-8')
+    const content = fs.readFileSync(filePath, 'utf8')
     return JSON.parse(content) as XanoProjectConfig
   } catch {
     return null
@@ -106,7 +107,7 @@ export function ensureXanoDir(projectRoot: string): string {
 /**
  * Load .xano/config.json (local config, VSCode compatible)
  */
-export function loadLocalConfig(projectRoot: string): XanoLocalConfig | null {
+export function loadLocalConfig(projectRoot: string): null | XanoLocalConfig {
   const filePath = getConfigJsonPath(projectRoot)
 
   if (!fs.existsSync(filePath)) {
@@ -114,7 +115,7 @@ export function loadLocalConfig(projectRoot: string): XanoLocalConfig | null {
   }
 
   try {
-    const content = fs.readFileSync(filePath, 'utf-8')
+    const content = fs.readFileSync(filePath, 'utf8')
     return JSON.parse(content) as XanoLocalConfig
   } catch {
     return null
@@ -138,11 +139,11 @@ export function createLocalConfig(
   branch: string
 ): XanoLocalConfig {
   return {
-    instanceName: projectConfig.instance,
-    workspaceName: projectConfig.workspace,
-    workspaceId: projectConfig.workspaceId,
     branch,
+    instanceName: projectConfig.instance,
     paths: { ...projectConfig.paths },
+    workspaceId: projectConfig.workspaceId,
+    workspaceName: projectConfig.workspace,
   }
 }
 
@@ -156,7 +157,7 @@ export function isInitialized(projectRoot: string): boolean {
 /**
  * Get current branch from local config
  */
-export function getCurrentBranch(projectRoot: string): string | null {
+export function getCurrentBranch(projectRoot: string): null | string {
   const config = loadLocalConfig(projectRoot)
   return config?.branch ?? null
 }
@@ -177,9 +178,9 @@ export function setCurrentBranch(projectRoot: string, branch: string): void {
  */
 export function getDefaultPaths(): XanoProjectConfig['paths'] {
   return {
+    apis: 'apis',
     functions: 'functions',
     tables: 'tables',
-    apis: 'apis',
     tasks: 'tasks',
   }
 }

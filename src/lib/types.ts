@@ -4,53 +4,53 @@
 
 // Object types supported by Xano
 export type XanoObjectType =
-  | 'function'
+  | 'addon'
   | 'api_endpoint'
   | 'api_group'
+  | 'function'
+  | 'middleware'
   | 'table'
   | 'table_trigger'
-  | 'middleware'
-  | 'addon'
   | 'task'
 
 // xano.json - versioned project config
 export interface XanoProjectConfig {
   instance: string
-  workspace: string
-  workspaceId: number
   paths: {
+    [key: string]: string
+    apis: string
     functions: string
     tables: string
-    apis: string
     tasks: string
-    [key: string]: string
   }
+  workspace: string
+  workspaceId: number
 }
 
 // .xano/config.json - VSCode compatible local config
 export interface XanoLocalConfig {
-  instanceName: string
-  workspaceName: string
-  workspaceId: number
   branch: string
+  instanceName: string
   paths: {
+    [key: string]: string
+    apis: string
     functions: string
     tables: string
-    apis: string
     tasks: string
-    [key: string]: string
   }
+  workspaceId: number
+  workspaceName: string
 }
 
 // Single object in .xano/objects.json (VSCode compatible)
 export interface XanoObject {
   id: number
-  type: XanoObjectType
-  path: string
-  status: 'unchanged' | 'modified' | 'new' | 'deleted'
-  staged: boolean
-  sha256: string
   original: string // base64 encoded original content
+  path: string
+  sha256: string
+  staged: boolean
+  status: 'deleted' | 'modified' | 'new' | 'unchanged'
+  type: XanoObjectType
 }
 
 // .xano/objects.json - array of objects
@@ -69,100 +69,101 @@ export interface XanoStateFile {
 
 // Combined object info from objects.json + state.json
 export interface XanoObjectInfo {
-  id?: number
-  type?: XanoObjectType
-  path: string
-  status?: 'unchanged' | 'modified' | 'new' | 'deleted'
-  staged?: boolean
-  sha256?: string
-  original?: string
   etag?: string
+  id?: number
   key?: string
+  original?: string
+  path: string
+  sha256?: string
+  staged?: boolean
+  status?: 'deleted' | 'modified' | 'new' | 'unchanged'
+  type?: XanoObjectType
 }
 
 // Profile from ~/.xano/credentials.yaml
 export interface XanoProfile {
-  account_origin?: string
-  instance_origin: string
   access_token: string
-  workspace?: string
+  account_origin?: string
   branch?: string
+  instance_origin: string
+  workspace?: string
 }
 
 export interface XanoCredentials {
+  default?: string
   profiles: {
     [name: string]: XanoProfile
   }
-  default?: string
 }
 
 // API response types
 export interface XanoApiFunction {
+  created_at: number
+  description?: string
+  guid: string
   id: number
   name: string
-  guid: string
-  description?: string
-  xanoscript?: string
-  created_at: number
   updated_at: number
+  xanoscript?: string
 }
 
 export interface XanoApiEndpoint {
-  id: number
-  verb: string
-  path: string
-  guid: string
-  description?: string
-  xanoscript?: string
-  created_at: number
-  updated_at: number
   apigroup_id: number
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  name: string // API returns 'name' as the endpoint path (e.g., "merchants")
+  path?: string // Kept for compatibility
+  updated_at: number | string
+  verb: string
+  xanoscript?: string | { status?: string; value: string; }
 }
 
 export interface XanoApiGroup {
+  created_at: number
+  description?: string
+  guid: string
   id: number
   name: string
-  guid: string
-  description?: string
-  created_at: number
   updated_at: number
 }
 
 export interface XanoApiTable {
+  created_at: number
+  description?: string
+  guid: string
   id: number
   name: string
-  guid: string
-  description?: string
-  xanoscript?: string
-  created_at: number
   updated_at: number
+  xanoscript?: string
 }
 
 export interface XanoApiTask {
+  created_at: number
+  description?: string
+  guid: string
   id: number
   name: string
-  guid: string
-  description?: string
-  xanoscript?: string
-  created_at: number
   updated_at: number
+  xanoscript?: string
 }
 
 export interface XanoApiBranch {
   id: number
-  name: string
   is_default: boolean
   is_live: boolean
+  name: string
 }
 
 // Status types for CLI output
-export type FileStatus = 'modified' | 'new' | 'deleted' | 'unchanged' | 'conflict' | 'orphan'
+export type FileStatus = 'conflict' | 'deleted' | 'modified' | 'new' | 'orphan' | 'unchanged'
 
 export interface StatusEntry {
-  path: string
-  status: FileStatus
   id?: number
-  type?: XanoObjectType
   key?: string
   message?: string
+  path: string
+  status: FileStatus
+  type?: XanoObjectType
 }

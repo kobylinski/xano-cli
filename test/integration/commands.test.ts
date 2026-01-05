@@ -4,12 +4,11 @@
  * Run with: npm run test:integration
  */
 
+import { runCommand } from '@oclif/test'
 import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-
-import { runCommand } from '@oclif/test'
 
 import {
   INTEGRATION_ENABLED,
@@ -19,10 +18,10 @@ import {
 
 describe('Integration: Commands', function () {
   // Increase timeout for API calls
-  this.timeout(60000)
+  this.timeout(60_000)
 
   let tempDir: string
-  let testConfig: { workspaceId: number; branch: string; instance: string }
+  let testConfig: { branch: string; instance: string; workspaceId: number; }
 
   before(function () {
     if (!INTEGRATION_ENABLED) {
@@ -45,7 +44,7 @@ describe('Integration: Commands', function () {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xano-cli-integration-'))
   })
 
-  afterEach(function () {
+  afterEach(() => {
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { force: true, recursive: true })
     }
@@ -202,7 +201,7 @@ describe('Integration: Commands', function () {
       const originalCwd = process.cwd()
       try {
         process.chdir(tempDir)
-        const { stdout, stderr } = await runCommand(['branch', 'list'])
+        const { stderr, stdout } = await runCommand(['branch', 'list'])
 
         // Branch API might not be available (404) - check if we got meaningful output
         if (stderr && stderr.includes('404')) {

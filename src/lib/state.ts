@@ -5,7 +5,9 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { XanoStateFile, XanoStateEntry } from './types.js'
+
+import type { XanoStateEntry, XanoStateFile } from './types.js'
+
 import { ensureXanoDir, getXanoDirPath } from './project.js'
 
 const STATE_JSON = 'state.json'
@@ -28,7 +30,7 @@ export function loadState(projectRoot: string): XanoStateFile {
   }
 
   try {
-    const content = fs.readFileSync(filePath, 'utf-8')
+    const content = fs.readFileSync(filePath, 'utf8')
     return JSON.parse(content) as XanoStateFile
   } catch {
     return {}
@@ -47,7 +49,7 @@ export function saveState(projectRoot: string, state: XanoStateFile): void {
 /**
  * Get state entry for a file
  */
-export function getStateEntry(state: XanoStateFile, filePath: string): XanoStateEntry | undefined {
+export function getStateEntry(state: XanoStateFile, filePath: string): undefined | XanoStateEntry {
   return state[filePath]
 }
 
@@ -133,6 +135,7 @@ export function findPathByKey(state: XanoStateFile, key: string): string | undef
       return filePath
     }
   }
+
   return undefined
 }
 

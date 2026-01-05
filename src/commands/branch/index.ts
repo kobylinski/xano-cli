@@ -1,34 +1,37 @@
-import { Command, Flags, Args } from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
-import {
-  findProjectRoot,
-  loadLocalConfig,
-  saveLocalConfig,
-  isInitialized,
-} from '../../lib/project.js'
+
 import {
   getProfile,
   XanoApi,
 } from '../../lib/api.js'
+import {
+  findProjectRoot,
+  isInitialized,
+  loadLocalConfig,
+  saveLocalConfig,
+} from '../../lib/project.js'
 
 export default class Branch extends Command {
-  static description = 'Show or switch Xano branch'
-
-  static examples = [
-    '<%= config.bin %> branch',
-    '<%= config.bin %> branch list',
-    '<%= config.bin %> branch v2',
-    '<%= config.bin %> branch --switch live',
-  ]
-
   static args = {
     branch: Args.string({
       description: 'Branch name to switch to, or "list" to list branches',
       required: false,
     }),
   }
-
-  static flags = {
+static description = 'Show or switch Xano branch'
+static examples = [
+    '<%= config.bin %> branch',
+    '<%= config.bin %> branch list',
+    '<%= config.bin %> branch v2',
+    '<%= config.bin %> branch --switch live',
+  ]
+static flags = {
+    list: Flags.boolean({
+      char: 'l',
+      default: false,
+      description: 'List available branches',
+    }),
     profile: Flags.string({
       char: 'p',
       description: 'Profile to use',
@@ -37,11 +40,6 @@ export default class Branch extends Command {
     switch: Flags.string({
       char: 's',
       description: 'Switch to branch',
-    }),
-    list: Flags.boolean({
-      char: 'l',
-      description: 'List available branches',
-      default: false,
     }),
   }
 

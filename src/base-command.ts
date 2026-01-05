@@ -1,14 +1,14 @@
 import {Command, Flags} from '@oclif/core'
+import * as yaml from 'js-yaml'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import * as yaml from 'js-yaml'
 
 interface CredentialsFile {
+  default?: string
   profiles: {
     [key: string]: unknown
   }
-  default?: string
 }
 
 export default abstract class BaseCommand extends Command {
@@ -20,14 +20,8 @@ export default abstract class BaseCommand extends Command {
       required: false,
     }),
   }
-
-  // Override the flags property to include baseFlags
+// Override the flags property to include baseFlags
   static flags = BaseCommand.baseFlags
-
-  // Helper method to get the profile flag value
-  protected getProfile(): string | undefined {
-    return (this as any).flags?.profile
-  }
 
   // Helper method to get the default profile from credentials file
   protected getDefaultProfile(): string {
@@ -50,5 +44,10 @@ export default abstract class BaseCommand extends Command {
     } catch {
       return 'default'
     }
+  }
+
+  // Helper method to get the profile flag value
+  protected getProfile(): string | undefined {
+    return (this as any).flags?.profile
   }
 }

@@ -1,43 +1,38 @@
 import { Command, Flags } from '@oclif/core'
+import inquirer from 'inquirer'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import inquirer from 'inquirer'
+
+import type { XanoLocalConfig, XanoProjectConfig } from '../../lib/types.js'
+
 import {
-  findProjectRoot,
-  loadXanoJson,
-  saveXanoJson,
-  loadLocalConfig,
-  saveLocalConfig,
-  createLocalConfig,
-  getDefaultPaths,
-  ensureXanoDir,
-  getXanoDirPath,
-  getConfigJsonPath,
-  getXanoJsonPath,
-} from '../../lib/project.js'
-import {
+  getDefaultProfileName,
   getProfile,
   listProfileNames,
-  getDefaultProfileName,
   XanoApi,
 } from '../../lib/api.js'
-import type { XanoProjectConfig, XanoLocalConfig } from '../../lib/types.js'
+import {
+  createLocalConfig,
+  ensureXanoDir,
+  findProjectRoot,
+  getConfigJsonPath,
+  getDefaultPaths,
+  getXanoDirPath,
+  getXanoJsonPath,
+  loadLocalConfig,
+  loadXanoJson,
+  saveLocalConfig,
+  saveXanoJson,
+} from '../../lib/project.js'
 
 export default class Init extends Command {
   static description = 'Initialize xano project in current directory'
-
-  static examples = [
+static examples = [
     '<%= config.bin %> init',
     '<%= config.bin %> init --branch v2',
     '<%= config.bin %> init --profile my-profile --branch live',
   ]
-
-  static flags = {
-    profile: Flags.string({
-      char: 'p',
-      description: 'Profile to use',
-      env: 'XANO_PROFILE',
-    }),
+static flags = {
     branch: Flags.string({
       char: 'b',
       description: 'Xano branch to use',
@@ -45,8 +40,13 @@ export default class Init extends Command {
     }),
     force: Flags.boolean({
       char: 'f',
-      description: 'Force reinitialize',
       default: false,
+      description: 'Force reinitialize',
+    }),
+    profile: Flags.string({
+      char: 'p',
+      description: 'Profile to use',
+      env: 'XANO_PROFILE',
     }),
   }
 
@@ -100,70 +100,25 @@ export default class Init extends Command {
     // Case 4: Force reinit
     if (flags.force) {
       const projectConfig = loadXanoJson(projectRoot)
-      if (projectConfig) {
-        await this.initFromTemplate(projectRoot, projectConfig, flags)
-      } else {
-        await this.fullInteractiveSetup(projectRoot, flags)
-      }
-      return
+      await (projectConfig ? this.initFromTemplate(projectRoot, projectConfig, flags) : this.fullInteractiveSetup(projectRoot, flags));
+      
     }
   }
 
   private createXanoJsonFromConfig(projectRoot: string, config: XanoLocalConfig): void {
     const projectConfig: XanoProjectConfig = {
       instance: config.instanceName,
+      paths: config.paths || getDefaultPaths(),
       workspace: config.workspaceName,
       workspaceId: config.workspaceId,
-      paths: config.paths || getDefaultPaths(),
     }
     saveXanoJson(projectRoot, projectConfig)
     this.log('Created xano.json\n')
   }
 
-  private async initFromTemplate(
-    projectRoot: string,
-    projectConfig: XanoProjectConfig,
-    flags: { profile?: string; branch?: string }
-  ): Promise<void> {
-    this.log(`Project: ${projectConfig.workspace}`)
-    this.log(`Instance: ${projectConfig.instance}`)
-
-    // Select profile
-    const profileName = await this.selectProfile(flags.profile)
-    if (!profileName) {
-      this.error('No profile found. Run "xano profile:wizard" to create one.')
-    }
-
-    const profile = getProfile(profileName)
-    if (!profile) {
-      this.error(`Profile "${profileName}" not found.`)
-    }
-
-    this.log(`\nUsing profile: ${profileName}`)
-
-    // Fetch and select branch
-    const api = new XanoApi(profile, projectConfig.workspaceId, '')
-    const branchesResponse = await api.listBranches()
-
-    if (!branchesResponse.ok || !branchesResponse.data) {
-      this.error(`Failed to fetch branches: ${branchesResponse.error}`)
-    }
-
-    const branch = await this.selectBranch(flags.branch, branchesResponse.data)
-
-    // Create .xano/config.json
-    const localConfig = createLocalConfig(projectConfig, branch)
-    saveLocalConfig(projectRoot, localConfig)
-
-    this.log(`\nInitialized .xano/config.json`)
-    this.log(`  Branch: ${branch}`)
-    this.log('')
-    this.log("Run 'xano sync' to fetch objects from Xano.")
-  }
-
   private async fullInteractiveSetup(
     projectRoot: string,
-    flags: { profile?: string; branch?: string }
+    flags: { branch?: string; profile?: string; }
   ): Promise<void> {
     const profiles = listProfileNames()
     if (profiles.length === 0) {
@@ -204,13 +159,13 @@ export default class Init extends Command {
     // Select workspace
     const { workspace } = await inquirer.prompt<{ workspace: { id: number; name: string } }>([
       {
-        type: 'list',
-        name: 'workspace',
-        message: 'Select workspace:',
         choices: workspaces.map((w) => ({
           name: w.name,
           value: w,
         })),
+        message: 'Select workspace:',
+        name: 'workspace',
+        type: 'list',
       },
     ])
 
@@ -221,9 +176,9 @@ export default class Init extends Command {
     // Create xano.json
     const projectConfig: XanoProjectConfig = {
       instance,
+      paths: getDefaultPaths(),
       workspace: workspace.name,
       workspaceId: workspace.id,
-      paths: getDefaultPaths(),
     }
     saveXanoJson(projectRoot, projectConfig)
     this.log(`\nCreated xano.json`)
@@ -250,7 +205,90 @@ export default class Init extends Command {
     this.log("Run 'xano sync' to fetch objects from Xano.")
   }
 
-  private async selectProfile(flagProfile?: string): Promise<string | null> {
+  private async initFromTemplate(
+    projectRoot: string,
+    projectConfig: XanoProjectConfig,
+    flags: { branch?: string; profile?: string; }
+  ): Promise<void> {
+    this.log(`Project: ${projectConfig.workspace}`)
+    this.log(`Instance: ${projectConfig.instance}`)
+
+    // Select profile
+    const profileName = await this.selectProfile(flags.profile)
+    if (!profileName) {
+      this.error('No profile found. Run "xano profile:wizard" to create one.')
+    }
+
+    const profile = getProfile(profileName)
+    if (!profile) {
+      this.error(`Profile "${profileName}" not found.`)
+    }
+
+    this.log(`\nUsing profile: ${profileName}`)
+
+    // Fetch and select branch
+    const api = new XanoApi(profile, projectConfig.workspaceId, '')
+    const branchesResponse = await api.listBranches()
+
+    if (!branchesResponse.ok || !branchesResponse.data) {
+      this.error(`Failed to fetch branches: ${branchesResponse.error}`)
+    }
+
+    const branch = await this.selectBranch(flags.branch, branchesResponse.data)
+
+    // Create .xano/config.json
+    const localConfig = createLocalConfig(projectConfig, branch)
+    saveLocalConfig(projectRoot, localConfig)
+
+    this.log(`\nInitialized .xano/config.json`)
+    this.log(`  Branch: ${branch}`)
+    this.log('')
+    this.log("Run 'xano sync' to fetch objects from Xano.")
+  }
+
+  private async selectBranch(
+    flagBranch: string | undefined,
+    branches: Array<{ id: number; is_default: boolean; is_live: boolean; name: string; }>
+  ): Promise<string> {
+    if (flagBranch) {
+      const exists = branches.some((b) => b.name === flagBranch)
+      if (!exists) {
+        this.warn(`Branch "${flagBranch}" not found on Xano. Using anyway.`)
+      }
+
+      return flagBranch
+    }
+
+    if (branches.length === 0) {
+      this.error('No branches found in workspace.')
+    }
+
+    if (branches.length === 1) {
+      return branches[0].name
+    }
+
+    const { selectedBranch } = await inquirer.prompt<{ selectedBranch: string }>([
+      {
+        choices: branches.map((b) => {
+          let label = b.name
+          if (b.is_default) label += ' (default)'
+          if (b.is_live) label += ' (live)'
+          return {
+            name: label,
+            value: b.name,
+          }
+        }),
+        default: branches.find((b) => b.is_default)?.name || branches[0].name,
+        message: 'Select Xano branch:',
+        name: 'selectedBranch',
+        type: 'list',
+      },
+    ])
+
+    return selectedBranch
+  }
+
+  private async selectProfile(flagProfile?: string): Promise<null | string> {
     if (flagProfile) {
       return flagProfile
     }
@@ -268,58 +306,17 @@ export default class Init extends Command {
 
     const { selectedProfile } = await inquirer.prompt<{ selectedProfile: string }>([
       {
-        type: 'list',
-        name: 'selectedProfile',
-        message: 'Select profile:',
         choices: profiles.map((p) => ({
           name: p === defaultProfile ? `${p} (default)` : p,
           value: p,
         })),
         default: defaultProfile,
+        message: 'Select profile:',
+        name: 'selectedProfile',
+        type: 'list',
       },
     ])
 
     return selectedProfile
-  }
-
-  private async selectBranch(
-    flagBranch: string | undefined,
-    branches: Array<{ id: number; name: string; is_default: boolean; is_live: boolean }>
-  ): Promise<string> {
-    if (flagBranch) {
-      const exists = branches.some((b) => b.name === flagBranch)
-      if (!exists) {
-        this.warn(`Branch "${flagBranch}" not found on Xano. Using anyway.`)
-      }
-      return flagBranch
-    }
-
-    if (branches.length === 0) {
-      this.error('No branches found in workspace.')
-    }
-
-    if (branches.length === 1) {
-      return branches[0].name
-    }
-
-    const { selectedBranch } = await inquirer.prompt<{ selectedBranch: string }>([
-      {
-        type: 'list',
-        name: 'selectedBranch',
-        message: 'Select Xano branch:',
-        choices: branches.map((b) => {
-          let label = b.name
-          if (b.is_default) label += ' (default)'
-          if (b.is_live) label += ' (live)'
-          return {
-            name: label,
-            value: b.name,
-          }
-        }),
-        default: branches.find((b) => b.is_default)?.name || branches[0].name,
-      },
-    ])
-
-    return selectedBranch
   }
 }

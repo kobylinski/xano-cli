@@ -1,23 +1,14 @@
 import { Command, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import {
-  findProjectRoot,
-  loadLocalConfig,
-  isInitialized,
-} from '../../lib/project.js'
-import {
-  loadObjects,
-  saveObjects,
-  upsertObject,
-  computeSha256,
-  encodeBase64,
-} from '../../lib/objects.js'
-import {
-  loadState,
-  saveState,
-  setStateEntry,
-} from '../../lib/state.js'
+
+import type {
+  XanoLocalConfig,
+  XanoObjectsFile,
+  XanoObjectType,
+  XanoStateFile,
+} from '../../lib/types.js'
+
 import {
   getProfile,
   XanoApi,
@@ -26,46 +17,56 @@ import {
   generateFilePath,
   generateKey,
 } from '../../lib/detector.js'
-import type {
-  XanoObjectsFile,
-  XanoStateFile,
-  XanoObjectType,
-  XanoLocalConfig,
-} from '../../lib/types.js'
+import {
+  computeSha256,
+  encodeBase64,
+  extractXanoscript,
+  loadObjects,
+  saveObjects,
+  upsertObject,
+} from '../../lib/objects.js'
+import {
+  findProjectRoot,
+  isInitialized,
+  loadLocalConfig,
+} from '../../lib/project.js'
+import {
+  loadState,
+  saveState,
+  setStateEntry,
+} from '../../lib/state.js'
 
 interface FetchedObject {
-  id: number
-  name: string
-  type: XanoObjectType
-  xanoscript: string
   apigroup_id?: number
   apigroup_name?: string
-  verb?: string
+  id: number
+  name: string
   path?: string
+  type: XanoObjectType
+  verb?: string
+  xanoscript: string
 }
 
 export default class Sync extends Command {
   static description = 'Sync local state with Xano - fetch all objects and update mappings'
-
-  static examples = [
+static examples = [
     '<%= config.bin %> sync',
     '<%= config.bin %> sync --pull',
     '<%= config.bin %> sync --pull --clean',
   ]
-
-  static flags = {
+static flags = {
+    clean: Flags.boolean({
+      default: false,
+      description: 'Delete local files not on Xano (use with --pull)',
+    }),
     profile: Flags.string({
       char: 'p',
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
     pull: Flags.boolean({
+      default: false,
       description: 'Also write files locally (pull from Xano)',
-      default: false,
-    }),
-    clean: Flags.boolean({
-      description: 'Delete local files not on Xano (use with --pull)',
-      default: false,
     }),
   }
 
@@ -109,6 +110,7 @@ export default class Sync extends Command {
       for (const group of groupsResponse.data.items) {
         apiGroups.set(group.id, group.name)
       }
+
       this.log(`  Found ${apiGroups.size} API groups`)
     }
 
@@ -117,15 +119,17 @@ export default class Sync extends Command {
     const functionsResponse = await api.listFunctions(1, 1000)
     if (functionsResponse.ok && functionsResponse.data?.items) {
       for (const fn of functionsResponse.data.items) {
-        if (fn.xanoscript) {
+        const xs = extractXanoscript(fn.xanoscript)
+        if (xs) {
           allObjects.push({
             id: fn.id,
             name: fn.name,
             type: 'function',
-            xanoscript: fn.xanoscript,
+            xanoscript: xs,
           })
         }
       }
+
       this.log(`  Found ${functionsResponse.data.items.length} functions`)
     }
 
@@ -134,19 +138,21 @@ export default class Sync extends Command {
     const apisResponse = await api.listApiEndpoints(1, 1000)
     if (apisResponse.ok && apisResponse.data?.items) {
       for (const endpoint of apisResponse.data.items) {
-        if (endpoint.xanoscript) {
+        const xs = extractXanoscript(endpoint.xanoscript)
+        if (xs) {
           allObjects.push({
-            id: endpoint.id,
-            name: endpoint.path,
-            type: 'api_endpoint',
-            xanoscript: endpoint.xanoscript,
             apigroup_id: endpoint.apigroup_id,
             apigroup_name: apiGroups.get(endpoint.apigroup_id),
+            id: endpoint.id,
+            name: endpoint.name,
+            path: endpoint.name,
+            type: 'api_endpoint',
             verb: endpoint.verb,
-            path: endpoint.path,
+            xanoscript: xs,
           })
         }
       }
+
       this.log(`  Found ${apisResponse.data.items.length} API endpoints`)
     }
 
@@ -155,15 +161,17 @@ export default class Sync extends Command {
     const tablesResponse = await api.listTables(1, 1000)
     if (tablesResponse.ok && tablesResponse.data?.items) {
       for (const table of tablesResponse.data.items) {
-        if (table.xanoscript) {
+        const xs = extractXanoscript(table.xanoscript)
+        if (xs) {
           allObjects.push({
             id: table.id,
             name: table.name,
             type: 'table',
-            xanoscript: table.xanoscript,
+            xanoscript: xs,
           })
         }
       }
+
       this.log(`  Found ${tablesResponse.data.items.length} tables`)
     }
 
@@ -172,15 +180,17 @@ export default class Sync extends Command {
     const tasksResponse = await api.listTasks(1, 1000)
     if (tasksResponse.ok && tasksResponse.data?.items) {
       for (const task of tasksResponse.data.items) {
-        if (task.xanoscript) {
+        const xs = extractXanoscript(task.xanoscript)
+        if (xs) {
           allObjects.push({
             id: task.id,
             name: task.name,
             type: 'task',
-            xanoscript: task.xanoscript,
+            xanoscript: xs,
           })
         }
       }
+
       this.log(`  Found ${tasksResponse.data.items.length} tasks`)
     }
 
@@ -209,17 +219,17 @@ export default class Sync extends Command {
       // Update objects.json
       objects = upsertObject(objects, filePath, {
         id: obj.id,
-        type: obj.type,
-        status: 'unchanged',
-        staged: false,
-        sha256: computeSha256(obj.xanoscript),
         original: encodeBase64(obj.xanoscript),
+        sha256: computeSha256(obj.xanoscript),
+        staged: false,
+        status: 'unchanged',
+        type: obj.type,
       })
 
       // Update state.json
       state = setStateEntry(state, filePath, {
-        key,
         etag: undefined, // Will be set on individual fetch
+        key,
       })
 
       // Write file if --pull
@@ -228,6 +238,7 @@ export default class Sync extends Command {
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true })
         }
+
         fs.writeFileSync(fullPath, obj.xanoscript, 'utf-8')
       }
     }
@@ -244,6 +255,7 @@ export default class Sync extends Command {
           }
         }
       }
+
       if (deletedCount > 0) {
         this.log(`\nDeleted ${deletedCount} local files not on Xano`)
       }
@@ -264,41 +276,6 @@ export default class Sync extends Command {
     }
   }
 
-  private generateObjectPath(obj: FetchedObject, config: XanoLocalConfig): string {
-    switch (obj.type) {
-      case 'function':
-        return `${config.paths.functions}/${obj.id}_${this.sanitizeName(obj.name)}.xs`
-
-      case 'api_endpoint': {
-        const group = obj.apigroup_name || 'default'
-        const verb = obj.verb?.toUpperCase() || 'GET'
-        const pathName = this.sanitizePath(obj.path || obj.name)
-        return `${config.paths.apis}/${this.sanitizeName(group)}/${obj.id}_${verb}_${pathName}.xs`
-      }
-
-      case 'table':
-        return `${config.paths.tables}/${obj.id}_${this.sanitizeName(obj.name)}.xs`
-
-      case 'task':
-        return `${config.paths.tasks}/${obj.id}_${this.sanitizeName(obj.name)}.xs`
-
-      default:
-        return `other/${obj.id}_${this.sanitizeName(obj.name)}.xs`
-    }
-  }
-
-  private sanitizeName(name: string): string {
-    return name.replace(/[^a-zA-Z0-9_-]/g, '_')
-  }
-
-  private sanitizePath(apiPath: string): string {
-    return apiPath
-      .replace(/^\//, '')
-      .replace(/\//g, '_')
-      .replace(/[{}]/g, '')
-      .replace(/[^a-zA-Z0-9_-]/g, '_')
-  }
-
   private collectExistingFiles(
     projectRoot: string,
     config: XanoLocalConfig,
@@ -317,6 +294,47 @@ export default class Sync extends Command {
         this.walkDir(fullDir, projectRoot, files)
       }
     }
+  }
+
+  private generateObjectPath(obj: FetchedObject, config: XanoLocalConfig): string {
+    switch (obj.type) {
+      case 'api_endpoint': {
+        const group = obj.apigroup_name || 'default'
+        const verb = obj.verb?.toUpperCase() || 'GET'
+        const pathName = this.sanitizePath(obj.path || obj.name)
+        return `${config.paths.apis}/${this.sanitizeName(group)}/${obj.id}_${verb}_${pathName}.xs`
+      }
+
+      case 'function': {
+        return `${config.paths.functions}/${obj.id}_${this.sanitizeName(obj.name)}.xs`
+      }
+
+      case 'table': {
+        return `${config.paths.tables}/${obj.id}_${this.sanitizeName(obj.name)}.xs`
+      }
+
+      case 'task': {
+        return `${config.paths.tasks}/${obj.id}_${this.sanitizeName(obj.name)}.xs`
+      }
+
+      default: {
+        return `other/${obj.id}_${this.sanitizeName(obj.name)}.xs`
+      }
+    }
+  }
+
+  private sanitizeName(name: string | undefined): string {
+    if (!name) return 'unnamed'
+    return name.replaceAll(/[^a-zA-Z0-9_-]/g, '_')
+  }
+
+  private sanitizePath(apiPath: string | undefined): string {
+    if (!apiPath) return 'unnamed'
+    return apiPath
+      .replace(/^\//, '')
+      .replaceAll('/', '_')
+      .replaceAll(/[{}]/g, '')
+      .replaceAll(/[^a-zA-Z0-9_-]/g, '_')
   }
 
   private walkDir(dir: string, projectRoot: string, files: Set<string>): void {

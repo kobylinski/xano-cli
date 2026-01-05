@@ -1,33 +1,34 @@
 import {Flags} from '@oclif/core'
+import * as yaml from 'js-yaml'
 import {execSync} from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import * as yaml from 'js-yaml'
+
 import BaseCommand from '../../../../base-command.js'
 
 interface ProfileConfig {
-  account_origin?: string
-  instance_origin: string
   access_token: string
-  workspace?: string
+  account_origin?: string
   branch?: string
+  instance_origin: string
+  workspace?: string
 }
 
 interface CredentialsFile {
+  default?: string
   profiles: {
     [key: string]: ProfileConfig
   }
-  default?: string
 }
 
 interface EphemeralJobResult {
-  total_time: number
-  pre_time: number
   boot_time: number
-  post_time: number
   main_time: number
+  post_time: number
+  pre_time: number
   response: any
+  total_time: number
 }
 
 interface EphemeralJobResponse {
@@ -42,46 +43,8 @@ interface EphemeralJobResponse {
 
 export default class EphemeralRunJob extends BaseCommand {
   static args = {}
-
-  static override flags = {
-    ...BaseCommand.baseFlags,
-    file: Flags.string({
-      char: 'f',
-      description: 'Path or URL to file containing XanoScript code',
-      required: false,
-      exclusive: ['stdin'],
-    }),
-    stdin: Flags.boolean({
-      char: 's',
-      description: 'Read XanoScript code from stdin',
-      required: false,
-      default: false,
-      exclusive: ['file'],
-    }),
-    edit: Flags.boolean({
-      char: 'e',
-      description: 'Open file in editor before running job (requires --file)',
-      required: false,
-      default: false,
-      dependsOn: ['file'],
-    }),
-    output: Flags.string({
-      char: 'o',
-      description: 'Output format',
-      required: false,
-      default: 'summary',
-      options: ['summary', 'json'],
-    }),
-    args: Flags.string({
-      char: 'a',
-      description: 'Path or URL to JSON file containing input arguments',
-      required: false,
-    }),
-  }
-
-  static description = 'Run an ephemeral job'
-
-  static examples = [
+static description = 'Run an ephemeral job'
+static examples = [
     `$ xano ephemeral:run:job -f script.xs
 Job executed successfully!
 ...
@@ -107,6 +70,41 @@ Job executed successfully!
 ...
 `,
   ]
+static override flags = {
+    ...BaseCommand.baseFlags,
+    args: Flags.string({
+      char: 'a',
+      description: 'Path or URL to JSON file containing input arguments',
+      required: false,
+    }),
+    edit: Flags.boolean({
+      char: 'e',
+      default: false,
+      dependsOn: ['file'],
+      description: 'Open file in editor before running job (requires --file)',
+      required: false,
+    }),
+    file: Flags.string({
+      char: 'f',
+      description: 'Path or URL to file containing XanoScript code',
+      exclusive: ['stdin'],
+      required: false,
+    }),
+    output: Flags.string({
+      char: 'o',
+      default: 'summary',
+      description: 'Output format',
+      options: ['summary', 'json'],
+      required: false,
+    }),
+    stdin: Flags.boolean({
+      char: 's',
+      default: false,
+      description: 'Read XanoScript code from stdin',
+      exclusive: ['file'],
+      required: false,
+    }),
+  }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(EphemeralRunJob)
@@ -204,22 +202,24 @@ Job executed successfully!
     } else {
       formData.append('doc', xanoscript!)
     }
+
     if (inputArgsUrl) {
       formData.append('args', inputArgsUrl)
     } else if (inputArgs) {
       formData.append('args', JSON.stringify(inputArgs))
     }
+
     const requestBody = formData
 
     // Run ephemeral job via API
     try {
       const response = await fetch(apiUrl, {
-        method: 'POST',
+        body: requestBody,
         headers: {
           'accept': 'application/json',
           'Authorization': `Bearer ${profile.access_token}`,
         },
-        body: requestBody,
+        method: 'POST',
       })
 
       if (!response.ok) {
@@ -315,6 +315,7 @@ Job executed successfully!
       } catch {
         // Ignore cleanup errors
       }
+
       this.error(`Editor exited with an error: ${error}`)
     }
 
@@ -323,27 +324,6 @@ Job executed successfully!
 
   private isUrl(str: string): boolean {
     return str.startsWith('http://') || str.startsWith('https://')
-  }
-
-  private async readStdin(): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = []
-
-      process.stdin.on('data', (chunk: Buffer) => {
-        chunks.push(chunk)
-      })
-
-      process.stdin.on('end', () => {
-        resolve(Buffer.concat(chunks).toString('utf8'))
-      })
-
-      process.stdin.on('error', (error: Error) => {
-        reject(error)
-      })
-
-      // Resume stdin if it was paused
-      process.stdin.resume()
-    })
   }
 
   private loadCredentials(): CredentialsFile {
@@ -371,5 +351,26 @@ Job executed successfully!
     } catch (error) {
       this.error(`Failed to parse credentials file: ${error}`)
     }
+  }
+
+  private async readStdin(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+
+      process.stdin.on('data', (chunk: Buffer) => {
+        chunks.push(chunk)
+      })
+
+      process.stdin.on('end', () => {
+        resolve(Buffer.concat(chunks).toString('utf8'))
+      })
+
+      process.stdin.on('error', (error: Error) => {
+        reject(error)
+      })
+
+      // Resume stdin if it was paused
+      process.stdin.resume()
+    })
   }
 }

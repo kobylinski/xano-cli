@@ -1,25 +1,13 @@
-import { Command, Flags, Args } from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
+import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { execSync } from 'node:child_process'
-import {
-  findProjectRoot,
-  loadLocalConfig,
-  isInitialized,
-} from '../../lib/project.js'
-import {
-  loadObjects,
-  saveObjects,
-  findObjectByPath,
-  upsertObject,
-  computeSha256,
-  encodeBase64,
-} from '../../lib/objects.js'
-import {
-  loadState,
-  saveState,
-  setStateEntry,
-} from '../../lib/state.js'
+
+import type {
+  XanoObjectsFile,
+  XanoStateFile,
+} from '../../lib/types.js'
+
 import {
   getProfile,
   XanoApi,
@@ -27,56 +15,66 @@ import {
 import {
   generateKey,
 } from '../../lib/detector.js'
-import type {
-  XanoObjectsFile,
-  XanoStateFile,
-} from '../../lib/types.js'
+import {
+  computeSha256,
+  encodeBase64,
+  findObjectByPath,
+  loadObjects,
+  saveObjects,
+  upsertObject,
+} from '../../lib/objects.js'
+import {
+  findProjectRoot,
+  isInitialized,
+  loadLocalConfig,
+} from '../../lib/project.js'
+import {
+  loadState,
+  saveState,
+  setStateEntry,
+} from '../../lib/state.js'
 
 export default class Pull extends Command {
-  static description = 'Pull XanoScript files from Xano to local'
-
-  static examples = [
-    '<%= config.bin %> pull functions/my_function.xs',
-    '<%= config.bin %> pull --all',
-    '<%= config.bin %> pull --merge functions/my_function.xs',
-  ]
-
   static args = {
     files: Args.string({
       description: 'Files to pull (space-separated)',
       required: false,
     }),
   }
-
-  static strict = false // Allow multiple file arguments
-
-  static flags = {
+static description = 'Pull XanoScript files from Xano to local'
+static examples = [
+    '<%= config.bin %> pull functions/my_function.xs',
+    '<%= config.bin %> pull --all',
+    '<%= config.bin %> pull --merge functions/my_function.xs',
+  ]
+static flags = {
+    all: Flags.boolean({
+      default: false,
+      description: 'Pull all files from Xano',
+    }),
+    'dry-run': Flags.boolean({
+      default: false,
+      description: 'Show what would be pulled without actually pulling',
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      default: false,
+      description: 'Overwrite local changes without confirmation',
+    }),
+    merge: Flags.boolean({
+      default: false,
+      description: 'Attempt 3-way merge with local changes',
+    }),
     profile: Flags.string({
       char: 'p',
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
-    all: Flags.boolean({
-      description: 'Pull all files from Xano',
-      default: false,
-    }),
-    force: Flags.boolean({
-      char: 'f',
-      description: 'Overwrite local changes without confirmation',
-      default: false,
-    }),
-    merge: Flags.boolean({
-      description: 'Attempt 3-way merge with local changes',
-      default: false,
-    }),
-    'dry-run': Flags.boolean({
-      description: 'Show what would be pulled without actually pulling',
-      default: false,
-    }),
   }
+static strict = false // Allow multiple file arguments
 
   async run(): Promise<void> {
-    const { flags, argv } = await this.parse(Pull)
+    const { argv, flags } = await this.parse(Pull)
     const files = argv as string[]
 
     const projectRoot = findProjectRoot()
@@ -112,6 +110,7 @@ export default class Pull extends Command {
         if (path.isAbsolute(f)) {
           return path.relative(projectRoot, f)
         }
+
         return f
       })
     } else {
@@ -141,6 +140,7 @@ export default class Pull extends Command {
           this.log(`  ${file} (not in objects.json - skipped)`)
         }
       }
+
       return
     }
 
@@ -193,142 +193,13 @@ export default class Pull extends Command {
     this.log(`Pulled: ${successCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`)
   }
 
-  private async pullFile(
-    projectRoot: string,
-    filePath: string,
-    id: number,
-    type: string,
-    api: XanoApi,
-    objects: XanoObjectsFile,
-    state: XanoStateFile,
-    force: boolean,
-    merge: boolean
-  ): Promise<{
-    success: boolean
-    skipped?: boolean
-    error?: string
-    objects: XanoObjectsFile
-    state: XanoStateFile
-  }> {
-    const fullPath = path.join(projectRoot, filePath)
-
-    // Fetch from Xano
-    const response = await api.getObject(type as any, id)
-
-    if (!response.ok || !response.data?.xanoscript) {
-      return {
-        success: false,
-        error: response.error || 'Failed to fetch from Xano',
-        objects,
-        state,
-      }
-    }
-
-    const serverContent = response.data.xanoscript
-    const serverSha256 = computeSha256(serverContent)
-
-    // Check if local file exists and has changes
-    if (fs.existsSync(fullPath) && !force) {
-      const localContent = fs.readFileSync(fullPath, 'utf-8')
-      const localSha256 = computeSha256(localContent)
-      const obj = findObjectByPath(objects, filePath)
-
-      // Check if local has uncommitted changes
-      if (obj && localSha256 !== obj.sha256) {
-        if (merge) {
-          // Attempt merge
-          const mergeResult = this.attemptMerge(
-            projectRoot,
-            fullPath,
-            localContent,
-            serverContent,
-            obj.original
-          )
-
-          if (!mergeResult.success) {
-            return {
-              success: false,
-              error: mergeResult.error || 'Merge failed',
-              objects,
-              state,
-            }
-          }
-
-          // Merged content is in the file
-          const mergedContent = fs.readFileSync(fullPath, 'utf-8')
-          const key = generateKey(mergedContent) || `${type}:${path.basename(filePath, '.xs')}`
-
-          objects = upsertObject(objects, filePath, {
-            id,
-            type: type as any,
-            status: mergeResult.hasConflicts ? 'modified' : 'unchanged',
-            staged: false,
-            sha256: computeSha256(mergedContent),
-            original: encodeBase64(serverContent),
-          })
-
-          state = setStateEntry(state, filePath, {
-            key,
-            etag: response.etag,
-          })
-
-          if (mergeResult.hasConflicts) {
-            return {
-              success: true,
-              error: 'Merged with conflicts - please resolve manually',
-              objects,
-              state,
-            }
-          }
-
-          return { success: true, objects, state }
-        } else {
-          return {
-            success: false,
-            skipped: true,
-            error: 'Local changes exist. Use --force to overwrite or --merge to attempt merge.',
-            objects,
-            state,
-          }
-        }
-      }
-    }
-
-    // Write file
-    const dir = path.dirname(fullPath)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
-    }
-    fs.writeFileSync(fullPath, serverContent, 'utf-8')
-
-    const key = generateKey(serverContent) || `${type}:${path.basename(filePath, '.xs')}`
-
-    // Update objects.json
-    objects = upsertObject(objects, filePath, {
-      id,
-      type: type as any,
-      status: 'unchanged',
-      staged: false,
-      sha256: serverSha256,
-      original: encodeBase64(serverContent),
-    })
-
-    // Update state.json
-    state = setStateEntry(state, filePath, {
-      key,
-      etag: response.etag,
-    })
-
-    return { success: true, objects, state }
-  }
-
   private attemptMerge(
     projectRoot: string,
     filePath: string,
     localContent: string,
     serverContent: string,
     originalBase64: string
-  ): { success: boolean; hasConflicts: boolean; error?: string } {
+  ): { error?: string; hasConflicts: boolean; success: boolean; } {
     try {
       // Decode base content
       const baseContent = Buffer.from(originalBase64, 'base64').toString('utf-8')
@@ -352,26 +223,181 @@ export default class Pull extends Command {
 
         // Clean up
         fs.rmSync(tmpDir, { recursive: true })
-        return { success: true, hasConflicts: false }
+        return { hasConflicts: false, success: true }
       } catch (mergeError: any) {
         // git merge-file returns non-zero if there are conflicts
         // but still produces output with conflict markers
         if (mergeError.status === 1) {
           // Copy the merged file with conflicts
-          const mergedContent = fs.readFileSync(localPath, 'utf-8')
+          const mergedContent = fs.readFileSync(localPath, 'utf8')
           fs.writeFileSync(filePath, mergedContent)
 
           // Clean up
           fs.rmSync(tmpDir, { recursive: true })
-          return { success: true, hasConflicts: true }
+          return { hasConflicts: true, success: true }
         }
 
         // Clean up
         fs.rmSync(tmpDir, { recursive: true })
-        return { success: false, hasConflicts: false, error: 'Git merge-file failed' }
+        return { error: 'Git merge-file failed', hasConflicts: false, success: false }
       }
     } catch (error: any) {
-      return { success: false, hasConflicts: false, error: error.message }
+      return { error: error.message, hasConflicts: false, success: false }
     }
+  }
+
+  private async pullFile(
+    projectRoot: string,
+    filePath: string,
+    id: number,
+    type: string,
+    api: XanoApi,
+    objects: XanoObjectsFile,
+    state: XanoStateFile,
+    force: boolean,
+    merge: boolean
+  ): Promise<{
+    error?: string
+    objects: XanoObjectsFile
+    skipped?: boolean
+    state: XanoStateFile
+    success: boolean
+  }> {
+    const fullPath = path.join(projectRoot, filePath)
+
+    // Fetch from Xano
+    const response = await api.getObject(type as any, id)
+
+    if (!response.ok) {
+      return {
+        error: response.error || `HTTP ${response.status}`,
+        objects,
+        state,
+        success: false,
+      }
+    }
+
+    // Handle xanoscript as string or object with value/status
+    let serverContent: string
+    const xs = response.data?.xanoscript
+    if (!xs) {
+      return {
+        error: 'No xanoscript content in response',
+        objects,
+        state,
+        success: false,
+      }
+    }
+
+    if (typeof xs === 'string') {
+      serverContent = xs
+    } else if (typeof xs === 'object' && 'value' in xs) {
+      serverContent = (xs as { status?: unknown; value: string; }).value
+    } else {
+      return {
+        error: `Unexpected xanoscript format: ${typeof xs}`,
+        objects,
+        state,
+        success: false,
+      }
+    }
+
+    const serverSha256 = computeSha256(serverContent)
+
+    // Check if local file exists and has changes
+    if (fs.existsSync(fullPath) && !force) {
+      const localContent = fs.readFileSync(fullPath, 'utf8')
+      const localSha256 = computeSha256(localContent)
+      const obj = findObjectByPath(objects, filePath)
+
+      // Check if local has uncommitted changes
+      if (obj && localSha256 !== obj.sha256) {
+        if (merge) {
+          // Attempt merge
+          const mergeResult = this.attemptMerge(
+            projectRoot,
+            fullPath,
+            localContent,
+            serverContent,
+            obj.original
+          )
+
+          if (!mergeResult.success) {
+            return {
+              error: mergeResult.error || 'Merge failed',
+              objects,
+              state,
+              success: false,
+            }
+          }
+
+          // Merged content is in the file
+          const mergedContent = fs.readFileSync(fullPath, 'utf8')
+          const key = generateKey(mergedContent) || `${type}:${path.basename(filePath, '.xs')}`
+
+          objects = upsertObject(objects, filePath, {
+            id,
+            original: encodeBase64(serverContent),
+            sha256: computeSha256(mergedContent),
+            staged: false,
+            status: mergeResult.hasConflicts ? 'modified' : 'unchanged',
+            type: type as any,
+          })
+
+          state = setStateEntry(state, filePath, {
+            etag: response.etag,
+            key,
+          })
+
+          if (mergeResult.hasConflicts) {
+            return {
+              error: 'Merged with conflicts - please resolve manually',
+              objects,
+              state,
+              success: true,
+            }
+          }
+
+          return { objects, state, success: true }
+        }
+ 
+          return {
+            error: 'Local changes exist. Use --force to overwrite or --merge to attempt merge.',
+            objects,
+            skipped: true,
+            state,
+            success: false,
+          }
+        
+      }
+    }
+
+    // Write file
+    const dir = path.dirname(fullPath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+
+    fs.writeFileSync(fullPath, serverContent, 'utf-8')
+
+    const key = generateKey(serverContent) || `${type}:${path.basename(filePath, '.xs')}`
+
+    // Update objects.json
+    objects = upsertObject(objects, filePath, {
+      id,
+      original: encodeBase64(serverContent),
+      sha256: serverSha256,
+      staged: false,
+      status: 'unchanged',
+      type: type as any,
+    })
+
+    // Update state.json
+    state = setStateEntry(state, filePath, {
+      etag: response.etag,
+      key,
+    })
+
+    return { objects, state, success: true }
   }
 }
