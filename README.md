@@ -1,9 +1,6 @@
 # Xano CLI
 
-Command-line interface for the Xano Metadata API.
-
-[![Version](https://img.shields.io/npm/v/@xano/cli.svg)](https://npmjs.org/package/@xano/cli)
-[![Downloads/week](https://img.shields.io/npm/dw/@xano/cli.svg)](https://npmjs.org/package/@xano/cli)
+Command-line interface for the Xano Metadata API with project-based sync support.
 
 ## Installation
 
@@ -13,26 +10,196 @@ npm install -g @xano/cli
 
 ## Quick Start
 
-1. Create a profile with the wizard:
-   ```bash
-   xano profile:wizard
-   ```
+### New Project
 
-2. List your workspaces:
-   ```bash
-   xano workspace:list
-   ```
+```bash
+# Create profile (one-time setup)
+xano profile:wizard
 
-3. Run an ephemeral job:
-   ```bash
-   xano ephemeral:run:job -f script.xs
-   ```
+# Initialize project in current directory
+xano init
 
-## Commands
+# Sync with Xano and pull all files
+xano sync --pull
+```
 
-### Profile Management
+### Existing Project (with .xano/ directory)
 
-Profiles store your Xano credentials and default workspace settings.
+```bash
+# Initialize - creates xano.json from existing .xano/config.json
+xano init
+
+# Check status
+xano status
+
+# List remote objects
+xano list
+```
+
+## Project Structure
+
+```
+project/
+├── xano.json              # Versioned - workspace identity (commit this)
+├── .xano/                  # Local state (add to .gitignore)
+│   ├── config.json         # Workspace config + current branch
+│   ├── objects.json        # Object ID mappings (VSCode compatible)
+│   └── state.json          # CLI state (etag, keys)
+├── functions/              # XanoScript functions
+├── apis/                   # API endpoints by group
+│   ├── auth/
+│   └── user/
+├── tables/                 # Table definitions
+└── tasks/                  # Scheduled tasks
+```
+
+## Project Commands
+
+### Initialize
+
+```bash
+# Initialize from existing .xano/config.json or xano.json
+xano init
+
+# Initialize with specific branch
+xano init --branch v2
+
+# Force reinitialize
+xano init --force
+```
+
+### Sync
+
+```bash
+# Fetch object mappings from Xano (updates .xano/ files)
+xano sync
+
+# Also pull all files locally
+xano sync --pull
+
+# Pull and delete local files not on Xano
+xano sync --pull --clean
+```
+
+### Status
+
+```bash
+# Show local changes vs Xano
+xano status
+
+# Output as JSON
+xano status --json
+```
+
+Output shows:
+- `M` - Modified locally
+- `A` - New (not on Xano)
+- `D` - Deleted locally
+- `?` - Orphan (on Xano, no local file)
+
+### List Remote Objects
+
+```bash
+# List all objects on Xano
+xano list
+
+# List by type (shell autocomplete works!)
+xano list functions/
+xano list tables/
+xano list apis/
+xano list tasks/
+
+# Filter APIs by group
+xano list apis/auth
+xano list apis/user
+
+# Show only objects not pulled locally
+xano list --remote-only
+
+# Long format with details
+xano list -l
+
+# JSON output
+xano list --json
+```
+
+### Push
+
+```bash
+# Push specific files
+xano push functions/my_function.xs
+xano push apis/auth/endpoint.xs
+
+# Push git-staged .xs files
+xano push --staged
+
+# Push all modified/new files
+xano push --all
+
+# Dry run (show what would be pushed)
+xano push --dry-run
+
+# Force push (skip conflict check)
+xano push --force
+```
+
+### Pull
+
+```bash
+# Pull specific files
+xano pull functions/my_function.xs
+
+# Pull all files
+xano pull --all
+
+# Attempt 3-way merge with local changes
+xano pull --merge functions/my_function.xs
+
+# Force overwrite local changes
+xano pull --force
+
+# Dry run
+xano pull --dry-run
+```
+
+### Branch
+
+```bash
+# Show current branch
+xano branch
+
+# List all branches
+xano branch list
+
+# Switch branch
+xano branch v2
+xano branch live
+```
+
+### Lint
+
+```bash
+# Lint specific files
+xano lint functions/my_function.xs
+
+# Lint directory
+xano lint functions/
+
+# Lint git-staged files
+xano lint --staged
+
+# Lint all .xs files
+xano lint --all
+```
+
+Requires `xanoscript-lint` to be installed:
+```bash
+npm install -g xanoscript-lint
+```
+
+## Profile Management
+
+Profiles store your Xano credentials in `~/.xano/credentials.yaml`.
 
 ```bash
 # Create a profile interactively
@@ -49,84 +216,134 @@ xano profile:list --details
 xano profile:set-default myprofile
 
 # Edit a profile
-xano profile:edit myprofile -w 123  # Set default workspace
+xano profile:edit myprofile
 
 # Delete a profile
 xano profile:delete myprofile
+
+# Show current user info
+xano profile:me
 ```
 
-### Workspaces
+## Individual Object Commands
 
-```bash
-# List all workspaces
-xano workspace:list
-xano workspace:list -o json
-```
+These commands work with numeric IDs (original CLI style):
 
 ### Functions
 
 ```bash
-# List functions in a workspace
 xano function:list -w 40
-xano function:list -o json
-
-# Get a specific function
-xano function:get 145
-xano function:get 145 -o xs  # Output as XanoScript
-
-# Create a function from XanoScript
+xano function:get 145 -o xs
 xano function:create -f function.xs
-cat function.xs | xano function:create --stdin
-
-# Edit a function
-xano function:edit 145           # Opens in $EDITOR
-xano function:edit 145 -f new.xs # Update from file
-xano function:edit 145 --publish # Publish after editing
+xano function:edit 145
 ```
 
-### Ephemeral Jobs & Services
+### Ephemeral Jobs
 
-Run XanoScript code without creating permanent resources.
+Run XanoScript without creating permanent resources:
 
 ```bash
-# Run a job (executes and returns result)
 xano ephemeral:run:job -f script.xs
-xano ephemeral:run:job -f script.xs -a args.json  # With input arguments
-xano ephemeral:run:job -f script.xs --edit        # Edit in $EDITOR first
-
-# Run a service (starts API endpoints)
+xano ephemeral:run:job -f script.xs -a args.json
 xano ephemeral:run:service -f service.xs
 ```
 
 ### Static Hosts
 
 ```bash
-# List static hosts
 xano static_host:list
-
-# Create a build
 xano static_host:build:create default -f ./build.zip -n "v1.0.0"
-
-# List builds
 xano static_host:build:list default
-
-# Get build details
-xano static_host:build:get default 52
 ```
 
-## Global Options
+## Workflow Examples
 
-All commands support these options:
+### Daily Development
 
-| Flag | Description |
-|------|-------------|
-| `-p, --profile` | Profile to use (or set `XANO_PROFILE` env var) |
-| `-w, --workspace` | Workspace ID (overrides profile default) |
-| `-o, --output` | Output format: `summary` (default) or `json` |
+```bash
+# Start of day - check what changed
+xano status
 
-## Configuration
+# Pull any server changes
+xano pull --all
 
-Profiles are stored in `~/.xano/credentials.yaml`.
+# Work on files locally...
+
+# Push changes
+xano push functions/my_function.xs
+
+# Or push all modified
+xano push --all
+```
+
+### Git Integration
+
+```bash
+# Stage and push together
+git add functions/new_feature.xs
+xano push --staged
+git commit -m "Add new feature"
+```
+
+### Team Collaboration
+
+```bash
+# Someone edited in Xano UI - pull their changes
+xano pull functions/shared_util.xs --merge
+
+# Resolve conflicts if any, then push
+xano push functions/shared_util.xs
+```
+
+### Branch Switching
+
+```bash
+# Switch to different Xano branch
+xano branch live
+
+# Re-sync mappings for new branch
+xano sync
+
+# Pull files from new branch
+xano sync --pull
+```
+
+## Configuration Files
+
+### xano.json (versioned)
+
+```json
+{
+  "instance": "a1b2-c3d4-e5f6",
+  "workspace": "My Project",
+  "workspaceId": 123,
+  "paths": {
+    "functions": "functions",
+    "tables": "tables",
+    "apis": "apis",
+    "tasks": "tasks"
+  }
+}
+```
+
+### .xano/config.json (local, gitignored)
+
+```json
+{
+  "instanceName": "a1b2-c3d4-e5f6",
+  "workspaceName": "My Project",
+  "workspaceId": 123,
+  "branch": "main",
+  "paths": { ... }
+}
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `XANO_PROFILE` | Default profile to use |
+| `XANO_BRANCH` | Default branch for init |
 
 ## Help
 

@@ -72,7 +72,9 @@
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
     "prepack": "oclif manifest && oclif readme",
-    "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "test": "mocha --forbid-only \"test/lib/**/*.test.ts\"",
+    "test:integration": "XANO_INTEGRATION_TEST=true mocha --forbid-only \"test/integration/**/*.test.ts\"",
+    "test:all": "mocha --forbid-only \"test/**/*.test.ts\"",
     "version": "oclif readme && git add README.md"
   },
   "types": "dist/index.d.ts"
