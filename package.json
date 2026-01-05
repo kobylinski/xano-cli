@@ -37,6 +37,7 @@
     "node": ">=18.0.0"
   },
   "files": [
+    "./.claude",
     "./bin",
     "./dist",
     "./oclif.manifest.json"
