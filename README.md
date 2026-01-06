@@ -50,7 +50,8 @@ project/
 │   ├── auth/
 │   └── user/
 ├── tables/                 # Table definitions
-└── tasks/                  # Scheduled tasks
+├── tasks/                  # Scheduled tasks
+└── workflow_tests/         # Workflow tests
 ```
 
 ## Project Commands
@@ -108,6 +109,7 @@ xano list functions/
 xano list tables/
 xano list apis/
 xano list tasks/
+xano list workflow_tests/
 
 # Filter APIs by group
 xano list apis/auth
@@ -195,6 +197,124 @@ xano lint --all
 Requires `xanoscript-lint` to be installed:
 ```bash
 npm install -g xanoscript-lint
+```
+
+## Data Manipulation
+
+Work directly with table records (CRUD operations). Password fields are automatically hashed by Xano.
+
+### List Records
+
+```bash
+# List records from a table (by name or ID)
+xano data:list users
+xano data:list 271
+
+# Pagination
+xano data:list users --page 2 --per-page 50
+
+# JSON output
+xano data:list users --json
+```
+
+### Get Single Record
+
+```bash
+# Get record by primary key
+xano data:get users 1
+xano data:get 271 42
+
+# JSON output
+xano data:get users 1 --json
+```
+
+### Create Record
+
+```bash
+# Create with inline JSON
+xano data:create users --data '{"email":"test@example.com","password":"secret123"}'
+
+# Create from file
+xano data:create users --file record.json
+
+# JSON output
+xano data:create users --data '{"name":"Test"}' --json
+```
+
+### Update Record
+
+```bash
+# Update with inline JSON
+xano data:update users 1 --data '{"name":"Updated Name"}'
+
+# Update from file
+xano data:update users 1 --file updates.json
+```
+
+### Delete Record
+
+```bash
+# Preview what will be deleted
+xano data:delete users 1
+
+# Force delete (skip confirmation)
+xano data:delete users 1 --force
+```
+
+### Bulk Insert
+
+```bash
+# Bulk insert from file
+xano data:bulk users --file records.json
+
+# Bulk insert with inline JSON array
+xano data:bulk users --data '[{"email":"a@example.com"},{"email":"b@example.com"}]'
+```
+
+## Live API Calls
+
+Call your Xano API endpoints directly from the CLI.
+
+### List API Groups
+
+```bash
+# Get all API groups with canonical IDs
+xano api:groups
+
+# JSON output
+xano api:groups --json
+```
+
+### List API Endpoints
+
+```bash
+# List all endpoints
+xano api:endpoints
+
+# Filter by group
+xano api:endpoints auth
+
+# JSON output
+xano api:endpoints --json
+```
+
+### Call API Endpoint
+
+```bash
+# GET request
+xano api:call QV7RcVYt /users --method GET
+
+# POST request with body
+xano api:call QV7RcVYt /auth/login --method POST --body '{"email":"test@example.com","password":"secret"}'
+
+# With custom headers
+xano api:call QV7RcVYt /protected --header "Authorization: Bearer <token>"
+
+# Read body from file
+xano api:call QV7RcVYt /data --method POST --body-file request.json
+
+# Raw output (no formatting)
+xano api:call QV7RcVYt /users --raw
 ```
 
 ## Profile Management
@@ -311,7 +431,8 @@ xano sync --pull
     "functions": "functions",
     "tables": "tables",
     "apis": "apis",
-    "tasks": "tasks"
+    "tasks": "tasks",
+    "workflow_tests": "workflow_tests"
   }
 }
 ```

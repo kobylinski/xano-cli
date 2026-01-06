@@ -188,6 +188,77 @@ xano profile:list
 xano push --profile production functions/my_function.xs
 ```
 
+## Data Manipulation
+
+Work directly with table records (CRUD operations). Password fields are automatically hashed by Xano.
+
+```bash
+# List records from a table
+xano data:list users
+xano data:list users --page 2 --per-page 50
+
+# Get single record by primary key
+xano data:get users 1
+xano data:get users 1 --json
+
+# Create a new record (passwords are auto-hashed)
+xano data:create users --data '{"email":"test@example.com","password":"secret123"}'
+xano data:create users --file record.json
+
+# Update an existing record
+xano data:update users 1 --data '{"name":"Updated Name"}'
+
+# Delete a record
+xano data:delete users 1 --force
+
+# Bulk insert multiple records
+xano data:bulk users --file records.json
+xano data:bulk users --data '[{"email":"a@example.com"},{"email":"b@example.com"}]'
+```
+
+## Live API Calls
+
+Call your Xano API endpoints directly from the CLI.
+
+```bash
+# List API groups with canonical IDs
+xano api:groups
+
+# List API endpoints (optionally filter by group)
+xano api:endpoints
+xano api:endpoints auth
+
+# Call an API endpoint
+xano api:call QV7RcVYt /auth/login --method POST --body '{"email":"test@example.com","password":"secret"}'
+
+# With custom headers
+xano api:call QV7RcVYt /protected --header "Authorization: Bearer <token>"
+
+# Read body from file
+xano api:call QV7RcVYt /data --method POST --body-file request.json
+```
+
+### Testing Auth Flows
+
+Common pattern for testing authentication:
+
+```bash
+# 1. Create a test user
+xano data:create users --data '{"email":"test@example.com","password":"testpass123"}'
+
+# 2. Get API group canonical ID
+xano api:groups --json | jq '.[] | select(.name=="auth") | .canonical'
+
+# 3. Login to get token
+xano api:call QV7RcVYt /auth/login --method POST --body '{"email":"test@example.com","password":"testpass123"}'
+
+# 4. Use token for authenticated calls
+xano api:call QV7RcVYt /me --header "Authorization: Bearer <token_from_step_3>"
+
+# 5. Clean up test user
+xano data:delete users <user_id> --force
+```
+
 ## Tips
 
 1. **Always sync before starting work** to avoid conflicts
@@ -199,6 +270,10 @@ xano push --profile production functions/my_function.xs
 4. **Keep .xano/ in .gitignore** - it contains local state
 
 5. **Commit xano.json to git** - it defines the project
+
+6. **Use data commands for testing** - quickly create/delete test records
+
+7. **Use api:call for integration testing** - test your API endpoints directly
 
 ## File Naming Convention
 

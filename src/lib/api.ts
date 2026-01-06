@@ -15,6 +15,7 @@ import type {
   XanoApiGroup,
   XanoApiTable,
   XanoApiTask,
+  XanoApiWorkflowTest,
   XanoCredentials,
   XanoObjectType,
   XanoProfile,
@@ -201,6 +202,10 @@ export class XanoApi {
         return this.createTask(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
+      case 'workflow_test': {
+        return this.createWorkflowTest(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
       default: {
         return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
       }
@@ -222,6 +227,16 @@ export class XanoApi {
       this.profile,
       'POST',
       `/api:meta/workspace/${this.workspaceId}/task?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  async createWorkflowTest(xanoscript: string): Promise<ApiResponse<XanoApiWorkflowTest>> {
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/workflow_test?${this.branchParam}`,
       xanoscript,
       'text/x-xanoscript'
     )
@@ -266,6 +281,10 @@ export class XanoApi {
         return this.deleteTask(id)
       }
 
+      case 'workflow_test': {
+        return this.deleteWorkflowTest(id)
+      }
+
       default: {
         return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
       }
@@ -287,6 +306,14 @@ export class XanoApi {
       this.profile,
       'DELETE',
       `/api:meta/workspace/${this.workspaceId}/task/${id}?${this.branchParam}`
+    )
+  }
+
+  async deleteWorkflowTest(id: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/workflow_test/${id}?${this.branchParam}`
     )
   }
 
@@ -337,6 +364,10 @@ export class XanoApi {
         return this.getTask(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
       }
 
+      case 'workflow_test': {
+        return this.getWorkflowTest(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
       default: {
         return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
       }
@@ -356,6 +387,14 @@ export class XanoApi {
       this.profile,
       'GET',
       `/api:meta/workspace/${this.workspaceId}/task/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
+
+  async getWorkflowTest(id: number): Promise<ApiResponse<XanoApiWorkflowTest>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/workflow_test/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
 
@@ -443,6 +482,14 @@ export class XanoApi {
     )
   }
 
+  async listWorkflowTests(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiWorkflowTest[] }>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/workflow_test?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
+    )
+  }
+
   async updateApiEndpoint(id: number, xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
     return apiRequest(
       this.profile,
@@ -486,6 +533,10 @@ export class XanoApi {
         return this.updateTask(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
+      case 'workflow_test': {
+        return this.updateWorkflowTest(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
       default: {
         return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
       }
@@ -510,6 +561,171 @@ export class XanoApi {
       xanoscript,
       'text/x-xanoscript'
     )
+  }
+
+  async updateWorkflowTest(id: number, xanoscript: string): Promise<ApiResponse<XanoApiWorkflowTest>> {
+    return apiRequest(
+      this.profile,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/workflow_test/${id}?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  // ========== Table Content (Data) ==========
+
+  /**
+   * List records from a table
+   */
+  async listTableContent(
+    tableId: number,
+    page = 1,
+    perPage = 100
+  ): Promise<ApiResponse<{ items: Record<string, unknown>[]; curPage: number; nextPage: number | null; prevPage: number | null }>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content?${this.branchParam}&page=${page}&per_page=${perPage}`
+    )
+  }
+
+  /**
+   * Get a single record by primary key
+   */
+  async getTableContent(tableId: number, pk: number | string): Promise<ApiResponse<Record<string, unknown>>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${pk}?${this.branchParam}`
+    )
+  }
+
+  /**
+   * Create a new record in a table
+   * Note: Password fields are automatically hashed by Xano
+   */
+  async createTableContent(tableId: number, data: Record<string, unknown>): Promise<ApiResponse<Record<string, unknown>>> {
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content?${this.branchParam}`,
+      data
+    )
+  }
+
+  /**
+   * Update an existing record by primary key
+   */
+  async updateTableContent(tableId: number, pk: number | string, data: Record<string, unknown>): Promise<ApiResponse<Record<string, unknown>>> {
+    return apiRequest(
+      this.profile,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${pk}?${this.branchParam}`,
+      data
+    )
+  }
+
+  /**
+   * Delete a record by primary key
+   */
+  async deleteTableContent(tableId: number, pk: number | string): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${pk}?${this.branchParam}`
+    )
+  }
+
+  /**
+   * Bulk insert multiple records
+   */
+  async bulkCreateTableContent(tableId: number, records: Record<string, unknown>[]): Promise<ApiResponse<Record<string, unknown>[]>> {
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/bulk?${this.branchParam}`,
+      records
+    )
+  }
+
+  // ========== Live API Calls ==========
+
+  /**
+   * Get detailed info about an API group including canonical ID
+   */
+  async getApiGroupWithCanonical(groupId: number): Promise<ApiResponse<XanoApiGroup & { canonical?: string }>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${groupId}?${this.branchParam}`
+    )
+  }
+
+  /**
+   * Call a live API endpoint
+   * @param canonical - The API group canonical ID (e.g., "QV7RcVYt")
+   * @param endpointPath - The endpoint path (e.g., "/auth/login")
+   * @param method - HTTP method (GET, POST, PUT, DELETE, PATCH)
+   * @param body - Request body (for POST/PUT/PATCH)
+   * @param headers - Additional headers (e.g., Authorization token)
+   */
+  async callLiveApi(
+    canonical: string,
+    endpointPath: string,
+    method: string = 'GET',
+    body?: Record<string, unknown>,
+    headers?: Record<string, string>
+  ): Promise<ApiResponse<unknown>> {
+    const url = `${this.profile.instance_origin}/api:${canonical}:${this.branch}${endpointPath}`
+
+    const requestHeaders: Record<string, string> = {
+      accept: 'application/json',
+      ...headers,
+    }
+
+    let requestBody: string | undefined
+    if (body) {
+      requestHeaders['Content-Type'] = 'application/json'
+      requestBody = JSON.stringify(body)
+    }
+
+    try {
+      const response = await fetch(url, {
+        body: requestBody,
+        headers: requestHeaders,
+        method,
+      })
+
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.message || errorData.error || errorMessage
+        } catch {
+          // Ignore JSON parse error
+        }
+
+        return {
+          error: errorMessage,
+          ok: false,
+          status: response.status,
+        }
+      }
+
+      const data = await response.json()
+      return {
+        data,
+        ok: true,
+        status: response.status,
+      }
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        ok: false,
+        status: 0,
+      }
+    }
   }
 }
 
