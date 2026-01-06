@@ -238,16 +238,6 @@ xano function:create -f function.xs
 xano function:edit 145
 ```
 
-### Ephemeral Jobs
-
-Run XanoScript without creating permanent resources:
-
-```bash
-xano ephemeral:run:job -f script.xs
-xano ephemeral:run:job -f script.xs -a args.json
-xano ephemeral:run:service -f service.xs
-```
-
 ### Static Hosts
 
 ```bash
