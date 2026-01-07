@@ -6,14 +6,15 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import type { XanoLocalConfig, XanoProjectConfig } from './types.js'
+import type { XanoLocalConfig, XanoPaths, XanoProjectConfig } from './types.js'
 
+const XANO_JS = 'xano.js'
 const XANO_JSON = 'xano.json'
 const XANO_DIR = '.xano'
 const CONFIG_JSON = 'config.json'
 
 /**
- * Find project root by looking for .xano/config.json (primary) or xano.json (fallback)
+ * Find project root by looking for .xano/config.json (primary) or xano.js/xano.json (fallback)
  */
 export function findProjectRoot(startDir: string = process.cwd()): null | string {
   let currentDir = startDir
@@ -25,7 +26,13 @@ export function findProjectRoot(startDir: string = process.cwd()): null | string
       return currentDir
     }
 
-    // Fallback: look for xano.json (template file)
+    // Fallback: look for xano.js (dynamic config)
+    const xanoJsPath = path.join(currentDir, XANO_JS)
+    if (fs.existsSync(xanoJsPath)) {
+      return currentDir
+    }
+
+    // Fallback: look for xano.json (static config)
     const xanoJsonPath = path.join(currentDir, XANO_JSON)
     if (fs.existsSync(xanoJsonPath)) {
       return currentDir
@@ -176,11 +183,13 @@ export function setCurrentBranch(projectRoot: string, branch: string): void {
 /**
  * Get default paths for XanoScript files
  */
-export function getDefaultPaths(): XanoProjectConfig['paths'] {
+export function getDefaultPaths(): XanoPaths {
   return {
     apis: 'apis',
     functions: 'functions',
     tables: 'tables',
     tasks: 'tasks',
+    triggers: 'tables',
+    workflow_tests: 'workflow_tests',
   }
 }

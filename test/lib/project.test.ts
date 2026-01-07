@@ -110,6 +110,7 @@ describe('lib/project', () => {
         functions: 'functions',
         tables: 'tables',
         tasks: 'tasks',
+        workflow_tests: 'workflow_tests',
       },
       workspace: 'Test Workspace',
       workspaceId: 123,
@@ -140,6 +141,7 @@ describe('lib/project', () => {
         functions: 'functions',
         tables: 'tables',
         tasks: 'tasks',
+        workflow_tests: 'workflow_tests',
       },
       workspaceId: 123,
       workspaceName: 'Test Workspace',
@@ -170,6 +172,7 @@ describe('lib/project', () => {
           functions: 'functions',
           tables: 'tables',
           tasks: 'tasks',
+          workflow_tests: 'workflow_tests',
         },
         workspace: 'Test Workspace',
         workspaceId: 123,
@@ -218,6 +221,7 @@ describe('lib/project', () => {
         functions: 'functions',
         tables: 'tables',
         tasks: 'tasks',
+        workflow_tests: 'workflow_tests',
       },
       workspaceId: 123,
       workspaceName: 'Test Workspace',
@@ -247,6 +251,8 @@ describe('lib/project', () => {
         functions: 'functions',
         tables: 'tables',
         tasks: 'tasks',
+        triggers: 'tables',
+        workflow_tests: 'workflow_tests',
       })
     })
   })

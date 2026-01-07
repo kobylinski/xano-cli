@@ -4,17 +4,18 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import type {
+  PathResolver,
+  SanitizeFunction,
+  TypeResolver,
   XanoObjectsFile,
-  XanoStateFile,
+  XanoPaths,
 } from '../../lib/types.js'
 
 import {
   getProfile,
   XanoApi,
 } from '../../lib/api.js'
-import {
-  generateKey,
-} from '../../lib/detector.js'
+import { loadConfig } from '../../lib/config.js'
 import {
   computeSha256,
   encodeBase64,
@@ -25,36 +26,40 @@ import {
 } from '../../lib/objects.js'
 import {
   findProjectRoot,
+  getDefaultPaths,
   isInitialized,
   loadLocalConfig,
 } from '../../lib/project.js'
 import {
-  loadState,
-  saveState,
-  setStateEntry,
-} from '../../lib/state.js'
+  resolveInputToTypes,
+} from '../../lib/resolver.js'
+import {
+  cleanLocalFiles,
+  fetchAllObjects,
+  type FetchedObject,
+  generateObjectPath,
+  hasObjectsJson,
+} from '../../lib/sync.js'
 
 export default class Pull extends Command {
   static args = {
-    files: Args.string({
-      description: 'Files to pull (space-separated)',
+    paths: Args.string({
+      description: 'Files or directories to pull (space-separated)',
       required: false,
     }),
   }
-static description = 'Pull XanoScript files from Xano to local'
-static examples = [
-    '<%= config.bin %> pull functions/my_function.xs',
-    '<%= config.bin %> pull --all',
-    '<%= config.bin %> pull --merge functions/my_function.xs',
+  static description = 'Pull XanoScript files from Xano to local'
+  static examples = [
+    '<%= config.bin %> pull',
+    '<%= config.bin %> pull functions/',
+    '<%= config.bin %> pull functions/my_function.xs apis/',
+    '<%= config.bin %> pull --sync',
+    '<%= config.bin %> pull --clean',
   ]
-static flags = {
-    all: Flags.boolean({
+  static flags = {
+    clean: Flags.boolean({
       default: false,
-      description: 'Pull all files from Xano',
-    }),
-    'dry-run': Flags.boolean({
-      default: false,
-      description: 'Show what would be pulled without actually pulling',
+      description: 'Delete local files not on Xano',
     }),
     force: Flags.boolean({
       char: 'f',
@@ -70,12 +75,21 @@ static flags = {
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
+    sync: Flags.boolean({
+      default: false,
+      description: 'Force fresh metadata fetch from Xano',
+    }),
   }
-static strict = false // Allow multiple file arguments
+  static strict = false // Allow multiple path arguments
+
+  private customResolver?: PathResolver
+  private customResolveType?: TypeResolver
+  private customSanitize?: SanitizeFunction
+  private paths!: XanoPaths
 
   async run(): Promise<void> {
     const { argv, flags } = await this.parse(Pull)
-    const files = argv as string[]
+    const inputPaths = argv as string[]
 
     const projectRoot = findProjectRoot()
     if (!projectRoot) {
@@ -91,33 +105,59 @@ static strict = false // Allow multiple file arguments
       this.error('Failed to load .xano/config.json')
     }
 
+    // Load dynamic config (xano.js) if available
+    const dynamicConfig = await loadConfig(projectRoot)
+    if (dynamicConfig) {
+      this.customResolver = dynamicConfig.resolvePath
+      this.customResolveType = dynamicConfig.resolveType
+      this.customSanitize = dynamicConfig.sanitize
+      this.paths = { ...getDefaultPaths(), ...dynamicConfig.config.paths }
+    } else {
+      this.paths = { ...getDefaultPaths(), ...config.paths }
+    }
+
     const profile = getProfile(flags.profile)
     if (!profile) {
       this.error('No profile found. Run "xano profile:wizard" to create one.')
     }
 
+    const api = new XanoApi(profile, config.workspaceId, config.branch)
+
+    // Check if sync is needed (missing objects.json or --sync flag)
+    const needsSync = flags.sync || !hasObjectsJson(projectRoot)
+
     let objects = loadObjects(projectRoot)
-    let state = loadState(projectRoot)
+    let fetchedObjects: FetchedObject[] | null = null
+
+    if (needsSync) {
+      this.log('Syncing metadata from Xano...')
+      fetchedObjects = await fetchAllObjects(api, (msg) => this.log(msg))
+      this.log('')
+
+      // Update objects.json with fetched data
+      objects = []
+      for (const obj of fetchedObjects) {
+        const filePath = generateObjectPath(obj, this.paths, this.customSanitize, this.customResolver)
+        objects = upsertObject(objects, filePath, {
+          id: obj.id,
+          original: encodeBase64(obj.xanoscript),
+          sha256: computeSha256(obj.xanoscript),
+          status: 'unchanged',
+          type: obj.type,
+        })
+      }
+      saveObjects(projectRoot, objects)
+    }
 
     // Determine which files to pull
-    let filesToPull: string[] = []
+    let filesToPull: string[]
 
-    if (flags.all) {
+    if (inputPaths.length === 0) {
       // Pull all known objects
       filesToPull = objects.map((o) => o.path)
-    } else if (files.length > 0) {
-      filesToPull = files.map((f) => {
-        if (path.isAbsolute(f)) {
-          return path.relative(projectRoot, f)
-        }
-
-        return f
-      })
     } else {
-      this.log('No files specified. Use one of:')
-      this.log('  xano pull <files...>    - pull specific files')
-      this.log('  xano pull --all         - pull all files from Xano')
-      return
+      // Smart path detection: expand directories, normalize files
+      filesToPull = this.expandPaths(projectRoot, inputPaths, objects)
     }
 
     if (filesToPull.length === 0) {
@@ -130,50 +170,36 @@ static strict = false // Allow multiple file arguments
     this.log(`  Branch: ${config.branch}`)
     this.log('')
 
-    if (flags['dry-run']) {
-      this.log('Dry run - files that would be pulled:')
-      for (const file of filesToPull) {
-        const obj = findObjectByPath(objects, file)
-        if (obj) {
-          this.log(`  ${file} (id: ${obj.id})`)
-        } else {
-          this.log(`  ${file} (not in objects.json - skipped)`)
-        }
-      }
-
-      return
-    }
-
-    const api = new XanoApi(profile, config.workspaceId, config.branch)
-
     let successCount = 0
     let errorCount = 0
     let skippedCount = 0
+
+    // If we already fetched objects during sync, use them directly
+    const fetchedByPath = new Map<string, FetchedObject>()
+    if (fetchedObjects) {
+      for (const obj of fetchedObjects) {
+        const filePath = generateObjectPath(obj, this.paths, this.customSanitize, this.customResolver)
+        fetchedByPath.set(filePath, obj)
+      }
+    }
 
     for (const file of filesToPull) {
       const obj = findObjectByPath(objects, file)
 
       if (!obj) {
-        this.log(`  - ${file}: Not in objects.json (run "xano sync" first)`)
+        this.log(`  - ${file}: Not tracked`)
         skippedCount++
         continue
       }
 
-      const result = await this.pullFile(
-        projectRoot,
-        file,
-        obj.id,
-        obj.type,
-        api,
-        objects,
-        state,
-        flags.force,
-        flags.merge
-      )
+      // Use already-fetched content if available, otherwise fetch individually
+      const fetched = fetchedByPath.get(file)
+      const result = fetched
+        ? await this.pullFromFetched(projectRoot, file, fetched, objects, flags.force, flags.merge)
+        : await this.pullFromApi(projectRoot, file, obj.id, obj.type, api, objects, flags.force, flags.merge)
 
       if (result.success) {
         objects = result.objects
-        state = result.state
         successCount++
         this.log(`  ✓ ${file}`)
       } else if (result.skipped) {
@@ -185,12 +211,81 @@ static strict = false // Allow multiple file arguments
       }
     }
 
-    // Save updated state
+    // Save updated objects.json
     saveObjects(projectRoot, objects)
-    saveState(projectRoot, state)
+
+    // Clean local files if requested
+    if (flags.clean) {
+      const keepFiles = new Set(objects.map((o) => o.path))
+      const deletedCount = cleanLocalFiles(projectRoot, keepFiles, this.paths)
+      if (deletedCount > 0) {
+        this.log('')
+        this.log(`Deleted ${deletedCount} local files not on Xano`)
+      }
+    }
 
     this.log('')
     this.log(`Pulled: ${successCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`)
+  }
+
+  /**
+   * Expand input paths to actual file paths
+   * Uses type-based filtering when input matches a known type mapping,
+   * falls back to path prefix matching otherwise
+   */
+  private expandPaths(
+    projectRoot: string,
+    inputPaths: string[],
+    objects: XanoObjectsFile
+  ): string[] {
+    const result: string[] = []
+
+    for (const inputPath of inputPaths) {
+      // Normalize path
+      let normalizedPath = inputPath
+      if (path.isAbsolute(inputPath)) {
+        normalizedPath = path.relative(projectRoot, inputPath)
+      }
+
+      // Remove trailing slash for type resolution
+      const cleanPath = normalizedPath.replace(/\/$/, '')
+
+      // Try type-based filtering first
+      const types = resolveInputToTypes(
+        cleanPath,
+        this.paths,
+        this.customResolveType
+      )
+
+      if (types && types.length > 0) {
+        // Filter objects by resolved types
+        for (const obj of objects) {
+          if (types.includes(obj.type)) {
+            result.push(obj.path)
+          }
+        }
+      } else {
+        // Fallback to path prefix matching
+        const fullPath = path.join(projectRoot, normalizedPath)
+        const isDir = normalizedPath.endsWith('/') ||
+          (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
+
+        if (isDir) {
+          // Find all tracked files under this directory
+          const dirPrefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`
+          for (const obj of objects) {
+            if (obj.path.startsWith(dirPrefix) || obj.path.startsWith(normalizedPath + path.sep)) {
+              result.push(obj.path)
+            }
+          }
+        } else {
+          // Single file
+          result.push(normalizedPath)
+        }
+      }
+    }
+
+    return [...new Set(result)] // Remove duplicates
   }
 
   private attemptMerge(
@@ -199,12 +294,9 @@ static strict = false // Allow multiple file arguments
     localContent: string,
     serverContent: string,
     originalBase64: string
-  ): { error?: string; hasConflicts: boolean; success: boolean; } {
+  ): { error?: string; hasConflicts: boolean; success: boolean } {
     try {
-      // Decode base content
       const baseContent = Buffer.from(originalBase64, 'base64').toString('utf-8')
-
-      // Create temp files for merge
       const tmpDir = fs.mkdtempSync(path.join(projectRoot, '.xano-merge-'))
       const basePath = path.join(tmpDir, 'base.xs')
       const localPath = path.join(tmpDir, 'local.xs')
@@ -215,29 +307,19 @@ static strict = false // Allow multiple file arguments
       fs.writeFileSync(serverPath, serverContent)
 
       try {
-        // Use git merge-file
         execSync(`git merge-file -p "${localPath}" "${basePath}" "${serverPath}" > "${filePath}"`, {
           cwd: projectRoot,
           encoding: 'utf-8',
         })
-
-        // Clean up
         fs.rmSync(tmpDir, { recursive: true })
         return { hasConflicts: false, success: true }
       } catch (mergeError: any) {
-        // git merge-file returns non-zero if there are conflicts
-        // but still produces output with conflict markers
         if (mergeError.status === 1) {
-          // Copy the merged file with conflicts
           const mergedContent = fs.readFileSync(localPath, 'utf8')
           fs.writeFileSync(filePath, mergedContent)
-
-          // Clean up
           fs.rmSync(tmpDir, { recursive: true })
           return { hasConflicts: true, success: true }
         }
-
-        // Clean up
         fs.rmSync(tmpDir, { recursive: true })
         return { error: 'Git merge-file failed', hasConflicts: false, success: false }
       }
@@ -246,62 +328,65 @@ static strict = false // Allow multiple file arguments
     }
   }
 
-  private async pullFile(
+  private async pullFromApi(
     projectRoot: string,
     filePath: string,
     id: number,
     type: string,
     api: XanoApi,
     objects: XanoObjectsFile,
-    state: XanoStateFile,
     force: boolean,
     merge: boolean
-  ): Promise<{
-    error?: string
-    objects: XanoObjectsFile
-    skipped?: boolean
-    state: XanoStateFile
-    success: boolean
-  }> {
-    const fullPath = path.join(projectRoot, filePath)
-
-    // Fetch from Xano
+  ): Promise<{ error?: string; objects: XanoObjectsFile; skipped?: boolean; success: boolean }> {
     const response = await api.getObject(type as any, id)
 
     if (!response.ok) {
       return {
         error: response.error || `HTTP ${response.status}`,
         objects,
-        state,
         success: false,
       }
     }
 
-    // Handle xanoscript as string or object with value/status
-    let serverContent: string
     const xs = response.data?.xanoscript
     if (!xs) {
-      return {
-        error: 'No xanoscript content in response',
-        objects,
-        state,
-        success: false,
-      }
+      return { error: 'No xanoscript content in response', objects, success: false }
     }
 
+    let serverContent: string
     if (typeof xs === 'string') {
       serverContent = xs
     } else if (typeof xs === 'object' && 'value' in xs) {
-      serverContent = (xs as { status?: unknown; value: string; }).value
+      serverContent = (xs as { value: string }).value
     } else {
-      return {
-        error: `Unexpected xanoscript format: ${typeof xs}`,
-        objects,
-        state,
-        success: false,
-      }
+      return { error: `Unexpected xanoscript format: ${typeof xs}`, objects, success: false }
     }
 
+    return this.writeFile(projectRoot, filePath, id, type, serverContent, objects, force, merge)
+  }
+
+  private async pullFromFetched(
+    projectRoot: string,
+    filePath: string,
+    fetched: FetchedObject,
+    objects: XanoObjectsFile,
+    force: boolean,
+    merge: boolean
+  ): Promise<{ error?: string; objects: XanoObjectsFile; skipped?: boolean; success: boolean }> {
+    return this.writeFile(projectRoot, filePath, fetched.id, fetched.type, fetched.xanoscript, objects, force, merge)
+  }
+
+  private writeFile(
+    projectRoot: string,
+    filePath: string,
+    id: number,
+    type: string,
+    serverContent: string,
+    objects: XanoObjectsFile,
+    force: boolean,
+    merge: boolean
+  ): { error?: string; objects: XanoObjectsFile; skipped?: boolean; success: boolean } {
+    const fullPath = path.join(projectRoot, filePath)
     const serverSha256 = computeSha256(serverContent)
 
     // Check if local file exists and has changes
@@ -310,65 +395,36 @@ static strict = false // Allow multiple file arguments
       const localSha256 = computeSha256(localContent)
       const obj = findObjectByPath(objects, filePath)
 
-      // Check if local has uncommitted changes
       if (obj && localSha256 !== obj.sha256) {
         if (merge) {
-          // Attempt merge
-          const mergeResult = this.attemptMerge(
-            projectRoot,
-            fullPath,
-            localContent,
-            serverContent,
-            obj.original
-          )
+          const mergeResult = this.attemptMerge(projectRoot, fullPath, localContent, serverContent, obj.original)
 
           if (!mergeResult.success) {
-            return {
-              error: mergeResult.error || 'Merge failed',
-              objects,
-              state,
-              success: false,
-            }
+            return { error: mergeResult.error || 'Merge failed', objects, success: false }
           }
 
-          // Merged content is in the file
           const mergedContent = fs.readFileSync(fullPath, 'utf8')
-          const key = generateKey(mergedContent) || `${type}:${path.basename(filePath, '.xs')}`
-
           objects = upsertObject(objects, filePath, {
             id,
             original: encodeBase64(serverContent),
             sha256: computeSha256(mergedContent),
-            staged: false,
             status: mergeResult.hasConflicts ? 'modified' : 'unchanged',
             type: type as any,
           })
 
-          state = setStateEntry(state, filePath, {
-            etag: response.etag,
-            key,
-          })
-
           if (mergeResult.hasConflicts) {
-            return {
-              error: 'Merged with conflicts - please resolve manually',
-              objects,
-              state,
-              success: true,
-            }
+            return { error: 'Merged with conflicts - please resolve manually', objects, success: true }
           }
 
-          return { objects, state, success: true }
+          return { objects, success: true }
         }
- 
-          return {
-            error: 'Local changes exist. Use --force to overwrite or --merge to attempt merge.',
-            objects,
-            skipped: true,
-            state,
-            success: false,
-          }
-        
+
+        return {
+          error: 'Local changes exist. Use --force to overwrite or --merge to attempt merge.',
+          objects,
+          skipped: true,
+          success: false,
+        }
       }
     }
 
@@ -380,24 +436,15 @@ static strict = false // Allow multiple file arguments
 
     fs.writeFileSync(fullPath, serverContent, 'utf-8')
 
-    const key = generateKey(serverContent) || `${type}:${path.basename(filePath, '.xs')}`
-
     // Update objects.json
     objects = upsertObject(objects, filePath, {
       id,
       original: encodeBase64(serverContent),
       sha256: serverSha256,
-      staged: false,
       status: 'unchanged',
       type: type as any,
     })
 
-    // Update state.json
-    state = setStateEntry(state, filePath, {
-      etag: response.etag,
-      key,
-    })
-
-    return { objects, state, success: true }
+    return { objects, success: true }
   }
 }

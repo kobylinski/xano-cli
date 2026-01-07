@@ -19,8 +19,8 @@ xano profile:wizard
 # Initialize project in current directory
 xano init
 
-# Sync with Xano and pull all files
-xano sync --pull
+# Pull all files from Xano
+xano pull
 ```
 
 ### Existing Project (with .xano/ directory)
@@ -43,9 +43,10 @@ project/
 ├── xano.json              # Versioned - workspace identity (commit this)
 ├── .xano/                  # Local state (add to .gitignore)
 │   ├── config.json         # Workspace config + current branch
-│   ├── objects.json        # Object ID mappings (VSCode compatible)
-│   └── state.json          # CLI state (etag, keys)
+│   └── objects.json        # Object ID mappings (VSCode compatible)
 ├── functions/              # XanoScript functions
+│   └── user/               # Subdirectories from natural text names
+│       └── security_events/
 ├── apis/                   # API endpoints by group
 │   ├── auth/
 │   └── user/
@@ -69,34 +70,73 @@ xano init --branch v2
 xano init --force
 ```
 
-### Sync
+### Pull
 
 ```bash
-# Fetch object mappings from Xano (updates .xano/ files)
-xano sync
+# Pull all files from Xano
+xano pull
 
-# Also pull all files locally
-xano sync --pull
+# Pull specific files or directories
+xano pull functions/my_function.xs
+xano pull functions/
+xano pull functions/ tables/users.xs
 
-# Pull and delete local files not on Xano
-xano sync --pull --clean
+# Force fresh metadata sync before pull
+xano pull --sync
+
+# Delete local files not on Xano
+xano pull --clean
+
+# Combined flags
+xano pull functions/ --sync --clean
+
+# Attempt 3-way merge with local changes
+xano pull --merge functions/my_function.xs
+
+# Force overwrite local changes
+xano pull --force
+```
+
+### Push
+
+```bash
+# Push all modified files
+xano push
+
+# Push specific files or directories
+xano push functions/my_function.xs
+xano push functions/
+xano push apis/ tables/users.xs
+
+# Force fresh metadata sync before push
+xano push --sync
+
+# Delete objects from Xano that don't exist locally
+xano push --clean
+
+# Combined flags
+xano push functions/ --sync --clean
 ```
 
 ### Status
 
 ```bash
-# Show local changes vs Xano
+# Show status (always fetches from Xano)
 xano status
+
+# Check specific files or directories
+xano status functions/my_function.xs
+xano status functions/
+xano status functions/ apis/
 
 # Output as JSON
 xano status --json
 ```
 
 Output shows:
-- `M` - Modified locally
-- `A` - New (not on Xano)
-- `D` - Deleted locally
-- `?` - Orphan (on Xano, no local file)
+- `M` - Modified (local differs from Xano)
+- `A` - New (local only, not on Xano)
+- `R` - Remote only (on Xano, not local)
 
 ### List Remote Objects
 
@@ -123,45 +163,6 @@ xano list -l
 
 # JSON output
 xano list --json
-```
-
-### Push
-
-```bash
-# Push specific files
-xano push functions/my_function.xs
-xano push apis/auth/endpoint.xs
-
-# Push git-staged .xs files
-xano push --staged
-
-# Push all modified/new files
-xano push --all
-
-# Dry run (show what would be pushed)
-xano push --dry-run
-
-# Force push (skip conflict check)
-xano push --force
-```
-
-### Pull
-
-```bash
-# Pull specific files
-xano pull functions/my_function.xs
-
-# Pull all files
-xano pull --all
-
-# Attempt 3-way merge with local changes
-xano pull --merge functions/my_function.xs
-
-# Force overwrite local changes
-xano pull --force
-
-# Dry run
-xano pull --dry-run
 ```
 
 ### Branch
@@ -371,28 +372,19 @@ xano static_host:build:list default
 ### Daily Development
 
 ```bash
-# Start of day - check what changed
-xano status
-
-# Pull any server changes
-xano pull --all
+# Start of day - pull any server changes
+xano pull
 
 # Work on files locally...
+
+# Check what changed
+xano status
 
 # Push changes
 xano push functions/my_function.xs
 
 # Or push all modified
-xano push --all
-```
-
-### Git Integration
-
-```bash
-# Stage and push together
-git add functions/new_feature.xs
-xano push --staged
-git commit -m "Add new feature"
+xano push
 ```
 
 ### Team Collaboration
@@ -411,11 +403,15 @@ xano push functions/shared_util.xs
 # Switch to different Xano branch
 xano branch live
 
-# Re-sync mappings for new branch
-xano sync
+# Pull files from new branch (auto-syncs metadata)
+xano pull --sync
+```
 
-# Pull files from new branch
-xano sync --pull
+### Clean Slate
+
+```bash
+# Force fresh sync and pull everything
+xano pull --sync --clean
 ```
 
 ## Configuration Files
@@ -448,6 +444,94 @@ xano sync --pull
   "paths": { ... }
 }
 ```
+
+### xano.js (dynamic config)
+
+For advanced customization, create `xano.js` instead of `xano.json`:
+
+```javascript
+export default {
+  instance: "a1b2-c3d4-e5f6",
+  workspace: "My Project",
+  workspaceId: 123,
+  paths: {
+    functions: "app/functions",
+    apis: "app/apis",
+    tables: "db/tables",
+    triggers: "db/triggers",
+    tasks: "tasks",
+    workflow_tests: "tests"
+  },
+
+  // Custom path resolver (optional)
+  resolvePath(obj, paths) {
+    // Custom logic to generate file paths from Xano objects
+    if (obj.type === 'function') {
+      return `app/functions/${obj.name.toLowerCase()}.xs`
+    }
+    return null  // Use default
+  },
+
+  // Custom type resolver (optional)
+  resolveType(inputPath, paths) {
+    // Custom logic to resolve CLI input to object types
+    if (inputPath === 'database') {
+      return ['table', 'table_trigger']
+    }
+    return null  // Use default
+  },
+
+  // Custom sanitize function (optional)
+  sanitize(name) {
+    return name.toLowerCase().replace(/\s+/g, '_')
+  }
+}
+```
+
+## Type Resolution
+
+When you run `xano pull tables` or `xano status functions/`, the CLI resolves your input to object types based on the `paths` config.
+
+**How it works:**
+1. Dynamic resolver (`resolveType` in xano.js) - if defined
+2. Match input against configured paths AND any nested paths under it
+
+**Example with config:**
+```javascript
+paths: {
+  functions: 'app/functions',
+  tables: 'tables',
+  triggers: 'tables/triggers'
+}
+```
+
+| Input | Matches | Types |
+|-------|---------|-------|
+| `tables` | `tables` + `triggers` (nested) | `['table', 'table_trigger']` |
+| `tables/triggers` | `triggers` only | `['table_trigger']` |
+| `tables/triggers/my_trigger.xs` | `triggers` | `['table_trigger']` |
+| `tables/users.xs` | `tables` | `['table']` |
+| `app/functions` | `functions` | `['function']` |
+
+**Path key to types mapping:**
+- `functions` → `['function']`
+- `apis` → `['api_endpoint', 'api_group']`
+- `tables` → `['table']`
+- `triggers` → `['table_trigger']`
+- `tasks` → `['task']`
+- `workflow_tests` → `['workflow_test']`
+
+## File Naming Convention
+
+Files are named based on their Xano object names, converted to snake_case:
+
+- Functions: `function_name.xs` or `subdirectory/function_name.xs`
+- APIs: `group_name/endpoint_path_VERB.xs`
+- Tables: `table_name.xs`
+- Tasks: `task_name.xs`
+
+Natural text names with slashes become subdirectories:
+- `User/Security Events/Log Auth` → `functions/user/security_events/log_auth.xs`
 
 ## Environment Variables
 

@@ -1,22 +1,21 @@
 import { Args, Command, Flags } from '@oclif/core'
-import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import type {
+  PathResolver,
+  SanitizeFunction,
+  TypeResolver,
   XanoObjectsFile,
-  XanoObjectType,
-  XanoStateFile,
+  XanoPaths,
 } from '../../lib/types.js'
 
 import {
   getProfile,
   XanoApi,
 } from '../../lib/api.js'
-import {
-  detectType,
-  generateKey,
-} from '../../lib/detector.js'
+import { loadConfig } from '../../lib/config.js'
+import { detectType } from '../../lib/detector.js'
 import {
   computeFileSha256,
   computeSha256,
@@ -28,59 +27,64 @@ import {
 } from '../../lib/objects.js'
 import {
   findProjectRoot,
+  getDefaultPaths,
   isInitialized,
   loadLocalConfig,
 } from '../../lib/project.js'
 import {
-  getStateEntry,
-  loadState,
-  saveState,
-  setStateEntry,
-} from '../../lib/state.js'
+  resolveInputToTypes,
+} from '../../lib/resolver.js'
+import {
+  fetchAllObjects,
+  generateObjectPath,
+  hasObjectsJson,
+} from '../../lib/sync.js'
 
 export default class Push extends Command {
   static args = {
-    files: Args.string({
-      description: 'Files to push (space-separated)',
+    paths: Args.string({
+      description: 'Files or directories to push (space-separated)',
       required: false,
     }),
   }
-static description = 'Push local XanoScript files to Xano'
-static examples = [
-    '<%= config.bin %> push functions/my_function.xs',
-    '<%= config.bin %> push --staged',
-    '<%= config.bin %> push --all',
-    '<%= config.bin %> push --force functions/my_function.xs',
+  static description = 'Push local XanoScript files to Xano'
+  static examples = [
+    '<%= config.bin %> push',
+    '<%= config.bin %> push functions/',
+    '<%= config.bin %> push functions/my_function.xs apis/',
+    '<%= config.bin %> push --sync',
+    '<%= config.bin %> push --clean',
   ]
-static flags = {
-    all: Flags.boolean({
+  static flags = {
+    clean: Flags.boolean({
       default: false,
-      description: 'Push all modified/new .xs files',
-    }),
-    'dry-run': Flags.boolean({
-      default: false,
-      description: 'Show what would be pushed without actually pushing',
+      description: 'Delete objects from Xano that do not exist locally',
     }),
     force: Flags.boolean({
       char: 'f',
       default: false,
-      description: 'Force push (skip etag conflict check)',
+      description: 'Force push without confirmation',
     }),
     profile: Flags.string({
       char: 'p',
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
-    staged: Flags.boolean({
+    sync: Flags.boolean({
       default: false,
-      description: 'Push git-staged .xs files',
+      description: 'Force fresh metadata fetch from Xano',
     }),
   }
-static strict = false // Allow multiple file arguments
+  static strict = false // Allow multiple path arguments
+
+  private customResolver?: PathResolver
+  private customResolveType?: TypeResolver
+  private customSanitize?: SanitizeFunction
+  private paths!: XanoPaths
 
   async run(): Promise<void> {
     const { argv, flags } = await this.parse(Push)
-    const files = argv as string[]
+    const inputPaths = argv as string[]
 
     const projectRoot = findProjectRoot()
     if (!projectRoot) {
@@ -96,74 +100,84 @@ static strict = false // Allow multiple file arguments
       this.error('Failed to load .xano/config.json')
     }
 
+    // Load dynamic config (xano.js) if available
+    const dynamicConfig = await loadConfig(projectRoot)
+    if (dynamicConfig) {
+      this.customResolver = dynamicConfig.resolvePath
+      this.customResolveType = dynamicConfig.resolveType
+      this.customSanitize = dynamicConfig.sanitize
+      this.paths = { ...getDefaultPaths(), ...dynamicConfig.config.paths }
+    } else {
+      this.paths = { ...getDefaultPaths(), ...config.paths }
+    }
+
     const profile = getProfile(flags.profile)
     if (!profile) {
       this.error('No profile found. Run "xano profile:wizard" to create one.')
     }
 
+    const api = new XanoApi(profile, config.workspaceId, config.branch)
+
+    // Check if sync is needed (missing objects.json or --sync flag)
+    const needsSync = flags.sync || !hasObjectsJson(projectRoot)
+
+    let objects = loadObjects(projectRoot)
+
+    if (needsSync) {
+      this.log('Syncing metadata from Xano...')
+      const fetchedObjects = await fetchAllObjects(api, (msg) => this.log(msg))
+      this.log('')
+
+      // Update objects.json with fetched data
+      objects = []
+      for (const obj of fetchedObjects) {
+        const filePath = generateObjectPath(obj, this.paths, this.customSanitize, this.customResolver)
+        objects = upsertObject(objects, filePath, {
+          id: obj.id,
+          original: encodeBase64(obj.xanoscript),
+          sha256: computeSha256(obj.xanoscript),
+          status: 'unchanged',
+          type: obj.type,
+        })
+      }
+      saveObjects(projectRoot, objects)
+    }
+
     // Determine which files to push
-    let filesToPush: string[] = []
+    let filesToPush: string[]
 
-    if (flags.staged) {
-      filesToPush = this.getGitStagedFiles(projectRoot)
-    } else if (flags.all) {
-      filesToPush = this.getAllChangedFiles(projectRoot)
-    } else if (files.length > 0) {
-      filesToPush = files.map((f) => {
-        // Convert to relative path if absolute
-        if (path.isAbsolute(f)) {
-          return path.relative(projectRoot, f)
-        }
-
-        return f
-      })
+    if (inputPaths.length === 0) {
+      // Push all modified files
+      filesToPush = this.getAllChangedFiles(projectRoot, objects)
     } else {
-      this.log('No files specified. Use one of:')
-      this.log('  xano push <files...>    - push specific files')
-      this.log('  xano push --staged      - push git-staged .xs files')
-      this.log('  xano push --all         - push all modified/new .xs files')
+      // Smart path detection: expand directories, find modified files
+      filesToPush = this.expandPaths(projectRoot, inputPaths, objects)
+    }
+
+    // Find orphan objects (in objects.json but deleted locally)
+    const orphanObjects = this.findOrphanObjects(projectRoot, objects)
+
+    if (filesToPush.length === 0 && orphanObjects.length === 0) {
+      this.log('No changes to push.')
       return
     }
 
-    if (filesToPush.length === 0) {
-      this.log('No files to push.')
-      return
-    }
-
-    this.log(`Pushing ${filesToPush.length} file(s) to Xano...`)
-    this.log(`  Workspace: ${config.workspaceName}`)
-    this.log(`  Branch: ${config.branch}`)
+    this.log(`Workspace: ${config.workspaceName}`)
+    this.log(`Branch: ${config.branch}`)
     this.log('')
 
-    if (flags['dry-run']) {
-      this.log('Dry run - files that would be pushed:')
-      for (const file of filesToPush) {
-        this.log(`  ${file}`)
-      }
-
-      return
+    if (filesToPush.length > 0) {
+      this.log(`Pushing ${filesToPush.length} file(s) to Xano...`)
     }
-
-    const api = new XanoApi(profile, config.workspaceId, config.branch)
-    let objects = loadObjects(projectRoot)
-    let state = loadState(projectRoot)
 
     let successCount = 0
     let errorCount = 0
 
     for (const file of filesToPush) {
-      const result = await this.pushFile(
-        projectRoot,
-        file,
-        api,
-        objects,
-        state,
-        flags.force
-      )
+      const result = await this.pushFile(projectRoot, file, api, objects)
 
       if (result.success) {
         objects = result.objects
-        state = result.state
         successCount++
         this.log(`  ✓ ${file}`)
       } else {
@@ -172,16 +186,45 @@ static strict = false // Allow multiple file arguments
       }
     }
 
-    // Save updated state
+    // Delete orphan objects from Xano if --clean
+    let deletedCount = 0
+    if (flags.clean && orphanObjects.length > 0) {
+      this.log('')
+      this.log(`Deleting ${orphanObjects.length} orphan object(s) from Xano...`)
+
+      for (const obj of orphanObjects) {
+        const response = await api.deleteObject(obj.type, obj.id)
+        if (response.ok) {
+          // Remove from objects.json
+          objects = objects.filter((o) => o.path !== obj.path)
+          deletedCount++
+          this.log(`  ✓ Deleted ${obj.path}`)
+        } else {
+          this.log(`  ✗ Failed to delete ${obj.path}: ${response.error}`)
+        }
+      }
+    } else if (orphanObjects.length > 0) {
+      this.log('')
+      this.log(`${orphanObjects.length} local file(s) deleted (use --clean to remove from Xano):`)
+      for (const obj of orphanObjects.slice(0, 5)) {
+        this.log(`  ${obj.path}`)
+      }
+      if (orphanObjects.length > 5) {
+        this.log(`  ... and ${orphanObjects.length - 5} more`)
+      }
+    }
+
+    // Save updated objects.json
     saveObjects(projectRoot, objects)
-    saveState(projectRoot, state)
 
     this.log('')
-    this.log(`Pushed: ${successCount}, Errors: ${errorCount}`)
+    this.log(`Pushed: ${successCount}, Errors: ${errorCount}${deletedCount > 0 ? `, Deleted: ${deletedCount}` : ''}`)
   }
 
-  private getAllChangedFiles(projectRoot: string): string[] {
-    const objects = loadObjects(projectRoot)
+  /**
+   * Find all modified or new files
+   */
+  private getAllChangedFiles(projectRoot: string, objects: XanoObjectsFile): string[] {
     const changedFiles: string[] = []
 
     // Check existing objects for modifications
@@ -196,110 +239,193 @@ static strict = false // Allow multiple file arguments
     }
 
     // Find new files
-    const config = loadLocalConfig(projectRoot)
-    if (config) {
-      const knownPaths = new Set(objects.map((o) => o.path))
-      const dirs = [
-        config.paths.functions,
-        config.paths.apis,
-        config.paths.tables,
-        config.paths.tasks,
-      ]
+    const knownPaths = new Set(objects.map((o) => o.path))
+    const dirs = [
+      this.paths.functions,
+      this.paths.apis,
+      this.paths.tables,
+      this.paths.tasks,
+      this.paths.workflow_tests,
+    ].filter((d): d is string => d !== undefined)
 
-      for (const dir of dirs) {
-        const fullDir = path.join(projectRoot, dir)
-        if (fs.existsSync(fullDir)) {
-          this.walkDir(fullDir, projectRoot, knownPaths, changedFiles)
-        }
+    for (const dir of dirs) {
+      const fullDir = path.join(projectRoot, dir)
+      if (fs.existsSync(fullDir)) {
+        this.walkDir(fullDir, projectRoot, knownPaths, changedFiles)
       }
     }
 
     return changedFiles
   }
 
-  private getGitStagedFiles(projectRoot: string): string[] {
-    try {
-      const output = execSync('git diff --cached --name-only --diff-filter=ACM', {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-      })
-      return output
-        .split('\n')
-        .filter((f) => f.endsWith('.xs'))
-        .filter(Boolean)
-    } catch {
-      this.warn('Failed to get git staged files. Is this a git repository?')
-      return []
+  /**
+   * Expand input paths to actual file paths
+   * Uses type-based filtering when input matches a known type mapping,
+   * falls back to path prefix matching otherwise
+   */
+  private expandPaths(
+    projectRoot: string,
+    inputPaths: string[],
+    objects: XanoObjectsFile
+  ): string[] {
+    const result: string[] = []
+    const objectPaths = new Set(objects.map((o) => o.path))
+
+    for (const inputPath of inputPaths) {
+      let normalizedPath = inputPath
+      if (path.isAbsolute(inputPath)) {
+        normalizedPath = path.relative(projectRoot, inputPath)
+      }
+
+      // Remove trailing slash for type resolution
+      const cleanPath = normalizedPath.replace(/\/$/, '')
+
+      // Try type-based filtering first
+      const types = resolveInputToTypes(
+        cleanPath,
+        this.paths,
+        this.customResolveType
+      )
+
+      if (types && types.length > 0) {
+        // Filter by type - find modified tracked files and new files of matching types
+        for (const obj of objects) {
+          if (types.includes(obj.type)) {
+            const objFullPath = path.join(projectRoot, obj.path)
+            if (fs.existsSync(objFullPath)) {
+              const currentSha256 = computeFileSha256(objFullPath)
+              if (currentSha256 !== obj.sha256) {
+                result.push(obj.path)
+              }
+            }
+          }
+        }
+
+        // Also find new files in directories for these types
+        for (const type of types) {
+          const typeDir = this.getDirectoryForType(type)
+          if (typeDir) {
+            const fullDir = path.join(projectRoot, typeDir)
+            if (fs.existsSync(fullDir)) {
+              this.walkDir(fullDir, projectRoot, objectPaths, result)
+            }
+          }
+        }
+      } else {
+        // Fallback to path prefix matching
+        const fullPath = path.join(projectRoot, normalizedPath)
+        const isDir = normalizedPath.endsWith('/') ||
+          (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
+
+        if (isDir) {
+          // Find all files under this directory (both tracked and new)
+          const dirPrefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`
+
+          // Add tracked files that are modified
+          for (const obj of objects) {
+            if (obj.path.startsWith(dirPrefix) || obj.path.startsWith(normalizedPath + path.sep)) {
+              const objFullPath = path.join(projectRoot, obj.path)
+              if (fs.existsSync(objFullPath)) {
+                const currentSha256 = computeFileSha256(objFullPath)
+                if (currentSha256 !== obj.sha256) {
+                  result.push(obj.path)
+                }
+              }
+            }
+          }
+
+          // Add new files in directory
+          if (fs.existsSync(fullPath)) {
+            this.walkDir(fullPath, projectRoot, objectPaths, result)
+          }
+        } else if (fs.existsSync(fullPath)) {
+          // Single file - add if it exists
+          result.push(normalizedPath)
+        }
+      }
     }
+
+    return [...new Set(result)]
+  }
+
+  /**
+   * Get the configured directory for a given type
+   */
+  private getDirectoryForType(type: string): string | undefined {
+    switch (type) {
+      case 'function': return this.paths.functions
+      case 'api_endpoint':
+      case 'api_group': return this.paths.apis
+      case 'table': return this.paths.tables
+      case 'table_trigger': return this.paths.triggers || this.paths.tables
+      case 'task': return this.paths.tasks
+      case 'workflow_test': return this.paths.workflow_tests
+      default: return undefined
+    }
+  }
+
+  /**
+   * Find objects in objects.json whose local files have been deleted
+   */
+  private findOrphanObjects(projectRoot: string, objects: XanoObjectsFile): XanoObjectsFile {
+    return objects.filter((obj) => {
+      const fullPath = path.join(projectRoot, obj.path)
+      return !fs.existsSync(fullPath)
+    })
   }
 
   private async pushFile(
     projectRoot: string,
     filePath: string,
     api: XanoApi,
-    objects: XanoObjectsFile,
-    state: XanoStateFile,
-    force: boolean
-  ): Promise<{
-    error?: string
     objects: XanoObjectsFile
-    state: XanoStateFile
-    success: boolean
-  }> {
+  ): Promise<{ error?: string; objects: XanoObjectsFile; success: boolean }> {
     const fullPath = path.join(projectRoot, filePath)
 
     if (!fs.existsSync(fullPath)) {
-      return { error: 'File not found', objects, state, success: false }
+      return { error: 'File not found', objects, success: false }
     }
 
     const content = fs.readFileSync(fullPath, 'utf8')
     const type = detectType(content)
 
     if (!type) {
-      return { error: 'Cannot detect XanoScript type', objects, state, success: false }
+      return { error: 'Cannot detect XanoScript type', objects, success: false }
     }
 
     const existingObj = findObjectByPath(objects, filePath)
-    const key = generateKey(content) || `${type}:${path.basename(filePath, '.xs')}`
-
     let newId: number
-    let etag: string | undefined
 
     if (existingObj?.id) {
       // Update existing object
-      // TODO: Check etag for conflicts if not force
       const response = await api.updateObject(type, existingObj.id, content)
 
       if (!response.ok) {
-        return { error: response.error || 'Update failed', objects, state, success: false }
+        return { error: response.error || 'Update failed', objects, success: false }
       }
 
       newId = existingObj.id
-      etag = response.etag
     } else {
       // Create new object
       const response = await api.createObject(type, content)
 
       if (!response.ok) {
-        // Try to find by key and update instead
         if (response.status === 409 || response.error?.includes('already exists')) {
           return {
-            error: 'Object already exists on Xano. Run "xano sync" to update mappings.',
+            error: 'Object already exists on Xano. Run "xano pull --sync" to update mappings.',
             objects,
-            state,
             success: false,
           }
         }
 
-        return { error: response.error || 'Create failed', objects, state, success: false }
+        return { error: response.error || 'Create failed', objects, success: false }
       }
 
       if (!response.data?.id) {
-        return { error: 'No ID returned from API', objects, state, success: false }
+        return { error: 'No ID returned from API', objects, success: false }
       }
 
       newId = response.data.id
-      etag = response.etag
     }
 
     // Update objects.json
@@ -307,18 +433,11 @@ static strict = false // Allow multiple file arguments
       id: newId,
       original: encodeBase64(content),
       sha256: computeSha256(content),
-      staged: false,
       status: 'unchanged',
       type,
     })
 
-    // Update state.json
-    state = setStateEntry(state, filePath, {
-      etag,
-      key,
-    })
-
-    return { objects, state, success: true }
+    return { objects, success: true }
   }
 
   private walkDir(

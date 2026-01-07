@@ -117,7 +117,7 @@ export function upsertObject(
     original: data.original ?? encodeBase64(fileContent),
     path: filePath,
     sha256: data.sha256 ?? computeSha256(fileContent),
-    staged: data.staged ?? false,
+    staged: false, // always false, kept for VSCode extension compatibility
     status: data.status ?? 'unchanged',
     type: data.type,
   }

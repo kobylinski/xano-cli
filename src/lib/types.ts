@@ -12,32 +12,54 @@ export type XanoObjectType =
   | 'table'
   | 'table_trigger'
   | 'task'
+  | 'workflow_test'
+
+// Paths configuration
+export interface XanoPaths {
+  apis: string
+  functions: string
+  tables: string
+  tasks: string
+  triggers?: string
+  workflow_tests: string
+  [key: string]: string | undefined
+}
 
 // xano.json - versioned project config
 export interface XanoProjectConfig {
   instance: string
-  paths: {
-    [key: string]: string
-    apis: string
-    functions: string
-    tables: string
-    tasks: string
-  }
+  paths: XanoPaths
   workspace: string
   workspaceId: number
+}
+
+// Path resolver function type
+export type PathResolver = (
+  obj: { group?: string; id: number; name: string; path?: string; table?: string; type: XanoObjectType; verb?: string },
+  paths: XanoPaths
+) => string | null
+
+// Sanitize function type
+export type SanitizeFunction = (name: string) => string
+
+// Type resolver function type - resolves user input path to object types
+export type TypeResolver = (
+  inputPath: string,
+  paths: XanoPaths
+) => XanoObjectType[] | null
+
+// xano.js dynamic config
+export interface XanoDynamicConfig extends XanoProjectConfig {
+  resolvePath?: PathResolver
+  resolveType?: TypeResolver
+  sanitize?: SanitizeFunction
 }
 
 // .xano/config.json - VSCode compatible local config
 export interface XanoLocalConfig {
   branch: string
   instanceName: string
-  paths: {
-    [key: string]: string
-    apis: string
-    functions: string
-    tables: string
-    tasks: string
-  }
+  paths: XanoPaths
   workspaceId: number
   workspaceName: string
 }
@@ -48,37 +70,13 @@ export interface XanoObject {
   original: string // base64 encoded original content
   path: string
   sha256: string
-  staged: boolean
+  staged: boolean // kept for VSCode extension compatibility
   status: 'deleted' | 'modified' | 'new' | 'unchanged'
   type: XanoObjectType
 }
 
 // .xano/objects.json - array of objects
 export type XanoObjectsFile = XanoObject[]
-
-// Single entry in .xano/state.json (CLI owned)
-export interface XanoStateEntry {
-  etag?: string
-  key: string
-}
-
-// .xano/state.json - keyed by filepath
-export interface XanoStateFile {
-  [filepath: string]: XanoStateEntry
-}
-
-// Combined object info from objects.json + state.json
-export interface XanoObjectInfo {
-  etag?: string
-  id?: number
-  key?: string
-  original?: string
-  path: string
-  sha256?: string
-  staged?: boolean
-  status?: 'deleted' | 'modified' | 'new' | 'unchanged'
-  type?: XanoObjectType
-}
 
 // Profile from ~/.xano/credentials.yaml
 export interface XanoProfile {
@@ -149,6 +147,17 @@ export interface XanoApiTask {
   xanoscript?: string
 }
 
+export interface XanoApiWorkflowTest {
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  name: string
+  tag?: string[]
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
+}
+
 export interface XanoApiBranch {
   id: number
   is_default: boolean
@@ -157,11 +166,10 @@ export interface XanoApiBranch {
 }
 
 // Status types for CLI output
-export type FileStatus = 'conflict' | 'deleted' | 'modified' | 'new' | 'orphan' | 'unchanged'
+export type FileStatus = 'conflict' | 'deleted' | 'modified' | 'new' | 'remote_only' | 'unchanged'
 
 export interface StatusEntry {
   id?: number
-  key?: string
   message?: string
   path: string
   status: FileStatus

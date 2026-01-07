@@ -15,17 +15,19 @@ The xano-cli enables version control and local development of XanoScript files. 
 
 ```
 project/
-├── xano.json              # Project config (versioned)
-├── .xano/
-│   ├── config.json        # Local config with branch info
-│   ├── objects.json       # Object mappings and checksums
-│   └── state.json         # Sync state and etags
-├── functions/             # XanoScript functions
-├── apis/                  # API endpoints by group
-│   ├── GroupName/
-│   │   └── 123_POST_endpoint.xs
-├── tables/                # Table definitions
-└── tasks/                 # Scheduled tasks
+├── xano.json              # Project config (versioned, commit this)
+├── .xano/                  # Local state (add to .gitignore)
+│   ├── config.json         # Local config with branch info
+│   └── objects.json        # Object mappings and checksums
+├── functions/              # XanoScript functions
+│   └── user/               # Subdirectories from natural text names
+│       └── security_events/
+├── apis/                   # API endpoints by group
+│   ├── auth/
+│   └── user/
+├── tables/                 # Table definitions
+├── tasks/                  # Scheduled tasks
+└── workflow_tests/         # Workflow tests
 ```
 
 ## Essential Commands
@@ -43,93 +45,137 @@ xano init --branch v2
 xano init --force
 ```
 
-### Sync with Xano
+### Pull from Xano
 
 ```bash
-# Update mappings only (no file changes)
-xano sync
-
 # Pull all files from Xano
-xano sync --pull
+xano pull
 
-# Pull and remove local files not on Xano
-xano sync --pull --clean
+# Pull specific files or directories
+xano pull functions/my_function.xs
+xano pull functions/
+xano pull functions/ tables/users.xs
+
+# Force fresh metadata sync before pull
+xano pull --sync
+
+# Delete local files not on Xano
+xano pull --clean
+
+# Combined flags
+xano pull functions/ --sync --clean
+
+# Attempt 3-way merge with local changes
+xano pull --merge functions/my_function.xs
+
+# Force overwrite local changes
+xano pull --force
+```
+
+### Push to Xano
+
+```bash
+# Push all modified files
+xano push
+
+# Push specific files or directories
+xano push functions/my_function.xs
+xano push functions/
+xano push apis/ tables/users.xs
+
+# Force fresh metadata sync before push
+xano push --sync
+
+# Delete objects from Xano that don't exist locally
+xano push --clean
+
+# Combined flags
+xano push functions/ --sync --clean
 ```
 
 ### Check Status
 
 ```bash
-# Show modified, new, and deleted files
+# Show status (always fetches from Xano)
 xano status
+
+# Check specific files or directories
+xano status functions/my_function.xs
+xano status functions/
+xano status functions/ apis/
+
+# Output as JSON
+xano status --json
 ```
 
 Status indicators:
-- `M` - Modified locally
-- `D` - Deleted locally (exists on Xano)
-- `N` - New (not yet on Xano)
+- `M` - Modified (local differs from Xano)
+- `A` - New (local only, not on Xano)
+- `R` - Remote only (on Xano, not local)
 
-### Push Changes
-
-```bash
-# Push specific file
-xano push functions/my_function.xs
-
-# Push multiple files
-xano push functions/*.xs
-
-# Push all modified files
-xano push --all
-```
-
-### Pull Changes
+### List Remote Objects
 
 ```bash
-# Pull specific file
-xano pull functions/my_function.xs
+# List all objects on Xano
+xano list
 
-# Pull with force (overwrite local changes)
-xano pull --force functions/my_function.xs
+# List by type
+xano list functions/
+xano list tables/
+xano list apis/
+xano list tasks/
+xano list workflow_tests/
 
-# Pull all files
-xano pull --all
+# Filter APIs by group
+xano list apis/auth
 
-# Attempt 3-way merge
-xano pull --merge functions/my_function.xs
-```
+# Show only objects not pulled locally
+xano list --remote-only
 
-### List Objects
+# Long format with details
+xano list -l
 
-```bash
-# List all functions
-xano list functions
-
-# List API endpoints
-xano list apis
-
-# List tables
-xano list tables
-
-# List tasks
-xano list tasks
+# JSON output
+xano list --json
 ```
 
 ### Branch Management
 
 ```bash
-# List branches
+# Show current branch
 xano branch
 
+# List all branches
+xano branch list
+
 # Switch branch
-xano branch --switch live
+xano branch v2
+xano branch live
+```
+
+### Lint
+
+```bash
+# Lint specific files
+xano lint functions/my_function.xs
+
+# Lint directory
+xano lint functions/
+
+# Lint git-staged files
+xano lint --staged
+
+# Lint all .xs files
+xano lint --all
 ```
 
 ## Workflow Examples
 
 ### Daily Development Workflow
 
-1. Start by syncing to get latest changes:
+1. Start by pulling latest changes:
    ```bash
-   xano sync --pull
+   xano pull
    ```
 
 2. Check what you're working with:
@@ -146,9 +192,9 @@ xano branch --switch live
 
 ### Starting a New Feature
 
-1. Sync to ensure you have latest:
+1. Pull to ensure you have latest:
    ```bash
-   xano sync --pull
+   xano pull
    ```
 
 2. Create new XanoScript file locally
@@ -157,6 +203,23 @@ xano branch --switch live
    ```bash
    xano push functions/new_feature.xs
    ```
+
+### Branch Switching
+
+```bash
+# Switch to different Xano branch
+xano branch live
+
+# Pull files from new branch (auto-syncs metadata)
+xano pull --sync
+```
+
+### Clean Slate
+
+```bash
+# Force fresh sync and pull everything
+xano pull --sync --clean
+```
 
 ### Resolving Conflicts
 
@@ -261,28 +324,78 @@ xano data:delete users <user_id> --force
 
 ## Tips
 
-1. **Always sync before starting work** to avoid conflicts
+1. **Use `xano status` frequently** to see what's changed
 
-2. **Use `xano status` frequently** to see what's changed
+2. **Push small, focused changes** rather than large batches
 
-3. **Push small, focused changes** rather than large batches
+3. **Keep .xano/ in .gitignore** - it contains local state
 
-4. **Keep .xano/ in .gitignore** - it contains local state
+4. **Commit xano.json to git** - it defines the project
 
-5. **Commit xano.json to git** - it defines the project
+5. **Use data commands for testing** - quickly create/delete test records
 
-6. **Use data commands for testing** - quickly create/delete test records
+6. **Use api:call for integration testing** - test your API endpoints directly
 
-7. **Use api:call for integration testing** - test your API endpoints directly
+7. **Use --sync flag** when metadata might be stale or after branch switch
+
+8. **Use `xano status`** to preview what would change before pull/push
+
+## Custom Configuration (xano.js)
+
+For advanced setups, create `xano.js` instead of `xano.json`:
+
+```javascript
+export default {
+  instance: "a1b2-c3d4-e5f6",
+  workspaceId: 123,
+  paths: {
+    functions: "app/functions",
+    tables: "db/tables",
+    triggers: "db/triggers"
+  },
+
+  // Custom type resolver (optional)
+  resolveType(inputPath, paths) {
+    if (inputPath === "database") return ["table", "table_trigger"]
+    return null  // Use default
+  }
+}
+```
+
+## Type Resolution
+
+Commands like `xano pull tables` resolve input to object types based on the `paths` config.
+
+**How it works:**
+1. Dynamic resolver (`resolveType` in xano.js) - if defined
+2. Match input against configured paths AND any nested paths under it
+
+**Example:**
+```javascript
+paths: { tables: 'tables', triggers: 'tables/triggers' }
+```
+- `xano pull tables` → matches `tables` + `triggers` → `['table', 'table_trigger']`
+- `xano pull tables/triggers` → matches `triggers` only → `['table_trigger']`
+
+**Path key → types:**
+- `functions` → `['function']`
+- `apis` → `['api_endpoint', 'api_group']`
+- `tables` → `['table']`
+- `triggers` → `['table_trigger']`
+- `tasks` → `['task']`
+- `workflow_tests` → `['workflow_test']`
 
 ## File Naming Convention
 
-Files are named with their Xano ID prefix for reliable mapping:
+Files are named based on their Xano object names, converted to snake_case:
 
-- Functions: `{id}_{Name}.xs`
-- APIs: `{id}_{VERB}_{path}.xs`
-- Tables: `{id}_{name}.xs`
-- Tasks: `{id}_{name}.xs`
+- Functions: `function_name.xs` or `subdirectory/function_name.xs`
+- APIs: `group_name/endpoint_path_VERB.xs`
+- Tables: `table_name.xs`
+- Tasks: `task_name.xs`
+
+Natural text names with slashes become subdirectories:
+- `User/Security Events/Log Auth` -> `functions/user/security_events/log_auth.xs`
 
 ## Environment Variables
 
@@ -298,7 +411,10 @@ Run `xano init` to initialize the project.
 Run `xano profile:wizard` to create credentials.
 
 ### Push fails with validation error
-Check the XanoScript syntax. Run `xano lint <file>` if available.
+Check the XanoScript syntax. Run `xano lint <file>` to validate.
 
 ### Files show as modified but unchanged
-Run `xano sync --pull` to refresh the baseline.
+Run `xano pull --sync` to refresh the baseline.
+
+### Missing objects.json
+The CLI will auto-sync metadata when objects.json is missing. You can also run `xano pull --sync` manually.

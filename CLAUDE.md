@@ -32,7 +32,8 @@ xano-cli/
 │   │   └── workspace/      # Workspace operations
 │   ├── lib/                # Shared library code
 │   │   ├── api.ts          # Xano API client (XanoApi class)
-│   │   ├── detector.ts     # XanoScript type detection
+│   │   ├── config.ts       # Configuration loader (xano.js/xano.json)
+│   │   ├── detector.ts     # XanoScript type detection & path generation
 │   │   ├── objects.ts      # Object file management
 │   │   ├── project.ts      # Project configuration
 │   │   ├── state.ts        # CLI state management
@@ -63,6 +64,8 @@ xano-cli/
 ### Key Files
 
 - `src/lib/api.ts` - Main API client with all Xano API methods
+- `src/lib/config.ts` - Configuration loader supporting xano.js and xano.json
+- `src/lib/detector.ts` - XanoScript type detection, path generation, sanitization
 - `src/lib/types.ts` - TypeScript interfaces for all data structures
 - `src/lib/project.ts` - Project initialization and configuration
 - `package.json` - Dependencies and npm scripts
@@ -132,6 +135,72 @@ if (!profile) {
 const api = new XanoApi(profile, workspaceId, branch)
 const response = await api.listFunctions()
 ```
+
+### File Naming Convention
+
+Files are named without ID prefixes, using sanitized names:
+
+| Type | Path Pattern |
+|------|--------------|
+| Function | `{paths.functions}/{name}.xs` |
+| Table | `{paths.tables}/{name}.xs` |
+| Task | `{paths.tasks}/{name}.xs` |
+| Workflow Test | `{paths.workflow_tests}/{name}.xs` |
+| API Group | `{paths.apis}/{group}.xs` |
+| API Endpoint | `{paths.apis}/{group}/{path}_{VERB}.xs` |
+| Table Trigger | `{paths.triggers ?? paths.tables}/{table}/{name}.xs` |
+
+Default sanitization converts names to `snake_case`:
+- `calculateTotal` → `calculate_total`
+- `/users/{id}` → `users_id`
+
+### Configuration Files
+
+The CLI supports two configuration formats:
+
+**xano.json** - Static configuration (versioned):
+```json
+{
+  "instance": "a1b2-c3d4",
+  "workspaceId": 123,
+  "workspace": "My Workspace",
+  "paths": {
+    "functions": "functions",
+    "tables": "tables",
+    "apis": "apis",
+    "tasks": "tasks",
+    "workflow_tests": "workflow_tests"
+  }
+}
+```
+
+**xano.js** - Dynamic configuration with custom resolvers:
+```javascript
+module.exports = {
+  instance: 'a1b2-c3d4',
+  workspaceId: 123,
+  workspace: 'My Workspace',
+  paths: {
+    functions: 'src/functions',
+    apis: 'src/apis'
+  },
+
+  // Optional: custom sanitize function
+  sanitize(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]/g, '_')
+  },
+
+  // Optional: custom path resolver (return null to use default)
+  resolvePath(obj, paths) {
+    if (obj.type === 'function' && obj.name.startsWith('test_')) {
+      return `tests/${obj.name}.xs`
+    }
+    return null // Use default resolution
+  }
+}
+```
+
+Priority: `xano.js` > `xano.json`
 
 ### Build & Run
 

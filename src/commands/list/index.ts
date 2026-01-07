@@ -119,6 +119,10 @@ static flags = {
       await this.fetchTasks(api, remoteObjects, localPaths)
     }
 
+    if (!typeFilter || typeFilter === 'workflow_test') {
+      await this.fetchWorkflowTests(api, remoteObjects, localPaths)
+    }
+
     // Filter remote-only if requested
     let filtered = remoteObjects
     if (flags['remote-only']) {
@@ -236,6 +240,24 @@ static flags = {
     }
   }
 
+  private async fetchWorkflowTests(
+    api: XanoApi,
+    results: RemoteObject[],
+    localPaths: Map<string, string>
+  ): Promise<void> {
+    const response = await api.listWorkflowTests(1, 1000)
+    if (response.ok && response.data?.items) {
+      for (const t of response.data.items) {
+        results.push({
+          id: t.id,
+          localPath: localPaths.get(`workflow_test:${t.id}`),
+          name: t.name,
+          type: 'workflow_test',
+        })
+      }
+    }
+  }
+
   private outputHuman(
     objects: RemoteObject[],
     typeFilter: null | XanoObjectType,
@@ -265,6 +287,7 @@ static flags = {
       table: 'Tables',
       table_trigger: 'Table Triggers',
       task: 'Tasks',
+      workflow_test: 'Workflow Tests',
     }
 
     for (const [type, list] of byType) {
@@ -331,6 +354,8 @@ static flags = {
       'tables': 'table',
       'task': 'task',
       'tasks': 'task',
+      'workflow_test': 'workflow_test',
+      'workflow_tests': 'workflow_test',
     }
 
     // Check direct match first
@@ -344,6 +369,7 @@ static flags = {
       [config.paths.tables, 'table'],
       [config.paths.apis, 'api_endpoint'],
       [config.paths.tasks, 'task'],
+      [config.paths.workflow_tests, 'workflow_test'],
     ]
 
     for (const [prefix, type] of pathPrefixes) {

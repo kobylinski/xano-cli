@@ -5,7 +5,34 @@
 
 import * as path from 'node:path'
 
-import type { XanoObjectType } from './types.js'
+import type { XanoObjectType, XanoPaths } from './types.js'
+
+/**
+ * Sanitize a single name segment for filesystem usage
+ * Converts to lowercase snake_case
+ */
+export function sanitize(name: string): string {
+  return name
+    .replace(/((?<!^)[A-Z][a-z]+)/g, '_$1')  // camelCase → snake_case
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')                  // spaces/hyphens → underscore
+    .replace(/[^a-z0-9_]/g, '_')              // remove invalid chars
+    .replace(/_+/g, '_')                      // collapse underscores
+    .replace(/^_|_$/g, '')                    // trim leading/trailing
+}
+
+/**
+ * Sanitize a path that may contain forward slashes
+ * "User/Security Events/Log Auth" → "user/security_events/log_auth"
+ */
+export function sanitizePath(name: string, sanitizeFn: (s: string) => string = sanitize): string {
+  // Split by forward slash, sanitize each segment, rejoin
+  const segments = name.split('/')
+  return segments
+    .map(segment => sanitizeFn(segment.trim()))
+    .filter(segment => segment.length > 0)
+    .join('/')
+}
 
 /**
  * Detect XanoScript object type from content
@@ -32,6 +59,7 @@ export function detectType(content: string): null | XanoObjectType {
     if (cleanLine.startsWith('middleware ')) return 'middleware'
     if (cleanLine.startsWith('addon ')) return 'addon'
     if (cleanLine.startsWith('task ')) return 'task'
+    if (cleanLine.startsWith('workflow_test ')) return 'workflow_test'
 
     // No match on first significant line
     return null
@@ -56,10 +84,10 @@ export function extractName(content: string): null | string {
       continue
     }
 
-    // Match: keyword name { or keyword name (
-    const match = cleanLine.match(/^(function|table|table_trigger|query|api_group|middleware|addon|task)\s+([a-zA-Z_][a-zA-Z0-9_]*)/i)
+    // Match: keyword name { or keyword name ( or keyword "name"
+    const match = cleanLine.match(/^(function|table|table_trigger|query|api_group|middleware|addon|task|workflow_test)\s+(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))/i)
     if (match) {
-      return match[2]
+      return match[2] || match[3]
     }
 
     break
@@ -144,7 +172,8 @@ export function generateKey(content: string): null | string {
     case 'function':
     case 'middleware':
     case 'table':
-    case 'task': {
+    case 'task':
+    case 'workflow_test': {
       const name = extractName(content)
       return name ? `${type}:${name}` : null
     }
@@ -208,6 +237,10 @@ export function generateKeyFromPath(filePath: string): null | string {
     return `task:${basename}`
   }
 
+  if (parts.includes('workflow_tests')) {
+    return `workflow_test:${basename}`
+  }
+
   return null
 }
 
@@ -227,59 +260,108 @@ export function detectTypeFromPath(filePath: string): null | XanoObjectType {
 
   if (parts.includes('apis')) return 'api_endpoint'
   if (parts.includes('tasks')) return 'task'
+  if (parts.includes('workflow_tests')) return 'workflow_test'
 
   return null
 }
 
 /**
+ * Object info passed to path resolver
+ */
+export interface PathResolverObject {
+  group?: string
+  id: number
+  name: string
+  path?: string
+  table?: string
+  type: XanoObjectType
+  verb?: string
+}
+
+/**
  * Generate expected file path from object data
+ * Uses new naming convention without ID prefix
  */
 export function generateFilePath(
-  type: XanoObjectType,
-  name: string,
-  id: number,
-  paths: { apis: string; functions: string; tables: string; tasks: string },
-  apiGroup?: string,
-  verb?: string
+  obj: PathResolverObject,
+  paths: XanoPaths,
+  customSanitize?: (name: string) => string,
+  customResolver?: (obj: PathResolverObject, paths: XanoPaths) => string | null
 ): string {
-  switch (type) {
+  // Try custom resolver first
+  if (customResolver) {
+    const customPath = customResolver(obj, paths)
+    if (customPath) {
+      return customPath
+    }
+  }
+
+  const s = customSanitize || sanitize
+  // Helper for path-aware sanitization (handles forward slashes as subdirectories)
+  const sp = (name: string) => sanitizePath(name, s)
+
+  switch (obj.type) {
     case 'addon': {
-      return `addons/${id}_${name}.xs`
+      return `addons/${sp(obj.name)}.xs`
     }
 
     case 'api_endpoint': {
-      const group = apiGroup || 'default'
-      const v = verb?.toUpperCase() || 'GET'
-      const safeName = name.replaceAll('/', '_').replaceAll(/[{}]/g, '')
-      return `${paths.apis}/${group}/${id}_${v}_${safeName}.xs`
+      const group = sp(obj.group || 'default')
+      const v = (obj.verb || 'GET').toUpperCase()
+      const apiPath = s(obj.path || obj.name)
+      return `${paths.apis}/${group}/${apiPath}_${v}.xs`
     }
 
     case 'api_group': {
-      return `${paths.apis}/${name}/_group.xs`
+      return `${paths.apis}/${sp(obj.name)}.xs`
     }
 
     case 'function': {
-      return `${paths.functions}/${id}_${name}.xs`
+      return `${paths.functions}/${sp(obj.name)}.xs`
     }
 
     case 'middleware': {
-      return `middleware/${id}_${name}.xs`
+      return `middleware/${sp(obj.name)}.xs`
     }
 
     case 'table': {
-      return `${paths.tables}/${id}_${name}.xs`
+      return `${paths.tables}/${sp(obj.name)}.xs`
     }
 
     case 'table_trigger': {
-      return `${paths.tables}/triggers/${id}_${name}.xs`
+      const tableName = s(obj.table || 'unknown')
+      const baseDir = paths.triggers || paths.tables
+      return `${baseDir}/${tableName}/${sp(obj.name)}.xs`
     }
 
     case 'task': {
-      return `${paths.tasks}/${id}_${name}.xs`
+      return `${paths.tasks}/${sp(obj.name)}.xs`
+    }
+
+    case 'workflow_test': {
+      return `${paths.workflow_tests}/${sp(obj.name)}.xs`
     }
 
     default: {
-      return `${id}_${name}.xs`
+      return `${sp(obj.name)}.xs`
     }
   }
+}
+
+/**
+ * Legacy function for backwards compatibility
+ * @deprecated Use generateFilePath with PathResolverObject instead
+ */
+export function generateFilePathLegacy(
+  type: XanoObjectType,
+  name: string,
+  id: number,
+  paths: { apis: string; functions: string; tables: string; tasks: string; workflow_tests: string },
+  apiGroup?: string,
+  verb?: string
+): string {
+  return generateFilePath(
+    { group: apiGroup, id, name, path: name, type, verb },
+    { ...paths, triggers: `${paths.tables}/triggers` }
+  )
 }

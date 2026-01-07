@@ -9,9 +9,68 @@ import {
   generateFilePath,
   generateKey,
   generateKeyFromPath,
+  sanitize,
+  sanitizePath,
 } from '../../src/lib/detector.js'
 
 describe('lib/detector', () => {
+  describe('sanitize', () => {
+    it('converts camelCase to snake_case', () => {
+      expect(sanitize('calculateTotal')).to.equal('calculate_total')
+    })
+
+    it('converts to lowercase', () => {
+      expect(sanitize('MyFunction')).to.equal('my_function')
+    })
+
+    it('replaces spaces with underscores', () => {
+      expect(sanitize('my function')).to.equal('my_function')
+    })
+
+    it('replaces hyphens with underscores', () => {
+      expect(sanitize('my-function')).to.equal('my_function')
+    })
+
+    it('removes invalid characters', () => {
+      expect(sanitize('my@function!')).to.equal('my_function')
+    })
+
+    it('collapses multiple underscores', () => {
+      expect(sanitize('my__function')).to.equal('my_function')
+    })
+
+    it('trims leading and trailing underscores', () => {
+      expect(sanitize('_myfunction_')).to.equal('myfunction')
+    })
+
+    it('handles API paths', () => {
+      expect(sanitize('/users/{id}')).to.equal('users_id')
+    })
+  })
+
+  describe('sanitizePath', () => {
+    it('converts slashes to directory separators', () => {
+      expect(sanitizePath('User/Security Events/Log Auth')).to.equal('user/security_events/log_auth')
+    })
+
+    it('handles single segment (no slashes)', () => {
+      expect(sanitizePath('myFunction')).to.equal('my_function')
+    })
+
+    it('trims whitespace around segments', () => {
+      expect(sanitizePath('User / Events / Log')).to.equal('user/events/log')
+    })
+
+    it('filters out empty segments', () => {
+      expect(sanitizePath('User//Events')).to.equal('user/events')
+    })
+
+    it('uses custom sanitize function', () => {
+      const upper = (s: string) => s.toUpperCase()
+      expect(sanitizePath('user/events', upper)).to.equal('USER/EVENTS')
+    })
+  })
+
   describe('detectType', () => {
     it('detects function type', () => {
       expect(detectType('function calculate_total { }')).to.equal('function')
@@ -230,41 +289,73 @@ function my_func { }`
       functions: 'functions',
       tables: 'tables',
       tasks: 'tasks',
+      triggers: 'tables',
+      workflow_tests: 'workflow_tests',
     }
 
     it('generates function path', () => {
-      expect(generateFilePath('function', 'calculate_total', 123, paths)).to.equal('functions/123_calculate_total.xs')
+      const result = generateFilePath({ id: 123, name: 'calculate_total', type: 'function' }, paths)
+      expect(result).to.equal('functions/calculate_total.xs')
     })
 
     it('generates table path', () => {
-      expect(generateFilePath('table', 'users', 456, paths)).to.equal('tables/456_users.xs')
+      const result = generateFilePath({ id: 456, name: 'users', type: 'table' }, paths)
+      expect(result).to.equal('tables/users.xs')
     })
 
     it('generates task path', () => {
-      expect(generateFilePath('task', 'cleanup', 789, paths)).to.equal('tasks/789_cleanup.xs')
+      const result = generateFilePath({ id: 789, name: 'cleanup', type: 'task' }, paths)
+      expect(result).to.equal('tasks/cleanup.xs')
     })
 
     it('generates api_endpoint path with group and verb', () => {
-      const result = generateFilePath('api_endpoint', '/users', 100, paths, 'auth', 'POST')
-      expect(result).to.equal('apis/auth/100_POST__users.xs')
+      const result = generateFilePath({ group: 'auth', id: 100, name: '/users', path: '/users', type: 'api_endpoint', verb: 'POST' }, paths)
+      expect(result).to.equal('apis/auth/users_POST.xs')
     })
 
     it('generates api_endpoint path with default group and verb', () => {
-      const result = generateFilePath('api_endpoint', '/users', 100, paths)
-      expect(result).to.equal('apis/default/100_GET__users.xs')
+      const result = generateFilePath({ id: 100, name: '/users', path: '/users', type: 'api_endpoint' }, paths)
+      expect(result).to.equal('apis/default/users_GET.xs')
     })
 
     it('generates table_trigger path', () => {
-      expect(generateFilePath('table_trigger', 'audit', 200, paths)).to.equal('tables/triggers/200_audit.xs')
+      const result = generateFilePath({ id: 200, name: 'audit', table: 'users', type: 'table_trigger' }, paths)
+      expect(result).to.equal('tables/users/audit.xs')
     })
 
     it('generates api_group path', () => {
-      expect(generateFilePath('api_group', 'auth', 300, paths)).to.equal('apis/auth/_group.xs')
+      const result = generateFilePath({ id: 300, name: 'auth', type: 'api_group' }, paths)
+      expect(result).to.equal('apis/auth.xs')
     })
 
     it('sanitizes path characters in api endpoint names', () => {
-      const result = generateFilePath('api_endpoint', '/users/{id}', 100, paths, 'default', 'GET')
-      expect(result).to.equal('apis/default/100_GET__users_id.xs')
+      const result = generateFilePath({ group: 'default', id: 100, name: '/users/{id}', path: '/users/{id}', type: 'api_endpoint', verb: 'GET' }, paths)
+      expect(result).to.equal('apis/default/users_id_GET.xs')
+    })
+
+    it('generates workflow_test path', () => {
+      const result = generateFilePath({ id: 500, name: 'login_flow', type: 'workflow_test' }, paths)
+      expect(result).to.equal('workflow_tests/login_flow.xs')
+    })
+
+    it('converts camelCase to snake_case', () => {
+      const result = generateFilePath({ id: 1, name: 'calculateTotal', type: 'function' }, paths)
+      expect(result).to.equal('functions/calculate_total.xs')
+    })
+
+    it('converts natural text function names with slashes to subdirectories', () => {
+      const result = generateFilePath({ id: 1, name: 'User/Security Events/Log Auth', type: 'function' }, paths)
+      expect(result).to.equal('functions/user/security_events/log_auth.xs')
+    })
+
+    it('converts natural text task names with slashes to subdirectories', () => {
+      const result = generateFilePath({ id: 1, name: 'Maintenance/Daily Cleanup', type: 'task' }, paths)
+      expect(result).to.equal('tasks/maintenance/daily_cleanup.xs')
+    })
+
+    it('converts api group names with slashes to subdirectories', () => {
+      const result = generateFilePath({ id: 1, name: 'Admin/User Management', type: 'api_group' }, paths)
+      expect(result).to.equal('apis/admin/user_management.xs')
     })
   })
 })
