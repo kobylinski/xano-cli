@@ -244,8 +244,11 @@ export default class Push extends Command {
       this.paths.functions,
       this.paths.apis,
       this.paths.tables,
+      this.paths.tableTriggers,
       this.paths.tasks,
-      this.paths.workflow_tests,
+      this.paths.workflowTests,
+      this.paths.addOns,
+      this.paths.middlewares,
     ].filter((d): d is string => d !== undefined)
 
     for (const dir of dirs) {
@@ -357,9 +360,11 @@ export default class Push extends Command {
       case 'api_endpoint':
       case 'api_group': return this.paths.apis
       case 'table': return this.paths.tables
-      case 'table_trigger': return this.paths.triggers || this.paths.tables
+      case 'table_trigger': return this.paths.tableTriggers || this.paths.tables
       case 'task': return this.paths.tasks
-      case 'workflow_test': return this.paths.workflow_tests
+      case 'workflow_test': return this.paths.workflowTests
+      case 'addon': return this.paths.addOns
+      case 'middleware': return this.paths.middlewares
       default: return undefined
     }
   }
