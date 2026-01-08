@@ -673,11 +673,11 @@ export class XanoApi {
     )
   }
 
-  async updateApiEndpoint(id: number, xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
+  async updateApiEndpoint(apiGroupId: number, id: number, xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
     return apiRequest(
       this.profile,
       'PUT',
-      `/api:meta/workspace/${this.workspaceId}/api/${id}?${this.branchParam}`,
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${apiGroupId}/api/${id}?${this.branchParam}`,
       xanoscript,
       'text/x-xanoscript'
     )
@@ -697,11 +697,24 @@ export class XanoApi {
 
   /**
    * Update object by type and ID
+   * @param type Object type
+   * @param id Object ID
+   * @param xanoscript XanoScript content
+   * @param options Additional options (apigroup_id for api_endpoint, table_id for table_trigger)
    */
-  async updateObject(type: XanoObjectType, id: number, xanoscript: string): Promise<ApiResponse<{ id: number; name?: string }>> {
+  async updateObject(
+    type: XanoObjectType,
+    id: number,
+    xanoscript: string,
+    options?: { apigroup_id?: number; table_id?: number }
+  ): Promise<ApiResponse<{ id: number; name?: string }>> {
     switch (type) {
       case 'api_endpoint': {
-        return this.updateApiEndpoint(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+        if (!options?.apigroup_id) {
+          return { error: 'apigroup_id is required for updating API endpoints. Run "xano pull --sync" to refresh metadata.', ok: false, status: 0 }
+        }
+
+        return this.updateApiEndpoint(options.apigroup_id, id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
       case 'function': {

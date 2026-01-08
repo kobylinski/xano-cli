@@ -122,6 +122,15 @@ export function upsertObject(
     type: data.type,
   }
 
+  // Add optional fields for specific types
+  if (data.apigroup_id !== undefined) {
+    newObject.apigroup_id = data.apigroup_id
+  }
+
+  if (data.table_id !== undefined) {
+    newObject.table_id = data.table_id
+  }
+
   if (existingIndex === -1) {
     objects.push(newObject)
   } else {

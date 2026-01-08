@@ -400,13 +400,32 @@ export default class Push extends Command {
     if (existingObj?.id) {
       // Update existing object - use stored type (authoritative)
       objectType = existingObj.type
-      const response = await api.updateObject(objectType, existingObj.id, content)
+
+      // Pass additional metadata for types that require it
+      const updateOptions: { apigroup_id?: number; table_id?: number } = {}
+      if (existingObj.apigroup_id !== undefined) {
+        updateOptions.apigroup_id = existingObj.apigroup_id
+      }
+
+      if (existingObj.table_id !== undefined) {
+        updateOptions.table_id = existingObj.table_id
+      }
+
+      const response = await api.updateObject(objectType, existingObj.id, content, updateOptions)
 
       if (!response.ok) {
         // Provide helpful error message for common issues
         if (response.error?.includes('Unable to locate')) {
           return {
             error: `${response.error} (ID: ${existingObj.id}, type: ${objectType}). The object may have been deleted from Xano. Run "xano pull --sync" to refresh mappings.`,
+            objects,
+            success: false,
+          }
+        }
+
+        if (response.error?.includes('apigroup_id is required')) {
+          return {
+            error: `${response.error} (path: ${filePath})`,
             objects,
             success: false,
           }
@@ -446,14 +465,25 @@ export default class Push extends Command {
       newId = response.data.id
     }
 
-    // Update objects.json
-    objects = upsertObject(objects, filePath, {
+    // Update objects.json - preserve apigroup_id/table_id for existing objects
+    const upsertData: Parameters<typeof upsertObject>[2] = {
       id: newId,
       original: encodeBase64(content),
       sha256: computeSha256(content),
       status: 'unchanged',
       type: objectType,
-    })
+    }
+
+    // Preserve metadata from existing object
+    if (existingObj?.apigroup_id !== undefined) {
+      upsertData.apigroup_id = existingObj.apigroup_id
+    }
+
+    if (existingObj?.table_id !== undefined) {
+      upsertData.table_id = existingObj.table_id
+    }
+
+    objects = upsertObject(objects, filePath, upsertData)
 
     return { objects, success: true }
   }
