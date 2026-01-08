@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:docs.xano.com)"
     ],
     "deny": [],
     "ask": [

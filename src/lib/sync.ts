@@ -312,12 +312,10 @@ export async function syncFromXano(
     const filePath = generateObjectPath(obj, paths, customSanitize, customResolver)
 
     objects = upsertObject(objects, filePath, {
-      apigroup_id: obj.apigroup_id, // For api_endpoint type
       id: obj.id,
       original: encodeBase64(obj.xanoscript),
       sha256: computeSha256(obj.xanoscript),
       status: 'unchanged',
-      table_id: obj.table_id, // For table_trigger type
       type: obj.type,
     })
   }

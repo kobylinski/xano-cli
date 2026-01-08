@@ -122,15 +122,6 @@ export function upsertObject(
     type: data.type,
   }
 
-  // Add optional fields for specific types
-  if (data.apigroup_id !== undefined) {
-    newObject.apigroup_id = data.apigroup_id
-  }
-
-  if (data.table_id !== undefined) {
-    newObject.table_id = data.table_id
-  }
-
   if (existingIndex === -1) {
     objects.push(newObject)
   } else {
@@ -138,6 +129,38 @@ export function upsertObject(
   }
 
   return objects
+}
+
+/**
+ * Find API group for an api_endpoint based on path hierarchy
+ * VSCode extension uses directory structure to determine API group
+ * e.g., app/apis/bootstrap/auth_login_POST.xs -> finds api_group in app/apis/bootstrap/
+ */
+export function findApiGroupForEndpoint(
+  objects: XanoObjectsFile,
+  endpointPath: string
+): XanoObject | undefined {
+  // Get the parent directory of the endpoint
+  const parts = endpointPath.split('/')
+  if (parts.length < 2) return undefined
+
+  // Remove the filename to get the group directory
+  parts.pop()
+  const groupDir = parts.join('/')
+
+  // Look for an api_group in the same directory or find by matching directory path
+  // VSCode stores api_group.xs in the group directory
+  const apiGroupPath = `${groupDir}/api_group.xs`
+  const apiGroup = objects.find(
+    (obj) => obj.type === 'api_group' && obj.path === apiGroupPath
+  )
+
+  if (apiGroup) return apiGroup
+
+  // Fallback: find any api_group whose path starts with the group directory
+  return objects.find(
+    (obj) => obj.type === 'api_group' && obj.path.startsWith(groupDir)
+  )
 }
 
 /**

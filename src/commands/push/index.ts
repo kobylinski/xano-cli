@@ -21,6 +21,7 @@ import {
   computeFileSha256,
   computeSha256,
   encodeBase64,
+  findApiGroupForEndpoint,
   findObjectByPath,
   loadObjects,
   saveObjects,
@@ -401,14 +402,19 @@ export default class Push extends Command {
       // Update existing object - use stored type (authoritative)
       objectType = existingObj.type
 
-      // Pass additional metadata for types that require it
-      const updateOptions: { apigroup_id?: number; table_id?: number } = {}
-      if (existingObj.apigroup_id !== undefined) {
-        updateOptions.apigroup_id = existingObj.apigroup_id
-      }
-
-      if (existingObj.table_id !== undefined) {
-        updateOptions.table_id = existingObj.table_id
+      // For api_endpoint, look up the API group from the path hierarchy (VSCode compatible)
+      const updateOptions: { apigroup_id?: number } = {}
+      if (objectType === 'api_endpoint') {
+        const apiGroup = findApiGroupForEndpoint(objects, filePath)
+        if (apiGroup) {
+          updateOptions.apigroup_id = apiGroup.id
+        } else {
+          return {
+            error: `Cannot find API group for endpoint. Ensure the api_group.xs file exists in the parent directory. Run "xano pull --sync" to refresh.`,
+            objects,
+            success: false,
+          }
+        }
       }
 
       const response = await api.updateObject(objectType, existingObj.id, content, updateOptions)
@@ -465,25 +471,14 @@ export default class Push extends Command {
       newId = response.data.id
     }
 
-    // Update objects.json - preserve apigroup_id/table_id for existing objects
-    const upsertData: Parameters<typeof upsertObject>[2] = {
+    // Update objects.json
+    objects = upsertObject(objects, filePath, {
       id: newId,
       original: encodeBase64(content),
       sha256: computeSha256(content),
       status: 'unchanged',
       type: objectType,
-    }
-
-    // Preserve metadata from existing object
-    if (existingObj?.apigroup_id !== undefined) {
-      upsertData.apigroup_id = existingObj.apigroup_id
-    }
-
-    if (existingObj?.table_id !== undefined) {
-      upsertData.table_id = existingObj.table_id
-    }
-
-    objects = upsertObject(objects, filePath, upsertData)
+    })
 
     return { objects, success: true }
   }

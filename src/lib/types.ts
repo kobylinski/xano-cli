@@ -76,14 +76,12 @@ export interface XanoLocalConfig {
 // Single object in .xano/objects.json (VSCode compatible)
 // Status values match VSCode extension: new, unchanged, changed, error, notfound
 export interface XanoObject {
-  apigroup_id?: number // API group ID for api_endpoint type (required for updates)
   id: number
   original: string // base64 encoded original content
   path: string
   sha256: string
   staged: boolean // kept for VSCode extension compatibility
   status: 'changed' | 'error' | 'new' | 'notfound' | 'unchanged'
-  table_id?: number // Table ID for table_trigger type
   type: XanoObjectType
 }
 
