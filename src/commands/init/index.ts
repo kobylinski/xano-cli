@@ -67,6 +67,17 @@ static flags = {
       if (!hasXanoJson && config) {
         this.log('Creating xano.json from .xano/config.json...')
         this.createXanoJsonFromConfig(projectRoot, config)
+      } else if (hasXanoJson && config) {
+        // If xano.json exists, update config.json with any path changes from xano.json
+        const projectConfig = loadXanoJson(projectRoot)
+        if (projectConfig && projectConfig.paths) {
+          const updatedConfig = {
+            ...config,
+            paths: { ...getDefaultPaths(), ...projectConfig.paths },
+          }
+          saveLocalConfig(projectRoot, updatedConfig)
+          this.log('Updated .xano/config.json with paths from xano.json')
+        }
       }
 
       this.log(`Already initialized.`)
@@ -74,7 +85,7 @@ static flags = {
       this.log(`  Branch: ${config?.branch}`)
       this.log('')
       this.log('Use --force to reinitialize.')
-      this.log("Run 'xano sync' to update object mappings.")
+      this.log("Run 'xano pull --sync' to update object mappings.")
       return
     }
 
@@ -202,7 +213,7 @@ static flags = {
     this.log(`  Workspace: ${workspace.name}`)
     this.log(`  Branch: ${branch}`)
     this.log('')
-    this.log("Run 'xano sync' to fetch objects from Xano.")
+    this.log("Run 'xano pull' to fetch objects from Xano.")
   }
 
   private async initFromTemplate(
@@ -243,7 +254,7 @@ static flags = {
     this.log(`\nInitialized .xano/config.json`)
     this.log(`  Branch: ${branch}`)
     this.log('')
-    this.log("Run 'xano sync' to fetch objects from Xano.")
+    this.log("Run 'xano pull' to fetch objects from Xano.")
   }
 
   private async selectBranch(

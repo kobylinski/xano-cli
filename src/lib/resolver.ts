@@ -13,15 +13,18 @@ import type {
 
 /**
  * Map paths config key to XanoObjectType(s)
+ * Uses VSCode extension's camelCase naming convention
  */
 function getTypesForPathKey(key: string): XanoObjectType[] | null {
   switch (key) {
+    case 'addOns': return ['addon']
     case 'apis': return ['api_endpoint', 'api_group']
     case 'functions': return ['function']
+    case 'middlewares': return ['middleware']
     case 'tables': return ['table']
+    case 'tableTriggers': return ['table_trigger']
     case 'tasks': return ['task']
-    case 'triggers': return ['table_trigger']
-    case 'workflow_tests': return ['workflow_test']
+    case 'workflowTests': return ['workflow_test']
     default: return null
   }
 }

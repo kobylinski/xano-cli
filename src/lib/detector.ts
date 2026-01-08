@@ -302,7 +302,8 @@ export function generateFilePath(
 
   switch (obj.type) {
     case 'addon': {
-      return `addons/${sp(obj.name)}.xs`
+      const addonDir = paths.addOns || 'addons'
+      return `${addonDir}/${sp(obj.name)}.xs`
     }
 
     case 'api_endpoint': {
@@ -321,7 +322,8 @@ export function generateFilePath(
     }
 
     case 'middleware': {
-      return `middleware/${sp(obj.name)}.xs`
+      const middlewareDir = paths.middlewares || 'middlewares'
+      return `${middlewareDir}/${sp(obj.name)}.xs`
     }
 
     case 'table': {
@@ -330,7 +332,7 @@ export function generateFilePath(
 
     case 'table_trigger': {
       const tableName = s(obj.table || 'unknown')
-      const baseDir = paths.triggers || paths.tables
+      const baseDir = paths.tableTriggers || `${paths.tables}/triggers`
       return `${baseDir}/${tableName}/${sp(obj.name)}.xs`
     }
 
@@ -339,7 +341,7 @@ export function generateFilePath(
     }
 
     case 'workflow_test': {
-      return `${paths.workflow_tests}/${sp(obj.name)}.xs`
+      return `${paths.workflowTests}/${sp(obj.name)}.xs`
     }
 
     default: {
@@ -356,12 +358,12 @@ export function generateFilePathLegacy(
   type: XanoObjectType,
   name: string,
   id: number,
-  paths: { apis: string; functions: string; tables: string; tasks: string; workflow_tests: string },
+  paths: { apis: string; functions: string; tables: string; tasks: string; workflowTests: string },
   apiGroup?: string,
   verb?: string
 ): string {
   return generateFilePath(
     { group: apiGroup, id, name, path: name, type, verb },
-    { ...paths, triggers: `${paths.tables}/triggers` }
+    { ...paths, tableTriggers: `${paths.tables}/triggers` }
   )
 }

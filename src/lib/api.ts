@@ -9,11 +9,13 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type {
+  XanoApiAddon,
   XanoApiBranch,
   XanoApiEndpoint,
   XanoApiFunction,
   XanoApiGroup,
   XanoApiTable,
+  XanoApiTableTrigger,
   XanoApiTask,
   XanoApiWorkflowTest,
   XanoCredentials,
@@ -206,6 +208,14 @@ export class XanoApi {
         return this.createWorkflowTest(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
+      case 'table_trigger': {
+        return this.createTableTrigger(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'addon': {
+        return this.createAddon(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
       default: {
         return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
       }
@@ -283,6 +293,14 @@ export class XanoApi {
 
       case 'workflow_test': {
         return this.deleteWorkflowTest(id)
+      }
+
+      case 'table_trigger': {
+        return this.deleteTableTrigger(id)
+      }
+
+      case 'addon': {
+        return this.deleteAddon(id)
       }
 
       default: {
@@ -366,6 +384,14 @@ export class XanoApi {
 
       case 'workflow_test': {
         return this.getWorkflowTest(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
+      case 'table_trigger': {
+        return this.getTableTrigger(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
+      case 'addon': {
+        return this.getAddon(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
       }
 
       default: {
@@ -490,6 +516,104 @@ export class XanoApi {
     )
   }
 
+  /**
+   * List all table triggers in the workspace
+   */
+  async listTableTriggers(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiTableTrigger[] }>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table/trigger?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
+    )
+  }
+
+  /**
+   * List addons
+   */
+  async listAddons(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiAddon[] }>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/addon?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
+    )
+  }
+
+  // ========== Table Trigger CRUD ==========
+
+  async getTableTrigger(id: number): Promise<ApiResponse<XanoApiTableTrigger>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table/trigger/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
+
+  async createTableTrigger(xanoscript: string): Promise<ApiResponse<XanoApiTableTrigger>> {
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/table/trigger?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  async updateTableTrigger(id: number, xanoscript: string): Promise<ApiResponse<XanoApiTableTrigger>> {
+    return apiRequest(
+      this.profile,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/table/trigger/${id}?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  async deleteTableTrigger(id: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/table/trigger/${id}?${this.branchParam}`
+    )
+  }
+
+  // ========== Addon CRUD ==========
+
+  async getAddon(id: number): Promise<ApiResponse<XanoApiAddon>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/addon/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
+
+  async createAddon(xanoscript: string): Promise<ApiResponse<XanoApiAddon>> {
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/addon?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  async updateAddon(id: number, xanoscript: string): Promise<ApiResponse<XanoApiAddon>> {
+    return apiRequest(
+      this.profile,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/addon/${id}?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  async deleteAddon(id: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/addon/${id}?${this.branchParam}`
+    )
+  }
+
   async updateApiEndpoint(id: number, xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
     return apiRequest(
       this.profile,
@@ -535,6 +659,14 @@ export class XanoApi {
 
       case 'workflow_test': {
         return this.updateWorkflowTest(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'table_trigger': {
+        return this.updateTableTrigger(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'addon': {
+        return this.updateAddon(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
       default: {

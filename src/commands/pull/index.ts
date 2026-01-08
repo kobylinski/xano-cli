@@ -408,7 +408,7 @@ export default class Pull extends Command {
             id,
             original: encodeBase64(serverContent),
             sha256: computeSha256(mergedContent),
-            status: mergeResult.hasConflicts ? 'modified' : 'unchanged',
+            status: mergeResult.hasConflicts ? 'changed' : 'unchanged',
             type: type as any,
           })
 

@@ -113,6 +113,7 @@ export function ensureXanoDir(projectRoot: string): string {
 
 /**
  * Load .xano/config.json (local config, VSCode compatible)
+ * Normalizes paths from either CLI or VSCode format to canonical CLI format
  */
 export function loadLocalConfig(projectRoot: string): null | XanoLocalConfig {
   const filePath = getConfigJsonPath(projectRoot)
@@ -123,7 +124,14 @@ export function loadLocalConfig(projectRoot: string): null | XanoLocalConfig {
 
   try {
     const content = fs.readFileSync(filePath, 'utf8')
-    return JSON.parse(content) as XanoLocalConfig
+    const parsed = JSON.parse(content) as XanoLocalConfig
+
+    // Normalize paths to canonical CLI format (handles VSCode camelCase keys)
+    if (parsed.paths) {
+      parsed.paths = normalizePaths(parsed.paths)
+    }
+
+    return parsed
   } catch {
     return null
   }
@@ -131,6 +139,7 @@ export function loadLocalConfig(projectRoot: string): null | XanoLocalConfig {
 
 /**
  * Save .xano/config.json (local config, VSCode compatible)
+ * Uses VSCode extension's camelCase naming convention
  */
 export function saveLocalConfig(projectRoot: string, config: XanoLocalConfig): void {
   ensureXanoDir(projectRoot)
@@ -182,14 +191,53 @@ export function setCurrentBranch(projectRoot: string, branch: string): void {
 
 /**
  * Get default paths for XanoScript files
+ * Uses VSCode extension's camelCase naming convention
  */
 export function getDefaultPaths(): XanoPaths {
   return {
+    addOns: 'addons',
+    agentTriggers: 'agents/triggers',
+    agents: 'agents',
     apis: 'apis',
     functions: 'functions',
+    mcpServerTriggers: 'mcp_servers/triggers',
+    mcpServers: 'mcp_servers',
+    middlewares: 'middlewares',
+    realtimeChannels: 'realtime',
+    realtimeTriggers: 'realtime/triggers',
+    tableTriggers: 'tables/triggers',
     tables: 'tables',
     tasks: 'tasks',
-    triggers: 'tables',
-    workflow_tests: 'workflow_tests',
+    tools: 'tools',
+    workflowTests: 'workflow_tests',
   }
+}
+
+/**
+ * Mapping from legacy snake_case keys to VSCode camelCase keys
+ * For backwards compatibility with older xano.json files
+ */
+const LEGACY_KEY_MAPPING: Record<string, string> = {
+  addons: 'addOns',
+  triggers: 'tableTriggers',
+  workflow_tests: 'workflowTests',
+}
+
+/**
+ * Normalize paths to VSCode's camelCase format
+ * Handles legacy snake_case keys for backwards compatibility
+ */
+export function normalizePaths(paths: Record<string, string | undefined>): XanoPaths {
+  const defaults = getDefaultPaths()
+  const normalized: XanoPaths = { ...defaults }
+
+  for (const [key, value] of Object.entries(paths)) {
+    if (value === undefined) continue
+
+    // Convert legacy snake_case keys to camelCase
+    const normalizedKey = LEGACY_KEY_MAPPING[key] || key
+    normalized[normalizedKey] = value
+  }
+
+  return normalized
 }

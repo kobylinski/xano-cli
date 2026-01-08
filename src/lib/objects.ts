@@ -147,6 +147,7 @@ export function removeObjectById(objects: XanoObjectsFile, id: number): XanoObje
 
 /**
  * Update object status based on file content
+ * Status values match VSCode extension: new, unchanged, changed, error, notfound
  */
 export function updateObjectStatus(
   objects: XanoObjectsFile,
@@ -156,12 +157,12 @@ export function updateObjectStatus(
     const fullPath = path.join(projectRoot, obj.path)
 
     if (!fs.existsSync(fullPath)) {
-      return { ...obj, status: 'deleted' as const }
+      return { ...obj, status: 'notfound' as const }
     }
 
     const currentSha256 = computeFileSha256(fullPath)
     if (currentSha256 !== obj.sha256) {
-      return { ...obj, status: 'modified' as const }
+      return { ...obj, status: 'changed' as const }
     }
 
     return { ...obj, status: 'unchanged' as const }

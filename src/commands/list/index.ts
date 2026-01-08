@@ -364,15 +364,17 @@ static flags = {
     }
 
     // Check if path starts with a known directory (e.g., apis/auth → api_endpoint with subFilter)
-    const pathPrefixes: Array<[string, XanoObjectType]> = [
+    const pathPrefixes: Array<[string | undefined, XanoObjectType]> = [
       [config.paths.functions, 'function'],
       [config.paths.tables, 'table'],
       [config.paths.apis, 'api_endpoint'],
       [config.paths.tasks, 'task'],
-      [config.paths.workflow_tests, 'workflow_test'],
+      [config.paths.workflowTests, 'workflow_test'],
     ]
 
     for (const [prefix, type] of pathPrefixes) {
+      if (!prefix) continue
+
       if (cleaned === prefix) {
         return { subFilter: null, type }
       }

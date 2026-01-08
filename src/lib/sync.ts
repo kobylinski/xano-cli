@@ -33,6 +33,8 @@ export interface FetchedObject {
   id: number
   name: string
   path?: string
+  table_id?: number
+  table_name?: string
   type: XanoObjectType
   verb?: string
   xanoscript: string
@@ -108,11 +110,13 @@ export async function fetchAllObjects(
     print(`  Found ${apisResponse.data.items.length} API endpoints`)
   }
 
-  // Fetch tables
+  // Fetch tables and their triggers
   print('Fetching tables...')
   const tablesResponse = await api.listTables(1, 1000)
+  const tableMap = new Map<number, string>()
   if (tablesResponse.ok && tablesResponse.data?.items) {
     for (const table of tablesResponse.data.items) {
+      tableMap.set(table.id, table.name)
       const xs = extractXanoscript(table.xanoscript)
       if (xs) {
         allObjects.push({
@@ -124,6 +128,26 @@ export async function fetchAllObjects(
       }
     }
     print(`  Found ${tablesResponse.data.items.length} tables`)
+  }
+
+  // Fetch all table triggers
+  print('Fetching table triggers...')
+  const triggersResponse = await api.listTableTriggers(1, 1000)
+  if (triggersResponse.ok && triggersResponse.data?.items) {
+    for (const trigger of triggersResponse.data.items) {
+      const xs = extractXanoscript(trigger.xanoscript)
+      if (xs) {
+        allObjects.push({
+          id: trigger.id,
+          name: trigger.name,
+          table_id: trigger.table_id,
+          table_name: tableMap.get(trigger.table_id) || 'unknown',
+          type: 'table_trigger',
+          xanoscript: xs,
+        })
+      }
+    }
+    print(`  Found ${triggersResponse.data.items.length} table triggers`)
   }
 
   // Fetch tasks
@@ -162,6 +186,24 @@ export async function fetchAllObjects(
     print(`  Found ${workflowTestsResponse.data.items.length} workflow tests`)
   }
 
+  // Fetch addons
+  print('Fetching addons...')
+  const addonsResponse = await api.listAddons(1, 1000)
+  if (addonsResponse.ok && addonsResponse.data?.items) {
+    for (const addon of addonsResponse.data.items) {
+      const xs = extractXanoscript(addon.xanoscript)
+      if (xs) {
+        allObjects.push({
+          id: addon.id,
+          name: addon.name,
+          type: 'addon',
+          xanoscript: xs,
+        })
+      }
+    }
+    print(`  Found ${addonsResponse.data.items.length} addons`)
+  }
+
   return allObjects
 }
 
@@ -179,6 +221,7 @@ export function generateObjectPath(
     id: obj.id,
     name: obj.name,
     path: obj.path,
+    table: obj.table_name,
     type: obj.type,
     verb: obj.verb,
   }
@@ -311,7 +354,7 @@ export function cleanLocalFiles(
     paths.apis,
     paths.tables,
     paths.tasks,
-    paths.workflow_tests,
+    paths.workflowTests,
   ].filter((d): d is string => d !== undefined)
 
   let deletedCount = 0

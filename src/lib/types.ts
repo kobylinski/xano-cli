@@ -14,14 +14,23 @@ export type XanoObjectType =
   | 'task'
   | 'workflow_test'
 
-// Paths configuration
+// Paths configuration (VSCode extension compatible - camelCase keys)
 export interface XanoPaths {
+  addOns?: string
+  agentTriggers?: string
+  agents?: string
   apis: string
   functions: string
+  mcpServerTriggers?: string
+  mcpServers?: string
+  middlewares?: string
+  realtimeChannels?: string
+  realtimeTriggers?: string
+  tableTriggers?: string
   tables: string
   tasks: string
-  triggers?: string
-  workflow_tests: string
+  tools?: string
+  workflowTests: string
   [key: string]: string | undefined
 }
 
@@ -65,13 +74,14 @@ export interface XanoLocalConfig {
 }
 
 // Single object in .xano/objects.json (VSCode compatible)
+// Status values match VSCode extension: new, unchanged, changed, error, notfound
 export interface XanoObject {
   id: number
   original: string // base64 encoded original content
   path: string
   sha256: string
   staged: boolean // kept for VSCode extension compatibility
-  status: 'deleted' | 'modified' | 'new' | 'unchanged'
+  status: 'changed' | 'error' | 'new' | 'notfound' | 'unchanged'
   type: XanoObjectType
 }
 
@@ -163,6 +173,27 @@ export interface XanoApiBranch {
   is_default: boolean
   is_live: boolean
   name: string
+}
+
+export interface XanoApiTableTrigger {
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  name: string
+  table_id: number
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
+}
+
+export interface XanoApiAddon {
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  name: string
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
 }
 
 // Status types for CLI output

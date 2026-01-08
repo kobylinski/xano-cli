@@ -17,6 +17,7 @@ import {
 import { loadConfig } from '../../lib/config.js'
 import {
   computeFileSha256,
+  computeSha256,
 } from '../../lib/objects.js'
 import {
   findProjectRoot,
@@ -147,7 +148,7 @@ export default class Status extends Command {
       if (fileExists && remoteObj) {
         // Both local and remote exist - check if modified
         const localSha256 = computeFileSha256(fullPath)
-        const remoteSha256 = this.computeSha256(remoteObj.xanoscript)
+        const remoteSha256 = computeSha256(remoteObj.xanoscript)
 
         if (localSha256 === remoteSha256) {
           entries.push({
@@ -250,11 +251,6 @@ export default class Status extends Command {
     }
   }
 
-  private computeSha256(content: string): string {
-    const crypto = require('node:crypto')
-    return crypto.createHash('sha256').update(content, 'utf-8').digest('hex')
-  }
-
   /**
    * Filter paths based on input path arguments
    * Uses type-based filtering when input matches a known type mapping,
@@ -339,9 +335,9 @@ export default class Status extends Command {
       case 'api_endpoint':
       case 'api_group': return this.paths.apis
       case 'table': return this.paths.tables
-      case 'table_trigger': return this.paths.triggers || this.paths.tables
+      case 'table_trigger': return this.paths.tableTriggers || `${this.paths.tables}/triggers`
       case 'task': return this.paths.tasks
-      case 'workflow_test': return this.paths.workflow_tests
+      case 'workflow_test': return this.paths.workflowTests
       default: return undefined
     }
   }
@@ -356,7 +352,7 @@ export default class Status extends Command {
       this.paths.apis,
       this.paths.tables,
       this.paths.tasks,
-      this.paths.workflow_tests,
+      this.paths.workflowTests,
     ].filter((d): d is string => d !== undefined)
 
     for (const dir of dirs) {
@@ -378,7 +374,7 @@ export default class Status extends Command {
       this.paths.apis,
       this.paths.tables,
       this.paths.tasks,
-      this.paths.workflow_tests,
+      this.paths.workflowTests,
     ].filter((d): d is string => d !== undefined)
 
     for (const dir of knownDirs) {
