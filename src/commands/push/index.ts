@@ -7,6 +7,7 @@ import type {
   SanitizeFunction,
   TypeResolver,
   XanoObjectsFile,
+  XanoObjectType,
   XanoPaths,
 } from '../../lib/types.js'
 
@@ -392,27 +393,39 @@ export default class Push extends Command {
     }
 
     const content = fs.readFileSync(fullPath, 'utf8')
-    const type = detectType(content)
-
-    if (!type) {
-      return { error: 'Cannot detect XanoScript type', objects, success: false }
-    }
-
     const existingObj = findObjectByPath(objects, filePath)
     let newId: number
+    let objectType: XanoObjectType
 
     if (existingObj?.id) {
-      // Update existing object
-      const response = await api.updateObject(type, existingObj.id, content)
+      // Update existing object - use stored type (authoritative)
+      objectType = existingObj.type
+      const response = await api.updateObject(objectType, existingObj.id, content)
 
       if (!response.ok) {
+        // Provide helpful error message for common issues
+        if (response.error?.includes('Unable to locate')) {
+          return {
+            error: `${response.error} (ID: ${existingObj.id}, type: ${objectType}). The object may have been deleted from Xano. Run "xano pull --sync" to refresh mappings.`,
+            objects,
+            success: false,
+          }
+        }
+
         return { error: response.error || 'Update failed', objects, success: false }
       }
 
       newId = existingObj.id
     } else {
-      // Create new object
-      const response = await api.createObject(type, content)
+      // Create new object - detect type from content
+      const detectedType = detectType(content)
+
+      if (!detectedType) {
+        return { error: 'Cannot detect XanoScript type from content. Ensure file starts with a valid keyword (function, query, table, task, addon, middleware, etc.)', objects, success: false }
+      }
+
+      objectType = detectedType
+      const response = await api.createObject(objectType, content)
 
       if (!response.ok) {
         if (response.status === 409 || response.error?.includes('already exists')) {
@@ -439,7 +452,7 @@ export default class Push extends Command {
       original: encodeBase64(content),
       sha256: computeSha256(content),
       status: 'unchanged',
-      type,
+      type: objectType,
     })
 
     return { objects, success: true }
