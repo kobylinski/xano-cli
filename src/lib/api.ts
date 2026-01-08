@@ -438,22 +438,16 @@ export class XanoApi {
   }
 
   async listApiEndpoints(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiEndpoint[] }>> {
-    // First try workspace-level API listing
-    const result = await apiRequest<{ items: XanoApiEndpoint[] }>(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/api?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
-    )
-
-    // If that works, return it
-    if (result.ok && result.data?.items && result.data.items.length > 0) {
-      return result
-    }
-
-    // Otherwise, try fetching per group
+    // Always fetch per API group to ensure apigroup_id is captured
+    // The workspace-level /api endpoint may not return apigroup_id
     const groupsResult = await this.listApiGroups(1, 1000)
     if (!groupsResult.ok || !groupsResult.data?.items) {
-      return result // Return original error
+      // Fallback to workspace-level listing if groups fail
+      return apiRequest<{ items: XanoApiEndpoint[] }>(
+        this.profile,
+        'GET',
+        `/api:meta/workspace/${this.workspaceId}/api?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
+      )
     }
 
     const allEndpoints: XanoApiEndpoint[] = []
@@ -467,6 +461,7 @@ export class XanoApi {
 
       if (groupEndpoints.ok && groupEndpoints.data?.items) {
         for (const ep of groupEndpoints.data.items) {
+          // Ensure apigroup_id is set (required for updates)
           allEndpoints.push({ ...ep, apigroup_id: group.id })
         }
       }
