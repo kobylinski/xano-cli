@@ -12,6 +12,7 @@ import type {
   XanoApiAddon,
   XanoApiBranch,
   XanoApiEndpoint,
+  XanoApiMiddleware,
   XanoApiFunction,
   XanoApiGroup,
   XanoApiTable,
@@ -216,6 +217,10 @@ export class XanoApi {
         return this.createAddon(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
+      case 'middleware': {
+        return this.createMiddleware(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
       default: {
         return { error: `Unsupported type: ${type}`, ok: false, status: 0 }
       }
@@ -301,6 +306,10 @@ export class XanoApi {
 
       case 'addon': {
         return this.deleteAddon(id)
+      }
+
+      case 'middleware': {
+        return this.deleteMiddleware(id)
       }
 
       default: {
@@ -392,6 +401,10 @@ export class XanoApi {
 
       case 'addon': {
         return this.getAddon(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
+      case 'middleware': {
+        return this.getMiddleware(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
       }
 
       default: {
@@ -614,6 +627,52 @@ export class XanoApi {
     )
   }
 
+  // ========== Middleware CRUD ==========
+
+  async listMiddlewares(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiMiddleware[] }>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/middleware?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
+    )
+  }
+
+  async getMiddleware(id: number): Promise<ApiResponse<XanoApiMiddleware>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/middleware/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
+
+  async createMiddleware(xanoscript: string): Promise<ApiResponse<XanoApiMiddleware>> {
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/middleware?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  async updateMiddleware(id: number, xanoscript: string): Promise<ApiResponse<XanoApiMiddleware>> {
+    return apiRequest(
+      this.profile,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/middleware/${id}?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
+  async deleteMiddleware(id: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/middleware/${id}?${this.branchParam}`
+    )
+  }
+
   async updateApiEndpoint(id: number, xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
     return apiRequest(
       this.profile,
@@ -667,6 +726,10 @@ export class XanoApi {
 
       case 'addon': {
         return this.updateAddon(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'middleware': {
+        return this.updateMiddleware(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
       default: {

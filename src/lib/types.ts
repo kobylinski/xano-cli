@@ -196,6 +196,16 @@ export interface XanoApiAddon {
   xanoscript?: string | { status?: string; value: string }
 }
 
+export interface XanoApiMiddleware {
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  name: string
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
+}
+
 // Status types for CLI output
 export type FileStatus = 'conflict' | 'deleted' | 'modified' | 'new' | 'remote_only' | 'unchanged'
 

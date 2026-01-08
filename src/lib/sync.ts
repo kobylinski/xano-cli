@@ -204,6 +204,24 @@ export async function fetchAllObjects(
     print(`  Found ${addonsResponse.data.items.length} addons`)
   }
 
+  // Fetch middlewares
+  print('Fetching middlewares...')
+  const middlewaresResponse = await api.listMiddlewares(1, 1000)
+  if (middlewaresResponse.ok && middlewaresResponse.data?.items) {
+    for (const middleware of middlewaresResponse.data.items) {
+      const xs = extractXanoscript(middleware.xanoscript)
+      if (xs) {
+        allObjects.push({
+          id: middleware.id,
+          name: middleware.name,
+          type: 'middleware',
+          xanoscript: xs,
+        })
+      }
+    }
+    print(`  Found ${middlewaresResponse.data.items.length} middlewares`)
+  }
+
   return allObjects
 }
 
