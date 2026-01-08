@@ -197,7 +197,7 @@ describe('lib/objects', () => {
       fs.writeFileSync(filePath, 'function test {}')
 
       const objects: XanoObjectsFile = [
-        { id: 1, original: 'old', path: filePath, sha256: 'old', staged: true, status: 'modified', type: 'function' },
+        { id: 1, original: 'old', path: filePath, sha256: 'old', staged: true, status: 'changed', type: 'function' },
       ]
 
       const result = upsertObject(objects, filePath, { id: 1, staged: false, status: 'unchanged', type: 'function' })
@@ -243,16 +243,16 @@ describe('lib/objects', () => {
   })
 
   describe('updateObjectStatus', () => {
-    it('marks deleted files as deleted', () => {
+    it('marks deleted files as notfound', () => {
       const objects: XanoObjectsFile = [
         { id: 1, original: '', path: 'nonexistent.xs', sha256: '', staged: false, status: 'unchanged', type: 'function' },
       ]
 
       const result = updateObjectStatus(objects, tempDir)
-      expect(result[0].status).to.equal('deleted')
+      expect(result[0].status).to.equal('notfound')
     })
 
-    it('marks modified files as modified', () => {
+    it('marks modified files as changed', () => {
       const filePath = 'test.xs'
       const fullPath = path.join(tempDir, filePath)
       fs.writeFileSync(fullPath, 'new content')
@@ -262,7 +262,7 @@ describe('lib/objects', () => {
       ]
 
       const result = updateObjectStatus(objects, tempDir)
-      expect(result[0].status).to.equal('modified')
+      expect(result[0].status).to.equal('changed')
     })
 
     it('keeps unchanged files as unchanged', () => {
@@ -283,7 +283,7 @@ describe('lib/objects', () => {
   describe('markObjectSynced', () => {
     it('updates object with new content hash', () => {
       const objects: XanoObjectsFile = [
-        { id: 1, original: 'old', path: 'test.xs', sha256: 'old', staged: true, status: 'modified', type: 'function' },
+        { id: 1, original: 'old', path: 'test.xs', sha256: 'old', staged: true, status: 'changed', type: 'function' },
       ]
 
       const newContent = 'new content'

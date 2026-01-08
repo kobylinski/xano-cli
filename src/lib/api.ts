@@ -257,11 +257,11 @@ export class XanoApi {
     )
   }
 
-  async deleteApiEndpoint(id: number): Promise<ApiResponse<void>> {
+  async deleteApiEndpoint(apiGroupId: number, id: number): Promise<ApiResponse<void>> {
     return apiRequest(
       this.profile,
       'DELETE',
-      `/api:meta/workspace/${this.workspaceId}/api/${id}?${this.branchParam}`
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${apiGroupId}/api/${id}?${this.branchParam}`
     )
   }
 
@@ -277,11 +277,22 @@ export class XanoApi {
 
   /**
    * Delete object by type and ID
+   * @param type Object type
+   * @param id Object ID
+   * @param options Additional options (apigroup_id required for api_endpoint)
    */
-  async deleteObject(type: XanoObjectType, id: number): Promise<ApiResponse<void>> {
+  async deleteObject(
+    type: XanoObjectType,
+    id: number,
+    options?: { apigroup_id?: number }
+  ): Promise<ApiResponse<void>> {
     switch (type) {
       case 'api_endpoint': {
-        return this.deleteApiEndpoint(id)
+        if (!options?.apigroup_id) {
+          return { error: 'apigroup_id is required for deleting API endpoints', ok: false, status: 0 }
+        }
+
+        return this.deleteApiEndpoint(options.apigroup_id, id)
       }
 
       case 'function': {
@@ -310,6 +321,10 @@ export class XanoApi {
 
       case 'middleware': {
         return this.deleteMiddleware(id)
+      }
+
+      case 'api_group': {
+        return this.deleteApiGroup(id)
       }
 
       default: {
@@ -341,6 +356,14 @@ export class XanoApi {
       this.profile,
       'DELETE',
       `/api:meta/workspace/${this.workspaceId}/workflow_test/${id}?${this.branchParam}`
+    )
+  }
+
+  async deleteApiGroup(id: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${id}?${this.branchParam}`
     )
   }
 
@@ -478,7 +501,7 @@ export class XanoApi {
     return apiRequest(
       this.profile,
       'GET',
-      `/api:meta/workspace/${this.workspaceId}/apigroup?${this.branchParam}&page=${page}&per_page=${perPage}`
+      `/api:meta/workspace/${this.workspaceId}/apigroup?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
     )
   }
 
@@ -800,7 +823,7 @@ export class XanoApi {
     return apiRequest(
       this.profile,
       'GET',
-      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${pk}?${this.branchParam}`
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${encodeURIComponent(pk)}?${this.branchParam}`
     )
   }
 
@@ -824,7 +847,7 @@ export class XanoApi {
     return apiRequest(
       this.profile,
       'PUT',
-      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${pk}?${this.branchParam}`,
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${encodeURIComponent(pk)}?${this.branchParam}`,
       data
     )
   }
@@ -836,7 +859,7 @@ export class XanoApi {
     return apiRequest(
       this.profile,
       'DELETE',
-      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${pk}?${this.branchParam}`
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${encodeURIComponent(pk)}?${this.branchParam}`
     )
   }
 

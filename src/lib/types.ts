@@ -135,6 +135,7 @@ export interface XanoApiGroup {
   id: number
   name: string
   updated_at: number
+  xanoscript?: string | { status?: string; value: string }
 }
 
 export interface XanoApiTable {

@@ -110,7 +110,7 @@ describe('lib/project', () => {
         functions: 'functions',
         tables: 'tables',
         tasks: 'tasks',
-        workflow_tests: 'workflow_tests',
+        workflowTests: 'workflow_tests',
       },
       workspace: 'Test Workspace',
       workspaceId: 123,
@@ -141,7 +141,7 @@ describe('lib/project', () => {
         functions: 'functions',
         tables: 'tables',
         tasks: 'tasks',
-        workflow_tests: 'workflow_tests',
+        workflowTests: 'workflow_tests',
       },
       workspaceId: 123,
       workspaceName: 'Test Workspace',
@@ -154,7 +154,16 @@ describe('lib/project', () => {
     it('saves and loads local config correctly', () => {
       saveLocalConfig(tempDir, sampleLocalConfig)
       const loaded = loadLocalConfig(tempDir)
-      expect(loaded).to.deep.equal(sampleLocalConfig)
+      // Check that original values are preserved (paths may be merged with defaults)
+      expect(loaded?.branch).to.equal(sampleLocalConfig.branch)
+      expect(loaded?.instanceName).to.equal(sampleLocalConfig.instanceName)
+      expect(loaded?.workspaceId).to.equal(sampleLocalConfig.workspaceId)
+      expect(loaded?.workspaceName).to.equal(sampleLocalConfig.workspaceName)
+      expect(loaded?.paths.apis).to.equal(sampleLocalConfig.paths.apis)
+      expect(loaded?.paths.functions).to.equal(sampleLocalConfig.paths.functions)
+      expect(loaded?.paths.tables).to.equal(sampleLocalConfig.paths.tables)
+      expect(loaded?.paths.tasks).to.equal(sampleLocalConfig.paths.tasks)
+      expect(loaded?.paths.workflowTests).to.equal(sampleLocalConfig.paths.workflowTests)
     })
 
     it('creates .xano directory when saving', () => {
@@ -172,7 +181,7 @@ describe('lib/project', () => {
           functions: 'functions',
           tables: 'tables',
           tasks: 'tasks',
-          workflow_tests: 'workflow_tests',
+          workflowTests: 'workflow_tests',
         },
         workspace: 'Test Workspace',
         workspaceId: 123,
@@ -221,7 +230,7 @@ describe('lib/project', () => {
         functions: 'functions',
         tables: 'tables',
         tasks: 'tasks',
-        workflow_tests: 'workflow_tests',
+        workflowTests: 'workflow_tests',
       },
       workspaceId: 123,
       workspaceName: 'Test Workspace',
@@ -247,12 +256,21 @@ describe('lib/project', () => {
     it('returns default path configuration', () => {
       const paths = getDefaultPaths()
       expect(paths).to.deep.equal({
+        addOns: 'addons',
+        agentTriggers: 'agents/triggers',
+        agents: 'agents',
         apis: 'apis',
         functions: 'functions',
+        mcpServerTriggers: 'mcp_servers/triggers',
+        mcpServers: 'mcp_servers',
+        middlewares: 'middlewares',
+        realtimeChannels: 'realtime',
+        realtimeTriggers: 'realtime/triggers',
+        tableTriggers: 'tables/triggers',
         tables: 'tables',
         tasks: 'tasks',
-        triggers: 'tables',
-        workflow_tests: 'workflow_tests',
+        tools: 'tools',
+        workflowTests: 'workflow_tests',
       })
     })
   })

@@ -125,10 +125,21 @@ export default class Push extends Command {
 
     let objects = loadObjects(projectRoot)
 
+    // Cache for API group mappings - populated during sync, used for deletions
+    let apiGroupCache: Map<number, number> | null = null // endpoint_id -> apigroup_id
+
     if (needsSync) {
       this.log('Syncing metadata from Xano...')
       const fetchedObjects = await fetchAllObjects(api, (msg) => this.log(msg))
       this.log('')
+
+      // Build apigroup cache from fetched data (before we lose apigroup_id)
+      apiGroupCache = new Map()
+      for (const obj of fetchedObjects) {
+        if (obj.type === 'api_endpoint' && obj.apigroup_id) {
+          apiGroupCache.set(obj.id, obj.apigroup_id)
+        }
+      }
 
       // Update objects.json with fetched data
       objects = []
@@ -195,7 +206,33 @@ export default class Push extends Command {
       this.log(`Deleting ${orphanObjects.length} orphan object(s) from Xano...`)
 
       for (const obj of orphanObjects) {
-        const response = await api.deleteObject(obj.type, obj.id)
+        let deleteOptions: { apigroup_id?: number } | undefined
+
+        // For api_endpoints, we need to find the apigroup_id
+        if (obj.type === 'api_endpoint') {
+          // First try local lookup via path hierarchy
+          const apiGroup = findApiGroupForEndpoint(objects, obj.path)
+
+          if (apiGroup) {
+            deleteOptions = { apigroup_id: apiGroup.id }
+          } else {
+            // Fetch from Xano on-demand (once per session)
+            if (!apiGroupCache) {
+              this.log('  Fetching API group mappings from Xano...')
+              apiGroupCache = await this.fetchApiGroupMappings(api)
+            }
+
+            const cachedGroupId = apiGroupCache.get(obj.id)
+            if (cachedGroupId) {
+              deleteOptions = { apigroup_id: cachedGroupId }
+            } else {
+              this.log(`  ✗ Cannot delete ${obj.path}: API group not found locally or on Xano`)
+              continue
+            }
+          }
+        }
+
+        const response = await api.deleteObject(obj.type, obj.id, deleteOptions)
         if (response.ok) {
           // Remove from objects.json
           objects = objects.filter((o) => o.path !== obj.path)
@@ -409,8 +446,11 @@ export default class Push extends Command {
         if (apiGroup) {
           updateOptions.apigroup_id = apiGroup.id
         } else {
+          // Extract expected group name from path for better error message
+          const parts = filePath.split('/')
+          const groupName = parts.length >= 3 ? parts[parts.length - 2] : 'unknown'
           return {
-            error: `Cannot find API group for endpoint. Ensure the api_group.xs file exists in the parent directory. Run "xano pull --sync" to refresh.`,
+            error: `Cannot find API group for endpoint. Expected "${groupName}.xs" file in apis directory. Run "xano pull --sync" to fetch API groups.`,
             objects,
             success: false,
           }
@@ -501,5 +541,25 @@ export default class Push extends Command {
         }
       }
     }
+  }
+
+  /**
+   * Fetch API endpoint -> API group mappings from Xano
+   * Returns a Map of endpoint_id -> apigroup_id
+   */
+  private async fetchApiGroupMappings(api: XanoApi): Promise<Map<number, number>> {
+    const mappings = new Map<number, number>()
+
+    // listApiEndpoints already fetches per-group and includes apigroup_id
+    const endpointsResponse = await api.listApiEndpoints(1, 1000)
+    if (endpointsResponse.ok && endpointsResponse.data?.items) {
+      for (const endpoint of endpointsResponse.data.items) {
+        if (endpoint.apigroup_id) {
+          mappings.set(endpoint.id, endpoint.apigroup_id)
+        }
+      }
+    }
+
+    return mappings
   }
 }

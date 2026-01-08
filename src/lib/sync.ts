@@ -59,13 +59,23 @@ export async function fetchAllObjects(
   const allObjects: FetchedObject[] = []
   const print = log || (() => {})
 
-  // Fetch API groups first for endpoint grouping
+  // Fetch API groups first for endpoint grouping AND as objects to sync
   const apiGroups = new Map<number, string>()
   print('Fetching API groups...')
   const groupsResponse = await api.listApiGroups(1, 1000)
   if (groupsResponse.ok && groupsResponse.data?.items) {
     for (const group of groupsResponse.data.items) {
       apiGroups.set(group.id, group.name)
+      // Add api_group to allObjects if it has xanoscript
+      const xs = extractXanoscript(group.xanoscript)
+      if (xs) {
+        allObjects.push({
+          id: group.id,
+          name: group.name,
+          type: 'api_group',
+          xanoscript: xs,
+        })
+      }
     }
     print(`  Found ${apiGroups.size} API groups`)
   }

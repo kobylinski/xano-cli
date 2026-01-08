@@ -290,7 +290,7 @@ function my_func { }`
       tables: 'tables',
       tasks: 'tasks',
       triggers: 'tables',
-      workflow_tests: 'workflow_tests',
+      workflowTests: 'workflow_tests',
     }
 
     it('generates function path', () => {
@@ -320,7 +320,8 @@ function my_func { }`
 
     it('generates table_trigger path', () => {
       const result = generateFilePath({ id: 200, name: 'audit', table: 'users', type: 'table_trigger' }, paths)
-      expect(result).to.equal('tables/users/audit.xs')
+      // Default tableTriggers path is 'tables/triggers' when not specified
+      expect(result).to.equal('tables/triggers/users/audit.xs')
     })
 
     it('generates api_group path', () => {

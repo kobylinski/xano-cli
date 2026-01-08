@@ -13,12 +13,12 @@ import {
 
 export default class DataUpdate extends Command {
   static args = {
-    pk: Args.string({
-      description: 'Primary key value',
-      required: true,
-    }),
     table: Args.string({
       description: 'Table name or ID',
+      required: true,
+    }),
+    pk: Args.string({
+      description: 'Primary key value',
       required: true,
     }),
   }
