@@ -90,13 +90,15 @@ async function apiRequest<T>(
   method: string,
   endpoint: string,
   body?: object | string,
-  contentType: string = 'application/json'
+  contentType: string = 'application/json',
+  extraHeaders?: Record<string, string>
 ): Promise<ApiResponse<T>> {
   const url = `${profile.instance_origin}${endpoint}`
 
   const headers: Record<string, string> = {
     accept: 'application/json',
     Authorization: `Bearer ${profile.access_token}`,
+    ...extraHeaders,
   }
 
   let requestBody: string | undefined
@@ -828,28 +830,42 @@ export class XanoApi {
   // ========== Table Content (Data) ==========
 
   /**
+   * Get headers for datasource targeting
+   */
+  private datasourceHeaders(datasource?: string): Record<string, string> | undefined {
+    return datasource ? { 'x-data-source': datasource } : undefined
+  }
+
+  /**
    * List records from a table
    */
   async listTableContent(
     tableId: number,
     page = 1,
-    perPage = 100
+    perPage = 100,
+    datasource?: string
   ): Promise<ApiResponse<{ items: Record<string, unknown>[]; curPage: number; nextPage: number | null; prevPage: number | null }>> {
     return apiRequest(
       this.profile,
       'GET',
-      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content?${this.branchParam}&page=${page}&per_page=${perPage}`
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content?${this.branchParam}&page=${page}&per_page=${perPage}`,
+      undefined,
+      'application/json',
+      this.datasourceHeaders(datasource)
     )
   }
 
   /**
    * Get a single record by primary key
    */
-  async getTableContent(tableId: number, pk: number | string): Promise<ApiResponse<Record<string, unknown>>> {
+  async getTableContent(tableId: number, pk: number | string, datasource?: string): Promise<ApiResponse<Record<string, unknown>>> {
     return apiRequest(
       this.profile,
       'GET',
-      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${encodeURIComponent(pk)}?${this.branchParam}`
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${encodeURIComponent(pk)}?${this.branchParam}`,
+      undefined,
+      'application/json',
+      this.datasourceHeaders(datasource)
     )
   }
 
@@ -857,47 +873,56 @@ export class XanoApi {
    * Create a new record in a table
    * Note: Password fields are automatically hashed by Xano
    */
-  async createTableContent(tableId: number, data: Record<string, unknown>): Promise<ApiResponse<Record<string, unknown>>> {
+  async createTableContent(tableId: number, data: Record<string, unknown>, datasource?: string): Promise<ApiResponse<Record<string, unknown>>> {
     return apiRequest(
       this.profile,
       'POST',
       `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content?${this.branchParam}`,
-      data
+      data,
+      'application/json',
+      this.datasourceHeaders(datasource)
     )
   }
 
   /**
    * Update an existing record by primary key
    */
-  async updateTableContent(tableId: number, pk: number | string, data: Record<string, unknown>): Promise<ApiResponse<Record<string, unknown>>> {
+  async updateTableContent(tableId: number, pk: number | string, data: Record<string, unknown>, datasource?: string): Promise<ApiResponse<Record<string, unknown>>> {
     return apiRequest(
       this.profile,
       'PUT',
       `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${encodeURIComponent(pk)}?${this.branchParam}`,
-      data
+      data,
+      'application/json',
+      this.datasourceHeaders(datasource)
     )
   }
 
   /**
    * Delete a record by primary key
    */
-  async deleteTableContent(tableId: number, pk: number | string): Promise<ApiResponse<void>> {
+  async deleteTableContent(tableId: number, pk: number | string, datasource?: string): Promise<ApiResponse<void>> {
     return apiRequest(
       this.profile,
       'DELETE',
-      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${encodeURIComponent(pk)}?${this.branchParam}`
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/${encodeURIComponent(pk)}?${this.branchParam}`,
+      undefined,
+      'application/json',
+      this.datasourceHeaders(datasource)
     )
   }
 
   /**
    * Bulk insert multiple records
    */
-  async bulkCreateTableContent(tableId: number, records: Record<string, unknown>[]): Promise<ApiResponse<Record<string, unknown>[]>> {
+  async bulkCreateTableContent(tableId: number, records: Record<string, unknown>[], datasource?: string): Promise<ApiResponse<Record<string, unknown>[]>> {
     return apiRequest(
       this.profile,
       'POST',
       `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/bulk?${this.branchParam}`,
-      records
+      records,
+      'application/json',
+      this.datasourceHeaders(datasource)
     )
   }
 

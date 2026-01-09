@@ -25,6 +25,10 @@ export default class DataList extends Command {
     '<%= config.bin %> data:list users --json',
   ]
   static flags = {
+    datasource: Flags.string({
+      char: 's',
+      description: 'Data source to use (e.g., "live", "test")',
+    }),
     json: Flags.boolean({
       default: false,
       description: 'Output as JSON',
@@ -74,7 +78,7 @@ export default class DataList extends Command {
       this.error(`Table not found: ${args.table}`)
     }
 
-    const response = await api.listTableContent(tableId, flags.page, flags['per-page'])
+    const response = await api.listTableContent(tableId, flags.page, flags['per-page'], flags.datasource)
 
     if (!response.ok) {
       this.error(`Failed to list records: ${response.error}`)

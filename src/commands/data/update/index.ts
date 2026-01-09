@@ -34,6 +34,10 @@ export default class DataUpdate extends Command {
       description: 'Record data as JSON string',
       exclusive: ['file'],
     }),
+    datasource: Flags.string({
+      char: 's',
+      description: 'Data source to use (e.g., "live", "test")',
+    }),
     file: Flags.string({
       char: 'f',
       description: 'Read record data from JSON file',
@@ -96,7 +100,7 @@ export default class DataUpdate extends Command {
       this.error(`Table not found: ${args.table}`)
     }
 
-    const response = await api.updateTableContent(tableId, args.pk, data)
+    const response = await api.updateTableContent(tableId, args.pk, data, flags.datasource)
 
     if (!response.ok) {
       this.error(`Failed to update record: ${response.error}`)

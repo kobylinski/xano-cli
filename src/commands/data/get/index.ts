@@ -28,6 +28,10 @@ export default class DataGet extends Command {
     '<%= config.bin %> data:get users 1 --json',
   ]
   static flags = {
+    datasource: Flags.string({
+      char: 's',
+      description: 'Data source to use (e.g., "live", "test")',
+    }),
     json: Flags.boolean({
       default: false,
       description: 'Output as JSON',
@@ -68,7 +72,7 @@ export default class DataGet extends Command {
       this.error(`Table not found: ${args.table}`)
     }
 
-    const response = await api.getTableContent(tableId, args.pk)
+    const response = await api.getTableContent(tableId, args.pk, flags.datasource)
 
     if (!response.ok) {
       this.error(`Failed to get record: ${response.error}`)

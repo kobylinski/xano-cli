@@ -28,6 +28,10 @@ export default class DataDelete extends Command {
     '<%= config.bin %> data:delete users 1 --force',
   ]
   static flags = {
+    datasource: Flags.string({
+      char: 's',
+      description: 'Data source to use (e.g., "live", "test")',
+    }),
     force: Flags.boolean({
       char: 'f',
       default: false,
@@ -71,7 +75,7 @@ export default class DataDelete extends Command {
 
     if (!flags.force) {
       // Show what we're about to delete
-      const getResponse = await api.getTableContent(tableId, args.pk)
+      const getResponse = await api.getTableContent(tableId, args.pk, flags.datasource)
       if (!getResponse.ok) {
         this.error(`Record not found: ${args.pk}`)
       }
@@ -96,7 +100,7 @@ export default class DataDelete extends Command {
       return
     }
 
-    const response = await api.deleteTableContent(tableId, args.pk)
+    const response = await api.deleteTableContent(tableId, args.pk, flags.datasource)
 
     if (!response.ok) {
       this.error(`Failed to delete record: ${response.error}`)

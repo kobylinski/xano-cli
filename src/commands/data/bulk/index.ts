@@ -30,6 +30,10 @@ export default class DataBulk extends Command {
       description: 'Records data as JSON array string',
       exclusive: ['file'],
     }),
+    datasource: Flags.string({
+      char: 's',
+      description: 'Data source to use (e.g., "live", "test")',
+    }),
     file: Flags.string({
       char: 'f',
       description: 'Read records from JSON file (array of objects)',
@@ -103,7 +107,7 @@ export default class DataBulk extends Command {
 
     this.log(`Inserting ${records.length} record(s)...`)
 
-    const response = await api.bulkCreateTableContent(tableId, records)
+    const response = await api.bulkCreateTableContent(tableId, records, flags.datasource)
 
     if (!response.ok) {
       this.error(`Failed to bulk insert: ${response.error}`)
