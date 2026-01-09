@@ -25,6 +25,10 @@ export default class DataBulk extends Command {
     '<%= config.bin %> data:bulk 271 --file bulk-data.json',
   ]
   static flags = {
+    'allow-id': Flags.boolean({
+      default: false,
+      description: 'Allow setting custom ID values in records',
+    }),
     data: Flags.string({
       char: 'd',
       description: 'Records data as JSON array string',
@@ -107,7 +111,7 @@ export default class DataBulk extends Command {
 
     this.log(`Inserting ${records.length} record(s)...`)
 
-    const response = await api.bulkCreateTableContent(tableId, records, flags.datasource)
+    const response = await api.bulkCreateTableContent(tableId, records, flags.datasource, flags['allow-id'])
 
     if (!response.ok) {
       this.error(`Failed to bulk insert: ${response.error}`)

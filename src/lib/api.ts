@@ -914,13 +914,19 @@ export class XanoApi {
 
   /**
    * Bulk insert multiple records
+   * @param allowIdField - If true, allows setting custom ID values in records
    */
-  async bulkCreateTableContent(tableId: number, records: Record<string, unknown>[], datasource?: string): Promise<ApiResponse<Record<string, unknown>[]>> {
+  async bulkCreateTableContent(
+    tableId: number,
+    records: Record<string, unknown>[],
+    datasource?: string,
+    allowIdField = false
+  ): Promise<ApiResponse<Record<string, unknown>[]>> {
     return apiRequest(
       this.profile,
       'POST',
       `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/bulk?${this.branchParam}`,
-      records,
+      { allow_id_field: allowIdField, items: records },
       'application/json',
       this.datasourceHeaders(datasource)
     )
