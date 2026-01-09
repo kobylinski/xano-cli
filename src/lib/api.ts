@@ -20,6 +20,7 @@ import type {
   XanoApiTask,
   XanoApiWorkflowTest,
   XanoCredentials,
+  XanoDataSource,
   XanoObjectType,
   XanoProfile,
 } from './types.js'
@@ -512,6 +513,31 @@ export class XanoApi {
       this.profile,
       'GET',
       `/api:meta/workspace/${this.workspaceId}/branch`
+    )
+  }
+
+  async listDataSources(): Promise<ApiResponse<XanoDataSource[]>> {
+    return apiRequest<XanoDataSource[]>(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/datasource`
+    )
+  }
+
+  async createDataSource(label: string, color: string): Promise<ApiResponse<XanoDataSource>> {
+    return apiRequest<XanoDataSource>(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/datasource`,
+      { color, label }
+    )
+  }
+
+  async deleteDataSource(label: string): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/datasource/${encodeURIComponent(label)}`
     )
   }
 

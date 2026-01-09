@@ -207,6 +207,11 @@ export interface XanoApiMiddleware {
   xanoscript?: string | { status?: string; value: string }
 }
 
+export interface XanoDataSource {
+  color: string
+  label: string
+}
+
 // Status types for CLI output
 export type FileStatus = 'conflict' | 'deleted' | 'modified' | 'new' | 'remote_only' | 'unchanged'
 
