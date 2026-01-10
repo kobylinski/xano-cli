@@ -79,6 +79,7 @@ export default class Lint extends Command {
 
     // Use xanoscript-lint library for efficient batch validation
     let validator: InstanceType<typeof XanoScriptValidator> | null = null
+    let hasErrors = false
 
     try {
       validator = new XanoScriptValidator()
@@ -126,29 +127,19 @@ export default class Lint extends Command {
       // Summary
       const summary = validator.getSummary()
       this.log('')
-      this.log('────────────────────────────────────────────────────────────')
-      this.log('📊 Summary:')
-      this.log(`   Files checked: ${summary.totalFiles}`)
-      this.log(`   Files with issues: ${summary.filesWithIssues}`)
-      if (summary.totalErrors > 0) {
-        this.log(`   ❌ Errors: ${summary.totalErrors}`)
-      }
-      if (summary.totalWarnings > 0) {
-        this.log(`   ⚠️  Warnings: ${summary.totalWarnings}`)
-      }
-      if (summary.totalErrors === 0 && summary.totalWarnings === 0) {
-        this.log('   ✅ All files passed!')
-      }
+      this.log(`Checked ${summary.totalFiles} file(s): ${summary.totalErrors} error(s), ${summary.totalWarnings} warning(s)`)
 
-      if (summary.hasErrors) {
-        this.exit(1)
-      }
+      hasErrors = summary.hasErrors
     } catch (error: any) {
-      this.error(`Lint failed: ${error.message}\n\nMake sure the XanoScript VS Code extension is installed.`)
+      this.error(`Lint failed: ${error.message}`)
     } finally {
       if (validator) {
         await validator.shutdown()
       }
+    }
+
+    if (hasErrors) {
+      this.exit(1)
     }
   }
 
