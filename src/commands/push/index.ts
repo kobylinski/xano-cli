@@ -302,8 +302,10 @@ export default class Push extends Command {
 
   /**
    * Expand input paths to actual file paths
-   * Uses type-based filtering when input matches a known type mapping,
-   * falls back to path prefix matching otherwise
+   * Priority:
+   * 1. Exact file match (tracked or new)
+   * 2. Directory prefix match (for directories)
+   * 3. Type-based filtering (only for directory paths, not specific files)
    */
   private expandPaths(
     projectRoot: string,
@@ -319,72 +321,82 @@ export default class Push extends Command {
         normalizedPath = path.relative(projectRoot, inputPath)
       }
 
-      // Remove trailing slash for type resolution
+      // Remove trailing slash for comparisons
       const cleanPath = normalizedPath.replace(/\/$/, '')
+      const fullPath = path.join(projectRoot, cleanPath)
 
-      // Try type-based filtering first
-      const types = resolveInputToTypes(
-        cleanPath,
-        this.paths,
-        this.customResolveType
-      )
+      // 1. Check for exact file match first (highest priority)
+      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+        result.push(cleanPath)
+        continue
+      }
 
-      if (types && types.length > 0) {
-        // Filter by type - find modified tracked files and new files of matching types
+      // 2. Check if it's a directory
+      const isDir = normalizedPath.endsWith('/') ||
+        (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
+
+      if (isDir) {
+        // Find all files under this directory (both tracked modified and new)
+        const dirPrefix = cleanPath + '/'
+        let foundAny = false
+
+        // Add tracked files that are modified
         for (const obj of objects) {
-          if (types.includes(obj.type)) {
+          if (obj.path.startsWith(dirPrefix)) {
             const objFullPath = path.join(projectRoot, obj.path)
             if (fs.existsSync(objFullPath)) {
               const currentSha256 = computeFileSha256(objFullPath)
               if (currentSha256 !== obj.sha256) {
                 result.push(obj.path)
+                foundAny = true
               }
             }
           }
         }
 
-        // Also find new files in directories for these types
-        for (const type of types) {
-          const typeDir = this.getDirectoryForType(type)
-          if (typeDir) {
-            const fullDir = path.join(projectRoot, typeDir)
-            if (fs.existsSync(fullDir)) {
-              this.walkDir(fullDir, projectRoot, objectPaths, result)
-            }
-          }
+        // Add new files in directory
+        if (fs.existsSync(fullPath)) {
+          const beforeCount = result.length
+          this.walkDir(fullPath, projectRoot, objectPaths, result)
+          if (result.length > beforeCount) foundAny = true
         }
-      } else {
-        // Fallback to path prefix matching
-        const fullPath = path.join(projectRoot, normalizedPath)
-        const isDir = normalizedPath.endsWith('/') ||
-          (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
 
-        if (isDir) {
-          // Find all files under this directory (both tracked and new)
-          const dirPrefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`
+        // If no files found via prefix, try type-based filtering
+        if (!foundAny) {
+          const types = resolveInputToTypes(
+            cleanPath,
+            this.paths,
+            this.customResolveType
+          )
 
-          // Add tracked files that are modified
-          for (const obj of objects) {
-            if (obj.path.startsWith(dirPrefix) || obj.path.startsWith(normalizedPath + path.sep)) {
-              const objFullPath = path.join(projectRoot, obj.path)
-              if (fs.existsSync(objFullPath)) {
-                const currentSha256 = computeFileSha256(objFullPath)
-                if (currentSha256 !== obj.sha256) {
-                  result.push(obj.path)
+          if (types && types.length > 0) {
+            // Filter by type - find modified tracked files
+            for (const obj of objects) {
+              if (types.includes(obj.type)) {
+                const objFullPath = path.join(projectRoot, obj.path)
+                if (fs.existsSync(objFullPath)) {
+                  const currentSha256 = computeFileSha256(objFullPath)
+                  if (currentSha256 !== obj.sha256) {
+                    result.push(obj.path)
+                  }
+                }
+              }
+            }
+
+            // Also find new files in directories for these types
+            for (const type of types) {
+              const typeDir = this.getDirectoryForType(type)
+              if (typeDir) {
+                const fullDir = path.join(projectRoot, typeDir)
+                if (fs.existsSync(fullDir)) {
+                  this.walkDir(fullDir, projectRoot, objectPaths, result)
                 }
               }
             }
           }
-
-          // Add new files in directory
-          if (fs.existsSync(fullPath)) {
-            this.walkDir(fullPath, projectRoot, objectPaths, result)
-          }
-        } else if (fs.existsSync(fullPath)) {
-          // Single file - add if it exists
-          result.push(normalizedPath)
         }
       }
+      // If file doesn't exist and it's not a directory, skip it (nothing to push)
     }
 
     return [...new Set(result)]
