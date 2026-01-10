@@ -370,11 +370,33 @@ export class XanoApi {
     )
   }
 
-  async getApiEndpoint(id: number): Promise<ApiResponse<XanoApiEndpoint>> {
+  async getApiEndpoint(id: number, apiGroupId?: number): Promise<ApiResponse<XanoApiEndpoint>> {
+    // If apiGroupId is provided, use the full path (required by API)
+    if (apiGroupId) {
+      return apiRequest(
+        this.profile,
+        'GET',
+        `/api:meta/workspace/${this.workspaceId}/apigroup/${apiGroupId}/api/${id}?${this.branchParam}&include_xanoscript=true`
+      )
+    }
+
+    // Fallback: list all endpoints to find the apigroup_id
+    const endpointsResponse = await this.listApiEndpoints(1, 1000)
+    if (!endpointsResponse.ok || !endpointsResponse.data?.items) {
+      return { error: 'Unable to locate request.', ok: false, status: 404 }
+    }
+
+    // Find the endpoint to get its apigroup_id
+    const endpoint = endpointsResponse.data.items.find((e: XanoApiEndpoint) => e.id === id)
+    if (!endpoint) {
+      return { error: 'Unable to locate request.', ok: false, status: 404 }
+    }
+
+    // Fetch with the proper URL using the apigroup_id
     return apiRequest(
       this.profile,
       'GET',
-      `/api:meta/workspace/${this.workspaceId}/api/${id}?${this.branchParam}&include_xanoscript=true`
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${endpoint.apigroup_id}/api/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
 
@@ -382,7 +404,7 @@ export class XanoApi {
     return apiRequest(
       this.profile,
       'GET',
-      `/api:meta/workspace/${this.workspaceId}/apigroup/${id}?${this.branchParam}`
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
 
@@ -431,6 +453,10 @@ export class XanoApi {
 
       case 'middleware': {
         return this.getMiddleware(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
+      }
+
+      case 'api_group': {
+        return this.getApiGroup(id) as Promise<ApiResponse<{ id: number; name?: string; xanoscript?: string }>>
       }
 
       default: {

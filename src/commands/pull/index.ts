@@ -230,8 +230,10 @@ export default class Pull extends Command {
 
   /**
    * Expand input paths to actual file paths
-   * Uses type-based filtering when input matches a known type mapping,
-   * falls back to path prefix matching otherwise
+   * Priority:
+   * 1. Exact file match in objects.json
+   * 2. Directory prefix match (for directories)
+   * 3. Type-based filtering (only for directory paths, not specific files)
    */
   private expandPaths(
     projectRoot: string,
@@ -247,41 +249,51 @@ export default class Pull extends Command {
         normalizedPath = path.relative(projectRoot, inputPath)
       }
 
-      // Remove trailing slash for type resolution
+      // Remove trailing slash for comparisons
       const cleanPath = normalizedPath.replace(/\/$/, '')
 
-      // Try type-based filtering first
-      const types = resolveInputToTypes(
-        cleanPath,
-        this.paths,
-        this.customResolveType
-      )
+      // 1. Check for exact file match first (highest priority)
+      const exactMatch = objects.find(obj => obj.path === cleanPath)
+      if (exactMatch) {
+        result.push(exactMatch.path)
+        continue
+      }
 
-      if (types && types.length > 0) {
-        // Filter objects by resolved types
+      // 2. Check if it's a directory (by path or by existence)
+      const fullPath = path.join(projectRoot, normalizedPath)
+      const isDir = normalizedPath.endsWith('/') ||
+        (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
+
+      if (isDir) {
+        // Find all tracked files under this directory
+        const dirPrefix = cleanPath + '/'
+        let foundAny = false
         for (const obj of objects) {
-          if (types.includes(obj.type)) {
+          if (obj.path.startsWith(dirPrefix)) {
             result.push(obj.path)
+            foundAny = true
+          }
+        }
+
+        // If no files found via prefix, try type-based filtering
+        if (!foundAny) {
+          const types = resolveInputToTypes(
+            cleanPath,
+            this.paths,
+            this.customResolveType
+          )
+
+          if (types && types.length > 0) {
+            for (const obj of objects) {
+              if (types.includes(obj.type)) {
+                result.push(obj.path)
+              }
+            }
           }
         }
       } else {
-        // Fallback to path prefix matching
-        const fullPath = path.join(projectRoot, normalizedPath)
-        const isDir = normalizedPath.endsWith('/') ||
-          (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
-
-        if (isDir) {
-          // Find all tracked files under this directory
-          const dirPrefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`
-          for (const obj of objects) {
-            if (obj.path.startsWith(dirPrefix) || obj.path.startsWith(normalizedPath + path.sep)) {
-              result.push(obj.path)
-            }
-          }
-        } else {
-          // Single file
-          result.push(normalizedPath)
-        }
+        // Single file not found in objects - add it anyway (will be marked as "Not tracked")
+        result.push(cleanPath)
       }
     }
 
