@@ -23,24 +23,20 @@ export default class Lint extends Command {
   static description = 'Lint XanoScript files'
 
   static examples = [
+    '<%= config.bin %> lint',
     '<%= config.bin %> lint functions/my_function.xs',
     '<%= config.bin %> lint functions/',
     '<%= config.bin %> lint --staged',
-    '<%= config.bin %> lint --all',
   ]
 
   static flags = {
-    all: Flags.boolean({
-      default: false,
-      description: 'Lint all .xs files in project',
-    }),
     fix: Flags.boolean({
       default: false,
       description: 'Attempt to fix issues (if supported)',
     }),
     staged: Flags.boolean({
       default: false,
-      description: 'Lint git-staged .xs files',
+      description: 'Lint only git-staged .xs files',
     }),
   }
 
@@ -57,17 +53,11 @@ export default class Lint extends Command {
 
     if (flags.staged) {
       filesToLint = this.getGitStagedFiles(projectRoot)
-    } else if (flags.all) {
-      filesToLint = this.getAllXsFiles(projectRoot)
     } else if (files.length > 0) {
       filesToLint = this.expandFiles(projectRoot, files)
     } else {
-      this.log('No files specified. Use one of:')
-      this.log('  xano lint <files...>    Lint specific files')
-      this.log('  xano lint <directory>/  Lint all .xs files in directory')
-      this.log('  xano lint --staged      Lint git-staged .xs files')
-      this.log('  xano lint --all         Lint all .xs files in project')
-      return
+      // Default: lint all .xs files in project
+      filesToLint = this.getAllXsFiles(projectRoot)
     }
 
     if (filesToLint.length === 0) {
