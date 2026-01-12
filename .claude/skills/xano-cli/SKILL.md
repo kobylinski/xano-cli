@@ -156,17 +156,17 @@ xano branch live
 ### Lint
 
 ```bash
+# Lint all project files (default)
+xano lint
+
 # Lint specific files
 xano lint functions/my_function.xs
 
 # Lint directory
 xano lint functions/
 
-# Lint git-staged files
+# Lint only git-staged files
 xano lint --staged
-
-# Lint all .xs files
-xano lint --all
 ```
 
 ## Creating New Objects from Local Files
@@ -231,6 +231,46 @@ query POST /auth/login {
   // endpoint body
 }
 ```
+
+### Creating New API Endpoints
+
+**Important:** API endpoints require their API group to exist first. The CLI looks up the API group from the file path.
+
+```bash
+# Example: Creating a new endpoint in the "bootstrap" API group
+
+# 1. Ensure the API group exists (pull it or check objects.json)
+xano pull app/apis/bootstrap.xs
+
+# 2. Create the new endpoint file
+# Path must be: app/apis/{group_name}/{endpoint}_VERB.xs
+cat > app/apis/bootstrap/mfa_challenge_POST.xs << 'EOF'
+query "mfa/challenge" verb=POST {
+  api_group = "Bootstrap"
+
+  input {
+    text code
+  }
+
+  stack {
+    // implementation
+  }
+
+  response = {success: true}
+}
+EOF
+
+# 3. Push the new endpoint
+xano push app/apis/bootstrap/mfa_challenge_POST.xs
+```
+
+**If API group not found:**
+```
+Cannot find API group for new endpoint. Expected "bootstrap.xs" file in apis directory.
+Create the API group first or run "xano pull --sync".
+```
+
+**Solution:** Pull the API group first with `xano pull --sync` or ensure `app/apis/{group_name}.xs` exists in `objects.json`.
 
 ### Creating a New Object
 
@@ -366,7 +406,31 @@ xano data:delete users 1 --force
 # Bulk insert multiple records
 xano data:bulk users --file records.json
 xano data:bulk users --data '[{"email":"a@example.com"},{"email":"b@example.com"}]'
+
+# Bulk insert with custom primary keys (e.g., UUIDs)
+xano data:bulk users --file records.json --allow-id
 ```
+
+### Using Data Sources (Environments)
+
+All data commands support the `--datasource` flag to target specific environments (e.g., "live", "test"):
+
+```bash
+# Work with test data source
+xano data:list users --datasource test
+xano data:create users --data '{"email":"test@test.local"}' --datasource test
+xano data:delete users 1 --force --datasource test
+
+# Manage data sources
+xano datasource:list
+xano datasource:create staging
+xano datasource:delete staging --force
+```
+
+This is useful for:
+- Setting up test fixtures without affecting live data
+- Running integration tests against isolated data
+- Comparing data between environments
 
 ## Live API Calls
 
