@@ -502,7 +502,26 @@ export default class Push extends Command {
       }
 
       objectType = detectedType
-      const response = await api.createObject(objectType, content)
+
+      // For api_endpoint, we need to find the apigroup_id from the path hierarchy
+      const createOptions: { apigroup_id?: number } = {}
+      if (objectType === 'api_endpoint') {
+        const apiGroup = findApiGroupForEndpoint(objects, filePath)
+        if (apiGroup) {
+          createOptions.apigroup_id = apiGroup.id
+        } else {
+          // Extract expected group name from path for better error message
+          const parts = filePath.split('/')
+          const groupName = parts.length >= 3 ? parts[parts.length - 2] : 'unknown'
+          return {
+            error: `Cannot find API group for new endpoint. Expected "${groupName}.xs" file in apis directory. Create the API group first or run "xano pull --sync".`,
+            objects,
+            success: false,
+          }
+        }
+      }
+
+      const response = await api.createObject(objectType, content, createOptions)
 
       if (!response.ok) {
         if (response.status === 409 || response.error?.includes('already exists')) {

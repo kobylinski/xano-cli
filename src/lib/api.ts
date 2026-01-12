@@ -165,11 +165,11 @@ export class XanoApi {
 
   // ========== Branches ==========
 
-  async createApiEndpoint(xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
+  async createApiEndpoint(xanoscript: string, apiGroupId: number): Promise<ApiResponse<XanoApiEndpoint>> {
     return apiRequest(
       this.profile,
       'POST',
-      `/api:meta/workspace/${this.workspaceId}/api?${this.branchParam}`,
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${apiGroupId}/api?${this.branchParam}&include_xanoscript=true`,
       xanoscript,
       'text/x-xanoscript'
     )
@@ -190,10 +190,13 @@ export class XanoApi {
   /**
    * Create object by type
    */
-  async createObject(type: XanoObjectType, xanoscript: string): Promise<ApiResponse<{ id: number; name?: string }>> {
+  async createObject(type: XanoObjectType, xanoscript: string, options?: { apigroup_id?: number }): Promise<ApiResponse<{ id: number; name?: string }>> {
     switch (type) {
       case 'api_endpoint': {
-        return this.createApiEndpoint(xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+        if (!options?.apigroup_id) {
+          return { error: 'apigroup_id is required to create an API endpoint', ok: false, status: 400 }
+        }
+        return this.createApiEndpoint(xanoscript, options.apigroup_id) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
       case 'function': {
