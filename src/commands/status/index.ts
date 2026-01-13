@@ -106,7 +106,8 @@ export default class Status extends Command {
     if (!flags.json) {
       this.log('Fetching remote state from Xano...')
     }
-    const remoteObjects = await fetchAllObjects(api)
+    const fetchResult = await fetchAllObjects(api)
+    const remoteObjects = fetchResult.objects
 
     // Build map of remote objects by path
     const remoteByPath = new Map<string, FetchedObject>()

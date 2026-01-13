@@ -150,8 +150,14 @@ xano datasource:delete staging --force
 xano api:groups
 xano api:endpoints
 
-# Call an endpoint (use API group ID from api:groups)
-xano api:call <api-group-id> /auth/login --method POST --body '{"email":"test@example.com"}'
+# Call an endpoint (auto-resolves API group from path)
+xano api:call /auth/login --method POST --body '{"email":"test@example.com"}'
+
+# Explicit group name
+xano api:call auth /login --method POST --body '{"email":"test@example.com"}'
+
+# With authorization header
+xano api:call /users --header "Authorization: Bearer <token>"
 ```
 
 ## Profile Management

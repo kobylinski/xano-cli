@@ -21,6 +21,7 @@ import {
   encodeBase64,
   findObjectByPath,
   loadObjects,
+  saveGroups,
   saveObjects,
   upsertObject,
 } from '../../lib/objects.js'
@@ -131,7 +132,8 @@ export default class Pull extends Command {
 
     if (needsSync) {
       this.log('Syncing metadata from Xano...')
-      fetchedObjects = await fetchAllObjects(api, (msg) => this.log(msg))
+      const fetchResult = await fetchAllObjects(api, (msg) => this.log(msg))
+      fetchedObjects = fetchResult.objects
       this.log('')
 
       // Update objects.json with fetched data
@@ -147,6 +149,7 @@ export default class Pull extends Command {
         })
       }
       saveObjects(projectRoot, objects)
+      saveGroups(projectRoot, fetchResult.apiGroups)
     }
 
     // Determine which files to pull

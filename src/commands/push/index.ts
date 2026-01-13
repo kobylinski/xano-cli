@@ -24,6 +24,7 @@ import {
   findApiGroupForEndpoint,
   findObjectByPath,
   loadObjects,
+  saveGroups,
   saveObjects,
   upsertObject,
 } from '../../lib/objects.js'
@@ -130,7 +131,8 @@ export default class Push extends Command {
 
     if (needsSync) {
       this.log('Syncing metadata from Xano...')
-      const fetchedObjects = await fetchAllObjects(api, (msg) => this.log(msg))
+      const fetchResult = await fetchAllObjects(api, (msg) => this.log(msg))
+      const fetchedObjects = fetchResult.objects
       this.log('')
 
       // Build apigroup cache from fetched data (before we lose apigroup_id)
@@ -154,6 +156,7 @@ export default class Push extends Command {
         })
       }
       saveObjects(projectRoot, objects)
+      saveGroups(projectRoot, fetchResult.apiGroups)
     }
 
     // Determine which files to push

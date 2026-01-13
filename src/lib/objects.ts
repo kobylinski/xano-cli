@@ -12,12 +12,33 @@ import type { XanoObject, XanoObjectsFile, XanoObjectType } from './types.js'
 import { ensureXanoDir, getXanoDirPath } from './project.js'
 
 const OBJECTS_JSON = 'objects.json'
+const GROUPS_JSON = 'groups.json'
+
+/**
+ * API group info stored in groups.json
+ */
+export interface ApiGroupInfo {
+  canonical: string
+  id: number
+}
+
+/**
+ * Structure of .xano/groups.json
+ */
+export type ApiGroupsFile = Record<string, ApiGroupInfo>
 
 /**
  * Get path to .xano/objects.json
  */
 export function getObjectsJsonPath(projectRoot: string): string {
   return path.join(getXanoDirPath(projectRoot), OBJECTS_JSON)
+}
+
+/**
+ * Get path to .xano/groups.json
+ */
+export function getGroupsJsonPath(projectRoot: string): string {
+  return path.join(getXanoDirPath(projectRoot), GROUPS_JSON)
 }
 
 /**
@@ -45,6 +66,65 @@ export function saveObjects(projectRoot: string, objects: XanoObjectsFile): void
   ensureXanoDir(projectRoot)
   const filePath = getObjectsJsonPath(projectRoot)
   fs.writeFileSync(filePath, JSON.stringify(objects, null, 2) + '\n', 'utf-8')
+}
+
+/**
+ * Load .xano/groups.json
+ */
+export function loadGroups(projectRoot: string): ApiGroupsFile {
+  const filePath = getGroupsJsonPath(projectRoot)
+
+  if (!fs.existsSync(filePath)) {
+    return {}
+  }
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf8')
+    return JSON.parse(content) as ApiGroupsFile
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Save .xano/groups.json
+ */
+export function saveGroups(projectRoot: string, groups: ApiGroupsFile): void {
+  ensureXanoDir(projectRoot)
+  const filePath = getGroupsJsonPath(projectRoot)
+  fs.writeFileSync(filePath, JSON.stringify(groups, null, 2) + '\n', 'utf-8')
+}
+
+/**
+ * Find API group info by name
+ */
+export function findGroupByName(groups: ApiGroupsFile, name: string): ApiGroupInfo | undefined {
+  // Try exact match first
+  if (groups[name]) {
+    return groups[name]
+  }
+
+  // Try case-insensitive match
+  const lowerName = name.toLowerCase()
+  for (const [groupName, info] of Object.entries(groups)) {
+    if (groupName.toLowerCase() === lowerName) {
+      return info
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Find API group name by canonical ID
+ */
+export function findGroupByCanonical(groups: ApiGroupsFile, canonical: string): string | undefined {
+  for (const [name, info] of Object.entries(groups)) {
+    if (info.canonical === canonical) {
+      return name
+    }
+  }
+  return undefined
 }
 
 /**

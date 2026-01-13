@@ -19,10 +19,12 @@ import {
   type PathResolverObject,
 } from './detector.js'
 import {
+  type ApiGroupsFile,
   computeSha256,
   encodeBase64,
   extractXanoscript,
   loadObjects,
+  saveGroups,
   saveObjects,
   upsertObject,
 } from './objects.js'
@@ -40,6 +42,11 @@ export interface FetchedObject {
   xanoscript: string
 }
 
+export interface FetchResult {
+  apiGroups: ApiGroupsFile
+  objects: FetchedObject[]
+}
+
 export interface SyncResult {
   newObjects: FetchedObject[]
   objects: XanoObjectsFile
@@ -55,8 +62,9 @@ type LogFn = (message: string) => void
 export async function fetchAllObjects(
   api: XanoApi,
   log?: LogFn
-): Promise<FetchedObject[]> {
+): Promise<FetchResult> {
   const allObjects: FetchedObject[] = []
+  const apiGroupsFile: ApiGroupsFile = {}
   const print = log || (() => {})
 
   // Fetch API groups first for endpoint grouping AND as objects to sync
@@ -66,6 +74,11 @@ export async function fetchAllObjects(
   if (groupsResponse.ok && groupsResponse.data?.items) {
     for (const group of groupsResponse.data.items) {
       apiGroups.set(group.id, group.name)
+      // Store group info with canonical for groups.json
+      apiGroupsFile[group.name] = {
+        canonical: group.guid,
+        id: group.id,
+      }
       // Add api_group to allObjects if it has xanoscript
       const xs = extractXanoscript(group.xanoscript)
       if (xs) {
@@ -232,7 +245,10 @@ export async function fetchAllObjects(
     print(`  Found ${middlewaresResponse.data.items.length} middlewares`)
   }
 
-  return allObjects
+  return {
+    apiGroups: apiGroupsFile,
+    objects: allObjects,
+  }
 }
 
 /**
@@ -272,7 +288,8 @@ export async function syncFromXano(
   const print = log || (() => {})
 
   // Fetch all objects from Xano
-  const allObjects = await fetchAllObjects(api, log)
+  const fetchResult = await fetchAllObjects(api, log)
+  const allObjects = fetchResult.objects
   print('')
   print(`Total: ${allObjects.length} objects with XanoScript`)
 
@@ -330,8 +347,9 @@ export async function syncFromXano(
     })
   }
 
-  // Save objects.json
+  // Save objects.json and groups.json
   saveObjects(projectRoot, objects)
+  saveGroups(projectRoot, fetchResult.apiGroups)
 
   return {
     newObjects,
