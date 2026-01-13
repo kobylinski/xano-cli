@@ -2,6 +2,8 @@
 
 Command-line interface for syncing XanoScript files between your local filesystem and Xano backend.
 
+> **Note:** This is an unofficial fork of [@xano/cli](https://www.npmjs.com/package/@xano/cli) with additional features and improvements.
+
 ## Installation
 
 ```bash
@@ -25,6 +27,8 @@ xano push
 ```
 
 ## Project Structure
+
+Example project structure (paths are configurable via `xano.json`):
 
 ```
 project/
@@ -177,6 +181,8 @@ xano push app/apis/auth/my_endpoint_POST.xs
 
 ### xano.json (versioned)
 
+The `xano.json` file is created by `xano init` and should be committed to version control. It defines your project's connection to Xano and local file structure.
+
 ```json
 {
   "instance": "a1b2-c3d4-e5f6",
@@ -185,7 +191,33 @@ xano push app/apis/auth/my_endpoint_POST.xs
   "paths": {
     "functions": "app/functions",
     "apis": "app/apis",
-    "tables": "data/tables"
+    "middlewares": "app/middlewares",
+    "tasks": "app/tasks",
+    "tables": "data/tables",
+    "triggers": "data/triggers",
+    "addons": "data/addons",
+    "workflow_tests": "tests"
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `instance` | Your Xano instance identifier (from workspace URL) |
+| `workspace` | Workspace name (for reference) |
+| `workspaceId` | Numeric workspace ID |
+| `paths` | Local directory mappings for each object type |
+
+**Path Configuration:**
+
+All paths are relative to the project root. You can customize them to match your preferred structure:
+
+```json
+{
+  "paths": {
+    "functions": "src/functions",
+    "apis": "src/api",
+    "tables": "db/schema"
   }
 }
 ```
