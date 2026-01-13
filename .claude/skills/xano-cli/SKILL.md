@@ -434,45 +434,104 @@ This is useful for:
 
 ## Live API Calls
 
-Call your Xano API endpoints directly from the CLI.
+Call your Xano API endpoints directly from the CLI. API groups are auto-resolved from endpoint paths.
 
 ```bash
-# List API groups with canonical IDs
+# List API groups and endpoints
 xano api:groups
-
-# List API endpoints (optionally filter by group)
 xano api:endpoints
-xano api:endpoints auth
 
-# Call an API endpoint
-xano api:call QV7RcVYt /auth/login --method POST --body '{"email":"test@example.com","password":"secret"}'
+# Call an endpoint (auto-resolves API group)
+xano api:call /auth/login --method POST --body '{"email":"test@example.com","password":"secret"}'
+
+# Explicit group name
+xano api:call Bootstrap /auth/login --method POST --body '{"email":"...","password":"..."}'
 
 # With custom headers
-xano api:call QV7RcVYt /protected --header "Authorization: Bearer <token>"
+xano api:call /protected --header "Authorization: Bearer <token>"
 
 # Read body from file
-xano api:call QV7RcVYt /data --method POST --body-file request.json
+xano api:call /data --method POST --body-file request.json
+```
+
+### Token Authentication
+
+Use `--token` or `--token-file` for authenticated endpoints:
+
+```bash
+# Direct token
+xano api:call /profile --token "eyJhbG..."
+
+# Token from file
+xano api:call /profile --token-file .xano/token.txt
+```
+
+The `--token` flag adds `Authorization: Bearer <token>` header automatically.
+
+### Extracting and Saving Responses
+
+Use `--extract` with JSONPath syntax to extract specific fields:
+
+```bash
+# Extract a field from response
+xano api:call /auth/login -m POST -b '{"email":"...","password":"..."}' --extract .authToken
+
+# Extract nested field
+xano api:call /users/1 --extract .data.user.email
+
+# Extract array element
+xano api:call /users --extract .items[0].id
+```
+
+Use `--save` to write output to file (works with or without `--extract`):
+
+```bash
+# Save extracted token to file
+xano api:call /auth/login -m POST -b '{"email":"...","password":"..."}' \
+  --extract .authToken \
+  --save .xano/token.txt
+
+# Save full response
+xano api:call /users --save /tmp/users.json
+```
+
+### Agent Workflow: Complete Auth Flow
+
+```bash
+# 1. Login and save token
+xano api:call /auth/login -m POST \
+  -b '{"email":"test@example.com","password":"secret"}' \
+  --extract .authToken \
+  --save .xano/token.txt
+
+# 2. Use saved token for authenticated calls
+xano api:call /profile --token-file .xano/token.txt
+xano api:call /users --token-file .xano/token.txt
+
+# 3. Clean up
+rm .xano/token.txt
 ```
 
 ### Testing Auth Flows
 
-Common pattern for testing authentication:
+Pattern for testing authentication:
 
 ```bash
 # 1. Create a test user
 xano data:create users --data '{"email":"test@example.com","password":"testpass123"}'
 
-# 2. Get API group canonical ID
-xano api:groups --json | jq '.[] | select(.name=="auth") | .canonical'
+# 2. Login and save token
+xano api:call /auth/login -m POST \
+  -b '{"email":"test@example.com","password":"testpass123"}' \
+  --extract .authToken \
+  --save .xano/token.txt
 
-# 3. Login to get token
-xano api:call QV7RcVYt /auth/login --method POST --body '{"email":"test@example.com","password":"testpass123"}'
+# 3. Use token for authenticated calls
+xano api:call /me --token-file .xano/token.txt
 
-# 4. Use token for authenticated calls
-xano api:call QV7RcVYt /me --header "Authorization: Bearer <token_from_step_3>"
-
-# 5. Clean up test user
+# 4. Clean up
 xano data:delete users <user_id> --force
+rm .xano/token.txt
 ```
 
 ## Tips

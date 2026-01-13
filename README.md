@@ -151,13 +151,21 @@ xano api:groups
 xano api:endpoints
 
 # Call an endpoint (auto-resolves API group from path)
-xano api:call /auth/login --method POST --body '{"email":"test@example.com"}'
+xano api:call /auth/login -m POST -b '{"email":"...","password":"..."}'
 
 # Explicit group name
-xano api:call auth /login --method POST --body '{"email":"test@example.com"}'
+xano api:call auth /login -m POST -b '{"email":"...","password":"..."}'
 
-# With authorization header
-xano api:call /users --header "Authorization: Bearer <token>"
+# Token authentication (adds Authorization: Bearer header)
+xano api:call /profile --token "eyJhbG..."
+xano api:call /profile --token-file .xano/token.txt
+
+# Extract field and save to file
+xano api:call /auth/login -m POST -b '{"email":"...","password":"..."}' \
+  --extract .authToken --save .xano/token.txt
+
+# Use saved token for subsequent calls
+xano api:call /users --token-file .xano/token.txt
 ```
 
 ## Profile Management
