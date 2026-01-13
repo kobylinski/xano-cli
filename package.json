@@ -1,12 +1,12 @@
 {
-  "name": "@xano/cli",
-  "description": "CLI for Xano's Metadata API",
-  "version": "0.0.14",
-  "author": "Sean Montgomery",
+  "name": "@deligopl/xano-cli",
+  "description": "CLI for syncing XanoScript files with Xano backend",
+  "version": "1.0.0",
+  "author": "Deligo <dev@deligo.pl>",
   "bin": {
     "xano": "./bin/run.js"
   },
-  "bugs": "https://github.com/xano-inc/cli/issues",
+  "bugs": "https://github.com/kobylinski/xano-cli/issues",
   "dependencies": {
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
@@ -43,9 +43,13 @@
     "./dist",
     "./oclif.manifest.json"
   ],
-  "homepage": "https://github.com/xano-inc/cli",
+  "homepage": "https://github.com/kobylinski/xano-cli",
   "keywords": [
-    "oclif"
+    "xano",
+    "xanoscript",
+    "cli",
+    "sync",
+    "backend"
   ],
   "license": "MIT",
   "main": "dist/index.js",
@@ -66,7 +70,7 @@
       }
     }
   },
-  "repository": "xano-inc/cli",
+  "repository": "kobylinski/xano-cli",
   "scripts": {
     "build": "shx rm -rf dist && tsc -b",
     "dev": "./bin/dev.js",
