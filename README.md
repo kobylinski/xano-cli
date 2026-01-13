@@ -150,8 +150,8 @@ xano datasource:delete staging --force
 xano api:groups
 xano api:endpoints
 
-# Call an endpoint (use canonical ID from api:groups)
-xano api:call <canonical> /auth/login --method POST --body '{"email":"test@example.com"}'
+# Call an endpoint (use API group ID from api:groups)
+xano api:call <api-group-id> /auth/login --method POST --body '{"email":"test@example.com"}'
 ```
 
 ## Profile Management
