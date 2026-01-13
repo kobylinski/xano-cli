@@ -74,9 +74,14 @@ export async function fetchAllObjects(
   if (groupsResponse.ok && groupsResponse.data?.items) {
     for (const group of groupsResponse.data.items) {
       apiGroups.set(group.id, group.name)
+
+      // Fetch canonical ID for live API calls (different from guid)
+      const groupDetails = await api.getApiGroupWithCanonical(group.id)
+      const canonical = groupDetails.data?.canonical || group.guid
+
       // Store group info with canonical for groups.json
       apiGroupsFile[group.name] = {
-        canonical: group.guid,
+        canonical,
         id: group.id,
       }
       // Add api_group to allObjects if it has xanoscript
