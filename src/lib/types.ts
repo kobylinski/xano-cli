@@ -2,16 +2,36 @@
  * Shared type definitions for xano-cli
  */
 
-// Object types supported by Xano
+// Naming modes for file generation
+// - default: CLI native (nested triggers, flat API group files)
+// - vscode/vscode_name: VSCode extension (flat triggers, API group folders)
+// - vscode_id: VSCode with ID prefix: 123_my_function.xs, 456_users_GET.xs
+export type NamingMode = 'default' | 'vscode' | 'vscode_id' | 'vscode_name'
+
+// Context passed to custom resolver functions (sanitize, resolvePath)
+export interface ResolverContext {
+  default: string         // Default result for current naming mode
+  naming: NamingMode      // Current naming mode
+  type: XanoObjectType    // Resolved object type
+}
+
+// Object types supported by Xano (VSCode extension compatible)
 export type XanoObjectType =
   | 'addon'
+  | 'agent'
+  | 'agent_trigger'
   | 'api_endpoint'
   | 'api_group'
   | 'function'
+  | 'mcp_server'
+  | 'mcp_server_trigger'
   | 'middleware'
+  | 'realtime_channel'
+  | 'realtime_trigger'
   | 'table'
   | 'table_trigger'
   | 'task'
+  | 'tool'
   | 'workflow_test'
 
 // Paths configuration (VSCode extension compatible - camelCase keys)
@@ -37,19 +57,23 @@ export interface XanoPaths {
 // xano.json - versioned project config
 export interface XanoProjectConfig {
   instance: string
+  naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths
   workspace: string
   workspaceId: number
 }
 
 // Path resolver function type
+// Returns custom path or null to use default
 export type PathResolver = (
   obj: { group?: string; id: number; name: string; path?: string; table?: string; type: XanoObjectType; verb?: string },
-  paths: XanoPaths
+  paths: XanoPaths,
+  context: ResolverContext
 ) => string | null
 
 // Sanitize function type
-export type SanitizeFunction = (name: string) => string
+// Returns sanitized name, can use context.default to delegate to default sanitization
+export type SanitizeFunction = (name: string, context: ResolverContext) => string
 
 // Type resolver function type - resolves user input path to object types
 export type TypeResolver = (
@@ -68,6 +92,7 @@ export interface XanoDynamicConfig extends XanoProjectConfig {
 export interface XanoLocalConfig {
   branch: string
   instanceName: string
+  naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths
   workspaceId: number
   workspaceName: string
@@ -94,7 +119,7 @@ export interface XanoProfile {
   account_origin?: string
   branch?: string
   instance_origin: string
-  workspace?: string
+  workspace?: number | string  // number (ID) or string (name) for backward compatibility
 }
 
 export interface XanoCredentials {
@@ -170,10 +195,10 @@ export interface XanoApiWorkflowTest {
 }
 
 export interface XanoApiBranch {
-  id: number
-  is_default: boolean
-  is_live: boolean
-  name: string
+  backup: boolean
+  created_at: string
+  label: string
+  live?: boolean
 }
 
 export interface XanoApiTableTrigger {

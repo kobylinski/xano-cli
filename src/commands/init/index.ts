@@ -1,9 +1,11 @@
-import { Command, Flags } from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
+import * as yaml from 'js-yaml'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 
-import type { XanoLocalConfig, XanoProjectConfig } from '../../lib/types.js'
+import type { XanoLocalConfig, XanoProjectConfig, XanoProfile } from '../../lib/types.js'
 
 import {
   getDefaultProfileName,
@@ -13,7 +15,6 @@ import {
 } from '../../lib/api.js'
 import {
   createLocalConfig,
-  ensureXanoDir,
   findProjectRoot,
   getConfigJsonPath,
   getDefaultPaths,
@@ -25,17 +26,66 @@ import {
   saveXanoJson,
 } from '../../lib/project.js'
 
+// Types for API responses
+interface Instance {
+  display: string
+  id: string
+  meta_api: string
+  name: string
+}
+
+interface Workspace {
+  id: number
+  name: string
+}
+
+interface Branch {
+  backup: boolean
+  label: string
+  live?: boolean
+}
+
+interface CredentialsFile {
+  default?: string
+  profiles: {
+    [key: string]: Omit<XanoProfile, 'name'>
+  }
+}
+
+const CREATE_NEW_PROFILE = '[CREATE_NEW]'
+
 export default class Init extends Command {
-  static description = 'Initialize xano project in current directory'
-static examples = [
-    '<%= config.bin %> init',
-    '<%= config.bin %> init --branch v2',
-    '<%= config.bin %> init --profile my-profile --branch live',
+  static args = {
+    subcommand: Args.string({
+      description: 'Subcommand: "profile" or "project"',
+      options: ['profile', 'project'],
+      required: false,
+    }),
+    profileArg: Args.string({
+      description: 'Profile name (for "project" subcommand)',
+      required: false,
+    }),
+  }
+
+  static description = 'Initialize xano project and/or profile'
+
+  static examples = [
+    '<%= config.bin %> init                          # Full setup (profile + project)',
+    '<%= config.bin %> init profile                  # Create/manage profiles only',
+    '<%= config.bin %> init project                  # Project setup only (uses default profile)',
+    '<%= config.bin %> init project MyProfile        # Project setup with specific profile',
+    '<%= config.bin %> init --agent                  # Agent mode (non-interactive)',
+    '<%= config.bin %> init --agent --profile=X --workspace=123 --branch=v1',
   ]
-static flags = {
+
+  static flags = {
+    agent: Flags.boolean({
+      default: false,
+      description: 'Agent mode: output structured data instead of interactive prompts',
+    }),
     branch: Flags.string({
       char: 'b',
-      description: 'Xano branch to use',
+      description: 'Branch to use',
       env: 'XANO_BRANCH',
     }),
     force: Flags.boolean({
@@ -45,101 +95,399 @@ static flags = {
     }),
     profile: Flags.string({
       char: 'p',
-      description: 'Profile to use',
+      description: 'Profile to use or create',
       env: 'XANO_PROFILE',
+    }),
+    token: Flags.string({
+      description: 'Access token (for creating new profile in agent mode)',
+    }),
+    workspace: Flags.string({
+      char: 'w',
+      description: 'Workspace ID to use',
     }),
   }
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(Init)
+    const { args, flags } = await this.parse(Init)
 
-    const projectRoot = findProjectRoot() || process.cwd()
-
-    const hasXanoDir = fs.existsSync(getXanoDirPath(projectRoot))
-    const hasConfigJson = fs.existsSync(getConfigJsonPath(projectRoot))
-    const hasXanoJson = fs.existsSync(getXanoJsonPath(projectRoot))
-
-    // Case 1: .xano/ exists with config.json - already initialized
-    if (hasConfigJson && !flags.force) {
-      const config = loadLocalConfig(projectRoot)
-
-      // If xano.json doesn't exist, create it from config.json
-      if (!hasXanoJson && config) {
-        this.log('Creating xano.json from .xano/config.json...')
-        this.createXanoJsonFromConfig(projectRoot, config)
-      } else if (hasXanoJson && config) {
-        // If xano.json exists, update config.json with any path changes from xano.json
-        const projectConfig = loadXanoJson(projectRoot)
-        if (projectConfig && projectConfig.paths) {
-          const updatedConfig = {
-            ...config,
-            paths: { ...getDefaultPaths(), ...projectConfig.paths },
-          }
-          saveLocalConfig(projectRoot, updatedConfig)
-          this.log('Updated .xano/config.json with paths from xano.json')
-        }
-      }
-
-      this.log(`Already initialized.`)
-      this.log(`  Workspace: ${config?.workspaceName}`)
-      this.log(`  Branch: ${config?.branch}`)
-      this.log('')
-      this.log('Use --force to reinitialize.')
-      this.log("Run 'xano pull --sync' to update object mappings.")
+    // Handle subcommands
+    if (args.subcommand === 'profile') {
+      await this.runProfileSetup(flags)
       return
     }
 
-    // Case 2: xano.json exists but .xano/ doesn't - use template, just select branch
-    if (hasXanoJson && !hasConfigJson) {
-      const projectConfig = loadXanoJson(projectRoot)
-      if (projectConfig) {
-        this.log(`Found xano.json template.`)
-        this.log(`  Workspace: ${projectConfig.workspace}`)
-        this.log('')
-        await this.initFromTemplate(projectRoot, projectConfig, flags)
+    if (args.subcommand === 'project') {
+      await this.runProjectSetup(flags, args.profileArg)
+      return
+    }
+
+    // Full flow: profile + project
+    await this.runFullSetup(flags)
+  }
+
+  // ========== AGENT OUTPUT HELPERS ==========
+
+  private agentComplete(result: Record<string, string>, nextCommand?: string): void {
+    console.log('AGENT_COMPLETE: true')
+    console.log('AGENT_RESULT:')
+    for (const [key, value] of Object.entries(result)) {
+      console.log(`${key}=${value}`)
+    }
+    if (nextCommand) {
+      console.log(`AGENT_NEXT: ${nextCommand}`)
+    }
+  }
+
+  private agentPrompt(
+    step: string,
+    prompt: string,
+    options: Array<{ name: string; value: string; isDefault?: boolean }>,
+    nextCommandTemplate: string,
+    map?: Record<string, string | number>
+  ): void {
+    console.log(`AGENT_STEP: ${step}`)
+    console.log(`AGENT_PROMPT: ${prompt}`)
+    console.log('AGENT_OPTIONS:')
+    for (const opt of options) {
+      console.log(`- ${opt.name}${opt.isDefault ? ' [default]' : ''}`)
+    }
+    if (map && Object.keys(map).length > 0) {
+      console.log('AGENT_MAP:')
+      for (const [key, value] of Object.entries(map)) {
+        console.log(`${key}=${value}`)
+      }
+    }
+    console.log(`AGENT_NEXT: ${nextCommandTemplate}`)
+  }
+
+  private agentInput(step: string, prompt: string, inputType: 'text' | 'secret', nextCommandTemplate: string): void {
+    console.log(`AGENT_STEP: ${step}`)
+    console.log(`AGENT_PROMPT: ${prompt}`)
+    console.log(`AGENT_INPUT: ${inputType}`)
+    console.log(`AGENT_NEXT: ${nextCommandTemplate}`)
+  }
+
+  // ========== PROFILE MANAGEMENT ==========
+
+  private async runProfileSetup(flags: { agent?: boolean; token?: string; profile?: string; workspace?: string; branch?: string }): Promise<void> {
+    const profiles = listProfileNames()
+    const defaultProfile = getDefaultProfileName()
+
+    // Agent mode: profile selection
+    if (flags.agent) {
+      // If profile flag is CREATE_NEW, we need token
+      if (flags.profile === CREATE_NEW_PROFILE) {
+        if (!flags.token) {
+          this.agentInput('token', 'Enter your Xano access token', 'secret', 'xano init profile --agent --profile=[CREATE_NEW] --token=<user_input>')
+          return
+        }
+        // We have token, need to validate and get instances
+        await this.createProfileAgentFlow(flags)
+        return
+      }
+
+      // If no profile specified, show selection
+      if (!flags.profile) {
+        const options = [
+          { name: CREATE_NEW_PROFILE, value: CREATE_NEW_PROFILE },
+          ...profiles.map(p => ({
+            name: p,
+            value: p,
+            isDefault: p === defaultProfile,
+          })),
+        ]
+        this.agentPrompt(
+          'profile',
+          'Select profile or create new',
+          options,
+          'xano init profile --agent --profile=<selection>'
+        )
+        return
+      }
+
+      // Profile selected, show success
+      const profile = getProfile(flags.profile)
+      if (!profile) {
+        this.error(`Profile "${flags.profile}" not found.`)
+      }
+      this.agentComplete({
+        profile: flags.profile,
+        instance: profile.instance_origin,
+        workspace: profile.workspace?.toString() || 'not set',
+        branch: profile.branch || 'not set',
+      })
+      return
+    }
+
+    // Interactive mode
+    this.log('Profile Management\n')
+
+    // Show selection: create new or select existing
+    const choices = [
+      { name: '+ Create new profile', value: CREATE_NEW_PROFILE },
+      ...profiles.map(p => ({
+        name: p === defaultProfile ? `${p} (default)` : p,
+        value: p,
+      })),
+    ]
+
+    const { selection } = await inquirer.prompt<{ selection: string }>([
+      {
+        choices,
+        message: 'Select profile:',
+        name: 'selection',
+        type: 'list',
+      },
+    ])
+
+    if (selection === CREATE_NEW_PROFILE) {
+      await this.createProfileInteractive()
+    } else {
+      const profile = getProfile(selection)
+      this.log(`\nProfile: ${selection}`)
+      this.log(`  Instance: ${profile?.instance_origin}`)
+      this.log(`  Workspace: ${profile?.workspace || 'not set'}`)
+      this.log(`  Branch: ${profile?.branch || 'not set'}`)
+    }
+  }
+
+  private async createProfileAgentFlow(flags: { token?: string; profile?: string; workspace?: string; branch?: string }): Promise<void> {
+    if (!flags.token) {
+      this.error('Token required for creating profile')
+    }
+
+    // Fetch instances
+    const instances = await this.fetchInstances(flags.token, 'https://app.xano.com')
+
+    if (instances.length === 0) {
+      this.error('No instances found. Check your access token.')
+    }
+
+    // For now, use first instance (could add instance selection later)
+    const instance = instances[0]
+
+    // Need profile name - use instance name as default
+    const profileName = instance.display || 'default'
+
+    // Fetch workspaces
+    const instanceOrigin = new URL(instance.meta_api).origin
+    const workspaces = await this.fetchWorkspaces(flags.token, instanceOrigin)
+
+    // If workspace not specified, prompt for it
+    if (!flags.workspace && workspaces.length > 0) {
+      const options = workspaces.map(w => ({
+        name: w.name,
+        value: w.id.toString(),
+      }))
+      const map: Record<string, number> = {}
+      workspaces.forEach(w => { map[w.name] = w.id })
+
+      this.agentPrompt(
+        'workspace',
+        'Select default workspace for profile',
+        options,
+        `xano init profile --agent --profile=${CREATE_NEW_PROFILE} --token=<token> --workspace=<mapped_id>`,
+        map
+      )
+      return
+    }
+
+    const workspaceId = flags.workspace ? parseInt(flags.workspace, 10) : undefined
+    const workspace = workspaces.find(w => w.id === workspaceId)
+
+    // If branch not specified and we have workspace, get branches
+    if (!flags.branch && workspaceId) {
+      const branches = await this.fetchBranches(flags.token, instanceOrigin, workspaceId.toString())
+      const nonBackup = branches.filter(b => !b.backup)
+
+      if (nonBackup.length > 0) {
+        const options = nonBackup.map(b => ({
+          name: b.live ? `${b.label} (live)` : b.label,
+          value: b.label,
+          isDefault: b.live,
+        }))
+
+        this.agentPrompt(
+          'branch',
+          'Select default branch for profile',
+          options,
+          `xano init profile --agent --profile=${CREATE_NEW_PROFILE} --token=<token> --workspace=${workspaceId} --branch=<selection>`
+        )
         return
       }
     }
 
-    // Case 3: Neither exists - full interactive setup
-    if (!hasXanoJson && !hasConfigJson) {
-      this.log('No existing configuration found. Starting interactive setup...\n')
-      await this.fullInteractiveSetup(projectRoot, flags)
+    // Save profile
+    await this.saveProfile({
+      access_token: flags.token,
+      account_origin: 'https://app.xano.com',
+      branch: flags.branch,
+      instance_origin: instanceOrigin,
+      name: profileName,
+      workspace: workspaceId?.toString(),
+    }, true)
+
+    this.agentComplete({
+      profile: profileName,
+      instance: instanceOrigin,
+      workspace: workspace?.name || 'not set',
+      branch: flags.branch || 'not set',
+    }, 'xano init project')
+  }
+
+  private async createProfileInteractive(): Promise<void> {
+    // Get access token
+    const { accessToken } = await inquirer.prompt([
+      {
+        mask: '',
+        message: 'Enter your Xano access token:',
+        name: 'accessToken',
+        type: 'password',
+        validate: (input: string) => input.trim() !== '' || 'Token cannot be empty',
+      },
+    ])
+
+    this.log('\nValidating token...')
+
+    // Fetch instances
+    const instances = await this.fetchInstances(accessToken, 'https://app.xano.com')
+
+    if (instances.length === 0) {
+      this.error('No instances found. Check your access token.')
+    }
+
+    // Select instance
+    let selectedInstance: Instance
+    if (instances.length === 1) {
+      selectedInstance = instances[0]
+      this.log(`Using instance: ${selectedInstance.display}`)
+    } else {
+      const { instance } = await inquirer.prompt<{ instance: Instance }>([
+        {
+          choices: instances.map(i => ({
+            name: `${i.name} (${i.display})`,
+            value: i,
+          })),
+          message: 'Select instance:',
+          name: 'instance',
+          type: 'list',
+        },
+      ])
+      selectedInstance = instance
+    }
+
+    const instanceOrigin = new URL(selectedInstance.meta_api).origin
+
+    // Get profile name
+    const { profileName } = await inquirer.prompt([
+      {
+        default: selectedInstance.display || 'default',
+        message: 'Profile name:',
+        name: 'profileName',
+        type: 'input',
+        validate: (input: string) => input.trim() !== '' || 'Name cannot be empty',
+      },
+    ])
+
+    // Fetch workspaces
+    this.log('\nFetching workspaces...')
+    const workspaces = await this.fetchWorkspaces(accessToken, instanceOrigin)
+
+    let selectedWorkspace: Workspace | undefined
+    if (workspaces.length > 0) {
+      const { workspace } = await inquirer.prompt<{ workspace: Workspace | null }>([
+        {
+          choices: [
+            { name: '(Skip - no default workspace)', value: null },
+            ...workspaces.map(w => ({ name: w.name, value: w })),
+          ],
+          message: 'Select default workspace:',
+          name: 'workspace',
+          type: 'list',
+        },
+      ])
+      selectedWorkspace = workspace || undefined
+    }
+
+    // Fetch branches if workspace selected
+    let selectedBranch: string | undefined
+    if (selectedWorkspace) {
+      this.log('\nFetching branches...')
+      const branches = await this.fetchBranches(accessToken, instanceOrigin, selectedWorkspace.id.toString())
+      const nonBackup = branches.filter(b => !b.backup)
+
+      if (nonBackup.length > 0) {
+        const liveBranch = nonBackup.find(b => b.live)
+        const { branch } = await inquirer.prompt<{ branch: string }>([
+          {
+            choices: [
+              ...(liveBranch ? [{ name: `(Use live branch: ${liveBranch.label})`, value: '' }] : [{ name: '(Skip)', value: '' }]),
+              ...nonBackup.map(b => ({
+                name: b.live ? `${b.label} (live)` : b.label,
+                value: b.label,
+              })),
+            ],
+            message: 'Select default branch:',
+            name: 'branch',
+            type: 'list',
+          },
+        ])
+        selectedBranch = branch || undefined
+      }
+    }
+
+    // Save profile
+    await this.saveProfile({
+      access_token: accessToken,
+      account_origin: 'https://app.xano.com',
+      branch: selectedBranch,
+      instance_origin: instanceOrigin,
+      name: profileName,
+      workspace: selectedWorkspace?.id.toString(),
+    }, true)
+
+    this.log(`\nProfile "${profileName}" created successfully!`)
+  }
+
+  // ========== PROJECT SETUP ==========
+
+  private async runProjectSetup(flags: { agent?: boolean; profile?: string; workspace?: string; branch?: string; force?: boolean }, profileArg?: string): Promise<void> {
+    const projectRoot = findProjectRoot() || process.cwd()
+    const hasConfigJson = fs.existsSync(getConfigJsonPath(projectRoot))
+    const hasXanoJson = fs.existsSync(getXanoJsonPath(projectRoot))
+
+    // Check if already initialized
+    if (hasConfigJson && !flags.force) {
+      const config = loadLocalConfig(projectRoot)
+      if (flags.agent) {
+        this.agentComplete({
+          status: 'already_initialized',
+          workspace: config?.workspaceName || '',
+          branch: config?.branch || '',
+        }, 'xano pull')
+      } else {
+        this.log('Project already initialized.')
+        this.log(`  Workspace: ${config?.workspaceName}`)
+        this.log(`  Branch: ${config?.branch}`)
+        this.log('\nUse --force to reinitialize.')
+      }
       return
     }
 
-    // Case 4: Force reinit
-    if (flags.force) {
-      const projectConfig = loadXanoJson(projectRoot)
-      await (projectConfig ? this.initFromTemplate(projectRoot, projectConfig, flags) : this.fullInteractiveSetup(projectRoot, flags));
-      
-    }
-  }
-
-  private createXanoJsonFromConfig(projectRoot: string, config: XanoLocalConfig): void {
-    const projectConfig: XanoProjectConfig = {
-      instance: config.instanceName,
-      paths: config.paths || getDefaultPaths(),
-      workspace: config.workspaceName,
-      workspaceId: config.workspaceId,
-    }
-    saveXanoJson(projectRoot, projectConfig)
-    this.log('Created xano.json\n')
-  }
-
-  private async fullInteractiveSetup(
-    projectRoot: string,
-    flags: { branch?: string; profile?: string; }
-  ): Promise<void> {
-    const profiles = listProfileNames()
-    if (profiles.length === 0) {
-      this.error('No profiles found. Run "xano profile:wizard" to create one.')
-    }
-
-    // Select profile
-    const profileName = await this.selectProfile(flags.profile)
+    // Get profile
+    const profileName = flags.profile || profileArg || getDefaultProfileName()
     if (!profileName) {
-      this.error('No profile found.')
+      if (flags.agent) {
+        this.agentPrompt(
+          'profile',
+          'No profile found. Create one first.',
+          [{ name: CREATE_NEW_PROFILE, value: CREATE_NEW_PROFILE }],
+          'xano init profile --agent'
+        )
+      } else {
+        this.error('No profile found. Run "xano init profile" first.')
+      }
+      return
     }
 
     const profile = getProfile(profileName)
@@ -147,187 +495,372 @@ static flags = {
       this.error(`Profile "${profileName}" not found.`)
     }
 
-    this.log(`Using profile: ${profileName}\n`)
+    // Use xano.json template if exists
+    const projectConfig = hasXanoJson ? loadXanoJson(projectRoot) : null
 
-    // Fetch workspaces
-    const response = await fetch(`${profile.instance_origin}/api:meta/workspace`, {
+    // Determine workspace
+    let workspaceId: number
+    let workspaceName: string
+
+    if (flags.workspace) {
+      workspaceId = parseInt(flags.workspace, 10)
+      workspaceName = `Workspace ${workspaceId}`
+    } else if (projectConfig) {
+      workspaceId = projectConfig.workspaceId
+      workspaceName = projectConfig.workspace
+    } else if (profile.workspace) {
+      // Handle backward compatibility: workspace can be number (ID) or string (name)
+      const workspaces = await this.fetchWorkspaces(profile.access_token, profile.instance_origin)
+
+      if (typeof profile.workspace === 'number') {
+        workspaceId = profile.workspace
+        const ws = workspaces.find(w => w.id === workspaceId)
+        workspaceName = ws?.name || `Workspace ${workspaceId}`
+      } else {
+        // Old format: workspace is a string name, look up ID
+        const ws = workspaces.find(w => w.name === profile.workspace)
+        if (ws) {
+          workspaceId = ws.id
+          workspaceName = ws.name
+        } else {
+          // Workspace not found, fall through to selection
+          if (flags.agent) {
+            const options = workspaces.map(w => ({ name: w.name, value: w.id.toString() }))
+            const map: Record<string, number> = {}
+            workspaces.forEach(w => { map[w.name] = w.id })
+
+            this.agentPrompt(
+              'workspace',
+              `Workspace "${profile.workspace}" not found. Select workspace`,
+              options,
+              `xano init project --agent --profile=${profileName} --workspace=<mapped_id>`,
+              map
+            )
+            return
+          }
+
+          this.warn(`Workspace "${profile.workspace}" from profile not found.`)
+          const { workspace } = await inquirer.prompt<{ workspace: Workspace }>([
+            {
+              choices: workspaces.map(w => ({ name: w.name, value: w })),
+              message: 'Select workspace:',
+              name: 'workspace',
+              type: 'list',
+            },
+          ])
+          workspaceId = workspace.id
+          workspaceName = workspace.name
+        }
+      }
+    } else {
+      // Need to select workspace
+      const workspaces = await this.fetchWorkspaces(profile.access_token, profile.instance_origin)
+
+      if (flags.agent) {
+        const options = workspaces.map(w => ({ name: w.name, value: w.id.toString() }))
+        const map: Record<string, number> = {}
+        workspaces.forEach(w => { map[w.name] = w.id })
+
+        this.agentPrompt(
+          'workspace',
+          'Select workspace',
+          options,
+          `xano init project --agent --profile=${profileName} --workspace=<mapped_id>`,
+          map
+        )
+        return
+      }
+
+      const { workspace } = await inquirer.prompt<{ workspace: Workspace }>([
+        {
+          choices: workspaces.map(w => ({ name: w.name, value: w })),
+          message: 'Select workspace:',
+          name: 'workspace',
+          type: 'list',
+        },
+      ])
+      workspaceId = workspace.id
+      workspaceName = workspace.name
+    }
+
+    // Determine branch
+    let branch: string
+
+    if (flags.branch) {
+      branch = flags.branch
+    } else if (profile.branch) {
+      branch = profile.branch
+    } else {
+      // Need to select branch
+      const branches = await this.fetchBranches(profile.access_token, profile.instance_origin, workspaceId.toString())
+      const nonBackup = branches.filter(b => !b.backup)
+
+      if (flags.agent) {
+        const liveBranch = nonBackup.find(b => b.live)
+        const options = nonBackup.map(b => ({
+          name: b.live ? `${b.label} (live)` : b.label,
+          value: b.label,
+          isDefault: b.live,
+        }))
+
+        this.agentPrompt(
+          'branch',
+          'Select branch',
+          options,
+          `xano init project --agent --profile=${profileName} --workspace=${workspaceId} --branch=<selection>`
+        )
+        return
+      }
+
+      const liveBranch = nonBackup.find(b => b.live)
+      const { selectedBranch } = await inquirer.prompt<{ selectedBranch: string }>([
+        {
+          choices: nonBackup.map(b => ({
+            name: b.live ? `${b.label} (live)` : b.label,
+            value: b.label,
+          })),
+          default: liveBranch?.label || nonBackup[0]?.label,
+          message: 'Select branch:',
+          name: 'selectedBranch',
+          type: 'list',
+        },
+      ])
+      branch = selectedBranch
+    }
+
+    // Create xano.json if not exists
+    if (!hasXanoJson) {
+      const instanceMatch = profile.instance_origin.match(/https?:\/\/([^./]+)/)
+      const instance = instanceMatch ? instanceMatch[1] : profile.instance_origin
+
+      const newProjectConfig: XanoProjectConfig = {
+        instance,
+        paths: getDefaultPaths(),
+        workspace: workspaceName,
+        workspaceId,
+      }
+      saveXanoJson(projectRoot, newProjectConfig)
+    }
+
+    // Create .xano/config.json
+    const finalProjectConfig = loadXanoJson(projectRoot)!
+    const localConfig = createLocalConfig(finalProjectConfig, branch)
+    saveLocalConfig(projectRoot, localConfig)
+
+    if (flags.agent) {
+      this.agentComplete({
+        profile: profileName,
+        workspace: workspaceName,
+        workspace_id: workspaceId.toString(),
+        branch,
+        files_created: hasXanoJson ? '.xano/config.json' : 'xano.json,.xano/config.json',
+      }, 'xano pull')
+    } else {
+      this.log(`\nProject initialized!`)
+      this.log(`  Profile: ${profileName}`)
+      this.log(`  Workspace: ${workspaceName}`)
+      this.log(`  Branch: ${branch}`)
+      this.log('')
+      this.log("Run 'xano pull' to fetch files from Xano.")
+    }
+  }
+
+  // ========== FULL SETUP ==========
+
+  private async runFullSetup(flags: { agent?: boolean; profile?: string; workspace?: string; branch?: string; token?: string; force?: boolean }): Promise<void> {
+    const profiles = listProfileNames()
+
+    // Step 1: Ensure we have a profile
+    if (profiles.length === 0 && !flags.profile && !flags.token) {
+      if (flags.agent) {
+        this.agentInput('token', 'No profiles found. Enter your Xano access token', 'secret', 'xano init --agent --token=<user_input>')
+        return
+      }
+      this.log('No profiles found. Let\'s create one.\n')
+      await this.createProfileInteractive()
+    } else if (flags.profile === CREATE_NEW_PROFILE || flags.token) {
+      // Creating new profile
+      if (flags.agent) {
+        await this.createProfileAgentFlow(flags)
+        return
+      }
+      await this.createProfileInteractive()
+    }
+
+    // Step 2: Select profile if multiple exist and none specified
+    let profileName = flags.profile
+
+    if (!profileName || profileName === CREATE_NEW_PROFILE) {
+      const updatedProfiles = listProfileNames()
+      const defaultProfile = getDefaultProfileName()
+
+      if (updatedProfiles.length === 0) {
+        this.error('No profiles available.')
+      }
+
+      if (updatedProfiles.length === 1) {
+        profileName = updatedProfiles[0]
+      } else if (flags.agent) {
+        const options = [
+          { name: CREATE_NEW_PROFILE, value: CREATE_NEW_PROFILE },
+          ...updatedProfiles.map(p => ({
+            name: p,
+            value: p,
+            isDefault: p === defaultProfile,
+          })),
+        ]
+        this.agentPrompt(
+          'profile',
+          'Select profile',
+          options,
+          'xano init --agent --profile=<selection>'
+        )
+        return
+      } else {
+        const { selection } = await inquirer.prompt<{ selection: string }>([
+          {
+            choices: [
+              { name: '+ Create new profile', value: CREATE_NEW_PROFILE },
+              ...updatedProfiles.map(p => ({
+                name: p === defaultProfile ? `${p} (default)` : p,
+                value: p,
+              })),
+            ],
+            default: defaultProfile,
+            message: 'Select profile:',
+            name: 'selection',
+            type: 'list',
+          },
+        ])
+
+        if (selection === CREATE_NEW_PROFILE) {
+          await this.createProfileInteractive()
+          profileName = getDefaultProfileName() || undefined
+        } else {
+          profileName = selection
+        }
+      }
+    }
+
+    // Step 3: Run project setup with the profile
+    if (!flags.agent) {
+      this.log(`\nUsing profile: ${profileName}`)
+    }
+
+    await this.runProjectSetup(
+      { ...flags, profile: profileName },
+      undefined
+    )
+  }
+
+  // ========== API HELPERS ==========
+
+  private async fetchBranches(accessToken: string, origin: string, workspaceId: string): Promise<Branch[]> {
+    const response = await fetch(`${origin}/api:meta/workspace/${workspaceId}/branch`, {
       headers: {
         accept: 'application/json',
-        Authorization: `Bearer ${profile.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
     })
 
     if (!response.ok) {
-      this.error(`Failed to fetch workspaces: ${response.status}`)
+      throw new Error(`Failed to fetch branches: ${response.status}`)
     }
 
-    const workspaces = await response.json() as Array<{ id: number; name: string }>
+    const data = await response.json() as any[]
+    return data.map(b => ({
+      backup: b.backup ?? false,
+      label: b.label,
+      live: b.live,
+    }))
+  }
 
-    if (workspaces.length === 0) {
-      this.error('No workspaces found.')
-    }
-
-    // Select workspace
-    const { workspace } = await inquirer.prompt<{ workspace: { id: number; name: string } }>([
-      {
-        choices: workspaces.map((w) => ({
-          name: w.name,
-          value: w,
-        })),
-        message: 'Select workspace:',
-        name: 'workspace',
-        type: 'list',
+  private async fetchInstances(accessToken: string, origin: string): Promise<Instance[]> {
+    const response = await fetch(`${origin}/api:meta/instance`, {
+      headers: {
+        accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
       },
-    ])
+    })
 
-    // Extract instance name
-    const instanceMatch = profile.instance_origin.match(/https?:\/\/([^./]+)/)
-    const instance = instanceMatch ? instanceMatch[1] : profile.instance_origin
-
-    // Create xano.json
-    const projectConfig: XanoProjectConfig = {
-      instance,
-      paths: getDefaultPaths(),
-      workspace: workspace.name,
-      workspaceId: workspace.id,
-    }
-    saveXanoJson(projectRoot, projectConfig)
-    this.log(`\nCreated xano.json`)
-
-    // Fetch branches
-    const api = new XanoApi(profile, workspace.id, '')
-    const branchesResponse = await api.listBranches()
-
-    if (!branchesResponse.ok || !branchesResponse.data) {
-      this.error(`Failed to fetch branches: ${branchesResponse.error}`)
-    }
-
-    // Select branch
-    const branch = await this.selectBranch(flags.branch, branchesResponse.data)
-
-    // Create .xano/config.json
-    const localConfig = createLocalConfig(projectConfig, branch)
-    saveLocalConfig(projectRoot, localConfig)
-
-    this.log(`Created .xano/config.json`)
-    this.log(`  Workspace: ${workspace.name}`)
-    this.log(`  Branch: ${branch}`)
-    this.log('')
-    this.log("Run 'xano pull' to fetch objects from Xano.")
-  }
-
-  private async initFromTemplate(
-    projectRoot: string,
-    projectConfig: XanoProjectConfig,
-    flags: { branch?: string; profile?: string; }
-  ): Promise<void> {
-    this.log(`Project: ${projectConfig.workspace}`)
-    this.log(`Instance: ${projectConfig.instance}`)
-
-    // Select profile
-    const profileName = await this.selectProfile(flags.profile)
-    if (!profileName) {
-      this.error('No profile found. Run "xano profile:wizard" to create one.')
-    }
-
-    const profile = getProfile(profileName)
-    if (!profile) {
-      this.error(`Profile "${profileName}" not found.`)
-    }
-
-    this.log(`\nUsing profile: ${profileName}`)
-
-    // Fetch and select branch
-    const api = new XanoApi(profile, projectConfig.workspaceId, '')
-    const branchesResponse = await api.listBranches()
-
-    if (!branchesResponse.ok || !branchesResponse.data) {
-      this.error(`Failed to fetch branches: ${branchesResponse.error}`)
-    }
-
-    const branch = await this.selectBranch(flags.branch, branchesResponse.data)
-
-    // Create .xano/config.json
-    const localConfig = createLocalConfig(projectConfig, branch)
-    saveLocalConfig(projectRoot, localConfig)
-
-    this.log(`\nInitialized .xano/config.json`)
-    this.log(`  Branch: ${branch}`)
-    this.log('')
-    this.log("Run 'xano pull' to fetch objects from Xano.")
-  }
-
-  private async selectBranch(
-    flagBranch: string | undefined,
-    branches: Array<{ id: number; is_default: boolean; is_live: boolean; name: string; }>
-  ): Promise<string> {
-    if (flagBranch) {
-      const exists = branches.some((b) => b.name === flagBranch)
-      if (!exists) {
-        this.warn(`Branch "${flagBranch}" not found on Xano. Using anyway.`)
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Invalid access token.')
       }
-
-      return flagBranch
+      throw new Error(`Failed to fetch instances: ${response.status}`)
     }
 
-    if (branches.length === 0) {
-      this.error('No branches found in workspace.')
-    }
-
-    if (branches.length === 1) {
-      return branches[0].name
-    }
-
-    const { selectedBranch } = await inquirer.prompt<{ selectedBranch: string }>([
-      {
-        choices: branches.map((b) => {
-          let label = b.name
-          if (b.is_default) label += ' (default)'
-          if (b.is_live) label += ' (live)'
-          return {
-            name: label,
-            value: b.name,
-          }
-        }),
-        default: branches.find((b) => b.is_default)?.name || branches[0].name,
-        message: 'Select Xano branch:',
-        name: 'selectedBranch',
-        type: 'list',
-      },
-    ])
-
-    return selectedBranch
+    const data = await response.json() as any[]
+    return data.map(i => ({
+      display: i.display,
+      id: i.id || i.name,
+      meta_api: i.meta_api,
+      name: i.name,
+    }))
   }
 
-  private async selectProfile(flagProfile?: string): Promise<null | string> {
-    if (flagProfile) {
-      return flagProfile
-    }
-
-    const profiles = listProfileNames()
-    if (profiles.length === 0) {
-      return null
-    }
-
-    if (profiles.length === 1) {
-      return profiles[0]
-    }
-
-    const defaultProfile = getDefaultProfileName()
-
-    const { selectedProfile } = await inquirer.prompt<{ selectedProfile: string }>([
-      {
-        choices: profiles.map((p) => ({
-          name: p === defaultProfile ? `${p} (default)` : p,
-          value: p,
-        })),
-        default: defaultProfile,
-        message: 'Select profile:',
-        name: 'selectedProfile',
-        type: 'list',
+  private async fetchWorkspaces(accessToken: string, origin: string): Promise<Workspace[]> {
+    const response = await fetch(`${origin}/api:meta/workspace`, {
+      headers: {
+        accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
       },
-    ])
+    })
 
-    return selectedProfile
+    if (!response.ok) {
+      throw new Error(`Failed to fetch workspaces: ${response.status}`)
+    }
+
+    const data = await response.json() as any[]
+    return data.map(w => ({
+      id: w.id,
+      name: w.name,
+    }))
+  }
+
+  private async saveProfile(
+    profile: { access_token: string; account_origin: string; branch?: string; instance_origin: string; name: string; workspace?: string },
+    setAsDefault: boolean
+  ): Promise<void> {
+    const configDir = path.join(os.homedir(), '.xano')
+    const credentialsPath = path.join(configDir, 'credentials.yaml')
+
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true })
+    }
+
+    let credentials: CredentialsFile = { profiles: {} }
+
+    if (fs.existsSync(credentialsPath)) {
+      try {
+        const content = fs.readFileSync(credentialsPath, 'utf8')
+        const parsed = yaml.load(content) as CredentialsFile
+        if (parsed?.profiles) {
+          credentials = parsed
+        }
+      } catch {
+        // Continue with empty credentials
+      }
+    }
+
+    credentials.profiles[profile.name] = {
+      access_token: profile.access_token,
+      account_origin: profile.account_origin,
+      instance_origin: profile.instance_origin,
+      ...(profile.workspace && { workspace: parseInt(profile.workspace, 10) }),
+      ...(profile.branch && { branch: profile.branch }),
+    }
+
+    if (setAsDefault) {
+      credentials.default = profile.name
+    }
+
+    const yamlContent = yaml.dump(credentials, {
+      indent: 2,
+      lineWidth: -1,
+      noRefs: true,
+    })
+
+    fs.writeFileSync(credentialsPath, yamlContent, 'utf8')
   }
 }

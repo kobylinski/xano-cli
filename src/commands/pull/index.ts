@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import type {
+  NamingMode,
   PathResolver,
   SanitizeFunction,
   TypeResolver,
@@ -86,6 +87,7 @@ export default class Pull extends Command {
   private customResolver?: PathResolver
   private customResolveType?: TypeResolver
   private customSanitize?: SanitizeFunction
+  private naming?: NamingMode
   private paths!: XanoPaths
 
   async run(): Promise<void> {
@@ -113,8 +115,10 @@ export default class Pull extends Command {
       this.customResolveType = dynamicConfig.resolveType
       this.customSanitize = dynamicConfig.sanitize
       this.paths = { ...getDefaultPaths(), ...dynamicConfig.config.paths }
+      this.naming = dynamicConfig.config.naming || config.naming
     } else {
       this.paths = { ...getDefaultPaths(), ...config.paths }
+      this.naming = config.naming
     }
 
     const profile = getProfile(flags.profile)
@@ -139,7 +143,11 @@ export default class Pull extends Command {
       // Update objects.json with fetched data
       objects = []
       for (const obj of fetchedObjects) {
-        const filePath = generateObjectPath(obj, this.paths, this.customSanitize, this.customResolver)
+        const filePath = generateObjectPath(obj, this.paths, {
+          customResolver: this.customResolver,
+          customSanitize: this.customSanitize,
+          naming: this.naming,
+        })
         objects = upsertObject(objects, filePath, {
           id: obj.id,
           original: encodeBase64(obj.xanoscript),
@@ -181,7 +189,11 @@ export default class Pull extends Command {
     const fetchedByPath = new Map<string, FetchedObject>()
     if (fetchedObjects) {
       for (const obj of fetchedObjects) {
-        const filePath = generateObjectPath(obj, this.paths, this.customSanitize, this.customResolver)
+        const filePath = generateObjectPath(obj, this.paths, {
+          customResolver: this.customResolver,
+          customSanitize: this.customSanitize,
+          naming: this.naming,
+        })
         fetchedByPath.set(filePath, obj)
       }
     }

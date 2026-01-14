@@ -552,18 +552,70 @@ rm .xano/token.txt
 
 8. **Use `xano status`** to preview what would change before pull/push
 
+## Naming Modes
+
+The CLI supports different naming modes for file organization via the `naming` field in config:
+
+| Mode | Description |
+|------|-------------|
+| `default` | CLI native structure (recommended for new projects) |
+| `vscode` | VSCode extension compatible structure |
+| `vscode_name` | Same as `vscode` |
+| `vscode_id` | VSCode with numeric ID prefixes |
+
+**Key differences between modes:**
+
+| Object Type | `default` mode | `vscode` mode |
+|------------|----------------|---------------|
+| API Groups | `apis/{group}.xs` | `apis/{group}/api_group.xs` |
+| Triggers | `triggers/{table}/{trigger}.xs` | `triggers/{trigger}.xs` |
+| Functions | `functions/{path}.xs` | `functions/{id}_{name}.xs` (with `vscode_id`) |
+
+Example configuration:
+```json
+{
+  "instance": "a1b2-c3d4-e5f6",
+  "workspaceId": 123,
+  "naming": "default",
+  "paths": {
+    "functions": "app/functions",
+    "apis": "app/apis",
+    "triggers": "data/triggers"
+  }
+}
+```
+
 ## Custom Configuration (xano.js)
 
-For advanced setups, create `xano.js` instead of `xano.json`:
+For advanced setups with custom path resolution, create `xano.js` instead of `xano.json`:
 
 ```javascript
-export default {
+module.exports = {
   instance: "a1b2-c3d4-e5f6",
   workspaceId: 123,
+  naming: "default",
   paths: {
     functions: "app/functions",
     tables: "db/tables",
     triggers: "db/triggers"
+  },
+
+  // Custom sanitize function (optional)
+  // Receives context: { type, naming, default }
+  sanitize(name, context) {
+    // Return custom sanitized name, or use context.default
+    return context.default
+  },
+
+  // Custom path resolver (optional)
+  // Receives context: { type, naming, default }
+  resolvePath(obj, paths, context) {
+    // Override paths for specific types
+    if (context.type === 'function' && obj.name.startsWith('test_')) {
+      return `tests/${obj.name}.xs`
+    }
+    // Return null to use default path from context
+    return null
   },
 
   // Custom type resolver (optional)
@@ -573,6 +625,14 @@ export default {
   }
 }
 ```
+
+**Context object passed to custom functions:**
+
+| Field | Description |
+|-------|-------------|
+| `type` | Object type (`function`, `table`, `api_endpoint`, etc.) |
+| `naming` | Current naming mode (`default`, `vscode`, etc.) |
+| `default` | Default result for the current naming mode |
 
 ## Type Resolution
 
@@ -599,15 +659,30 @@ paths: { tables: 'tables', triggers: 'tables/triggers' }
 
 ## File Naming Convention
 
-Files are named based on their Xano object names, converted to snake_case:
+File naming depends on the configured naming mode (see Naming Modes section).
 
-- Functions: `function_name.xs` or `subdirectory/function_name.xs`
-- APIs: `group_name/endpoint_path_VERB.xs`
-- Tables: `table_name.xs`
-- Tasks: `task_name.xs`
+**Default mode (`naming: "default"`):**
+
+- Functions: `functions/{path}.xs` (natural text names become subdirectories)
+- APIs: `apis/{group}.xs` and `apis/{group}/{path}_VERB.xs`
+- Tables: `tables/{name}.xs`
+- Triggers: `triggers/{table}/{name}.xs` (nested under table name)
+- Tasks: `tasks/{name}.xs`
 
 Natural text names with slashes become subdirectories:
-- `User/Security Events/Log Auth` -> `functions/user/security_events/log_auth.xs`
+- `User/Security Events/Log Auth` → `functions/user/security_events/log_auth.xs`
+
+**VSCode mode (`naming: "vscode"`):**
+
+- Functions: `functions/{name}.xs` (flat, no subdirectories)
+- APIs: `apis/{group}/api_group.xs` and `apis/{group}/{path}_VERB.xs`
+- Triggers: `triggers/{name}.xs` (flat, no table subdirectories)
+
+**VSCode ID mode (`naming: "vscode_id"`):**
+
+Same as `vscode` but with numeric ID prefixes:
+- Functions: `functions/{id}_{name}.xs`
+- Tables: `tables/{id}_{name}.xs`
 
 ## Environment Variables
 

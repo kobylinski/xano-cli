@@ -1,10 +1,8 @@
-import {Args, Command, Flags} from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
 import * as yaml from 'js-yaml'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-
-import BaseCommand from '../../../base-command.js'
 
 interface ProfileConfig {
   access_token: string
@@ -29,23 +27,20 @@ export default class ProfileCreate extends Command {
       required: true,
     }),
   }
-static description = 'Create a new profile configuration'
-static examples = [
-    `$ xano profile:create production --account_origin https://account.xano.com --instance_origin https://instance.xano.com --access_token token123
-Profile 'production' created successfully at ~/.xano/credentials.yaml
-`,
-    `$ xano profile:create staging -a https://staging-account.xano.com -i https://staging-instance.xano.com -t token456
-Profile 'staging' created successfully at ~/.xano/credentials.yaml
-`,
-    `$ xano profile:create dev -i https://dev-instance.xano.com -t token789 -w my-workspace -b feature-branch
-Profile 'dev' created successfully at ~/.xano/credentials.yaml
-`,
-    `$ xano profile:create production --account_origin https://account.xano.com --instance_origin https://instance.xano.com --access_token token123 --default
-Profile 'production' created successfully at ~/.xano/credentials.yaml
-Default profile set to 'production'
-`,
+
+  static description = '[DEPRECATED] Create a profile - use "xano init" instead'
+
+  static examples = [
+    '<%= config.bin %> init              # Recommended: interactive setup',
+    '<%= config.bin %> init profile      # Recommended: profile management',
+    '',
+    '# Legacy usage (still works):',
+    '<%= config.bin %> profile:create production -i https://instance.xano.com -t token123',
   ]
-static override flags = {
+
+  static hidden = true
+
+  static override flags = {
     access_token: Flags.string({
       char: 't',
       description: 'Access token for the Xano Metadata API',
@@ -53,12 +48,12 @@ static override flags = {
     }),
     account_origin: Flags.string({
       char: 'a',
-      description: 'Account origin URL. Optional for self hosted installs.',
+      description: 'Account origin URL',
       required: false,
     }),
     branch: Flags.string({
       char: 'b',
-      description: 'Branch name',
+      description: 'Default branch name',
       required: false,
     }),
     default: Flags.boolean({
@@ -73,25 +68,27 @@ static override flags = {
     }),
     workspace: Flags.string({
       char: 'w',
-      description: 'Workspace name',
+      description: 'Default workspace ID',
       required: false,
     }),
   }
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(ProfileCreate)
+    this.warn('profile:create is deprecated. Use "xano init" for interactive setup.')
+    this.log('')
+
+    const { args, flags } = await this.parse(ProfileCreate)
 
     const configDir = path.join(os.homedir(), '.xano')
     const credentialsPath = path.join(configDir, 'credentials.yaml')
 
     // Ensure the .xano directory exists
     if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, {recursive: true})
-      this.log(`Created directory: ${configDir}`)
+      fs.mkdirSync(configDir, { recursive: true })
     }
 
     // Read existing credentials file or create new structure
-    let credentials: CredentialsFile = {profiles: {}}
+    let credentials: CredentialsFile = { profiles: {} }
 
     if (fs.existsSync(credentialsPath)) {
       try {
@@ -100,12 +97,9 @@ static override flags = {
 
         if (parsed && typeof parsed === 'object' && 'profiles' in parsed) {
           credentials = parsed
-        } else {
-          this.warn('Existing credentials file has invalid format. Creating new structure.')
         }
-      } catch (error) {
-        this.warn(`Failed to parse existing credentials file: ${error}`)
-        this.warn('Creating new credentials file.')
+      } catch {
+        // Continue with empty credentials
       }
     }
 
@@ -114,10 +108,10 @@ static override flags = {
 
     credentials.profiles[args.name] = {
       access_token: flags.access_token,
-      account_origin: flags.account_origin ?? '',
+      account_origin: flags.account_origin ?? 'https://app.xano.com',
       instance_origin: flags.instance_origin,
-      ...(flags.workspace && {workspace: flags.workspace}),
-      ...(flags.branch && {branch: flags.branch}),
+      ...(flags.workspace && { workspace: flags.workspace }),
+      ...(flags.branch && { branch: flags.branch }),
     }
 
     // Set default if flag is provided
@@ -125,27 +119,23 @@ static override flags = {
       credentials.default = args.name
     }
 
-    // Write the updated credentials back to the file
-    try {
-      const yamlContent = yaml.dump(credentials, {
-        indent: 2,
-        lineWidth: -1,
-        noRefs: true,
-      })
+    // Write the updated credentials
+    const yamlContent = yaml.dump(credentials, {
+      indent: 2,
+      lineWidth: -1,
+      noRefs: true,
+    })
 
-      fs.writeFileSync(credentialsPath, yamlContent, 'utf8')
+    fs.writeFileSync(credentialsPath, yamlContent, 'utf8')
 
-      if (profileExists) {
-        this.log(`Profile '${args.name}' updated successfully at ${credentialsPath}`)
-      } else {
-        this.log(`Profile '${args.name}' created successfully at ${credentialsPath}`)
-      }
+    if (profileExists) {
+      this.log(`Profile '${args.name}' updated successfully.`)
+    } else {
+      this.log(`Profile '${args.name}' created successfully.`)
+    }
 
-      if (flags.default) {
-        this.log(`Default profile set to '${args.name}'`)
-      }
-    } catch (error) {
-      this.error(`Failed to write credentials file: ${error}`)
+    if (flags.default) {
+      this.log(`Default profile set to '${args.name}'`)
     }
   }
 }

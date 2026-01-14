@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import type {
+  NamingMode,
   PathResolver,
   SanitizeFunction,
   StatusEntry,
@@ -64,6 +65,7 @@ export default class Status extends Command {
   private customResolver?: PathResolver
   private customResolveType?: TypeResolver
   private customSanitize?: SanitizeFunction
+  private naming?: NamingMode
   private paths!: XanoPaths
 
   async run(): Promise<void> {
@@ -91,8 +93,10 @@ export default class Status extends Command {
       this.customResolveType = dynamicConfig.resolveType
       this.customSanitize = dynamicConfig.sanitize
       this.paths = { ...getDefaultPaths(), ...dynamicConfig.config.paths }
+      this.naming = dynamicConfig.config.naming || config.naming
     } else {
       this.paths = { ...getDefaultPaths(), ...config.paths }
+      this.naming = config.naming
     }
 
     const profile = getProfile(flags.profile)
@@ -112,7 +116,11 @@ export default class Status extends Command {
     // Build map of remote objects by path
     const remoteByPath = new Map<string, FetchedObject>()
     for (const obj of remoteObjects) {
-      const filePath = generateObjectPath(obj, this.paths, this.customSanitize, this.customResolver)
+      const filePath = generateObjectPath(obj, this.paths, {
+        customResolver: this.customResolver,
+        customSanitize: this.customSanitize,
+        naming: this.naming,
+      })
       remoteByPath.set(filePath, obj)
     }
 

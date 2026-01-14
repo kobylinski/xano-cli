@@ -6,6 +6,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import type {
+  NamingMode,
   PathResolver,
   SanitizeFunction,
   XanoObjectsFile,
@@ -262,8 +263,11 @@ export async function fetchAllObjects(
 export function generateObjectPath(
   obj: FetchedObject,
   paths: XanoPaths,
-  customSanitize?: SanitizeFunction,
-  customResolver?: PathResolver
+  options: {
+    customResolver?: PathResolver
+    customSanitize?: SanitizeFunction
+    naming?: NamingMode
+  } = {}
 ): string {
   const resolverObj: PathResolverObject = {
     group: obj.apigroup_name,
@@ -275,7 +279,21 @@ export function generateObjectPath(
     verb: obj.verb,
   }
 
-  return generateFilePath(resolverObj, paths, customSanitize, customResolver)
+  return generateFilePath(resolverObj, paths, {
+    customResolver: options.customResolver,
+    customSanitize: options.customSanitize,
+    naming: options.naming,
+  })
+}
+
+/**
+ * Sync options
+ */
+export interface SyncOptions {
+  customResolver?: PathResolver
+  customSanitize?: SanitizeFunction
+  log?: LogFn
+  naming?: NamingMode
 }
 
 /**
@@ -286,10 +304,9 @@ export async function syncFromXano(
   projectRoot: string,
   api: XanoApi,
   paths: XanoPaths,
-  customSanitize?: SanitizeFunction,
-  customResolver?: PathResolver,
-  log?: LogFn
+  options: SyncOptions = {}
 ): Promise<SyncResult> {
+  const { customResolver, customSanitize, log, naming } = options
   const print = log || (() => {})
 
   // Fetch all objects from Xano
@@ -341,7 +358,7 @@ export async function syncFromXano(
   let objects: XanoObjectsFile = []
 
   for (const obj of allObjects) {
-    const filePath = generateObjectPath(obj, paths, customSanitize, customResolver)
+    const filePath = generateObjectPath(obj, paths, { customResolver, customSanitize, naming })
 
     objects = upsertObject(objects, filePath, {
       id: obj.id,
@@ -365,19 +382,28 @@ export async function syncFromXano(
 }
 
 /**
+ * Write options
+ */
+export interface WriteOptions {
+  customResolver?: PathResolver
+  customSanitize?: SanitizeFunction
+  naming?: NamingMode
+}
+
+/**
  * Write fetched objects to local files
  */
 export function writeObjectsToFiles(
   projectRoot: string,
   allObjects: FetchedObject[],
   paths: XanoPaths,
-  customSanitize?: SanitizeFunction,
-  customResolver?: PathResolver
+  options: WriteOptions = {}
 ): Set<string> {
+  const { customResolver, customSanitize, naming } = options
   const writtenFiles = new Set<string>()
 
   for (const obj of allObjects) {
-    const filePath = generateObjectPath(obj, paths, customSanitize, customResolver)
+    const filePath = generateObjectPath(obj, paths, { customResolver, customSanitize, naming })
     const fullPath = path.join(projectRoot, filePath)
 
     const dir = path.dirname(fullPath)

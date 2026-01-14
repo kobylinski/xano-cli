@@ -101,20 +101,22 @@ static flags = {
 
     this.log(`Branches for ${config.workspaceName}:\n`)
 
-    for (const branch of response.data) {
-      let label = branch.name
+    // Filter out backup branches by default
+    const branches = response.data.filter((b) => !b.backup)
+
+    for (const branch of branches) {
+      let displayLabel = branch.label
       const markers: string[] = []
 
-      if (branch.name === config.branch) markers.push('current')
-      if (branch.is_default) markers.push('default')
-      if (branch.is_live) markers.push('live')
+      if (branch.label === config.branch) markers.push('current')
+      if (branch.live) markers.push('live')
 
       if (markers.length > 0) {
-        label += ` (${markers.join(', ')})`
+        displayLabel += ` (${markers.join(', ')})`
       }
 
-      const prefix = branch.name === config.branch ? '* ' : '  '
-      this.log(`${prefix}${label}`)
+      const prefix = branch.label === config.branch ? '* ' : '  '
+      this.log(`${prefix}${displayLabel}`)
     }
   }
 
@@ -134,10 +136,11 @@ static flags = {
       this.error(`Failed to fetch branches: ${response.error}`)
     }
 
-    const branch = response.data.find((b) => b.name === branchName)
+    const branch = response.data.find((b) => b.label === branchName)
 
     if (!branch) {
-      this.error(`Branch "${branchName}" not found.\n\nAvailable branches:\n${response.data.map((b) => `  ${b.name}`).join('\n')}`)
+      const availableBranches = response.data.filter((b) => !b.backup).map((b) => `  ${b.label}`).join('\n')
+      this.error(`Branch "${branchName}" not found.\n\nAvailable branches:\n${availableBranches}`)
     }
 
     if (config.branch === branchName) {

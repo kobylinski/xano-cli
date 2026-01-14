@@ -280,13 +280,20 @@ static flags = {
 
     const typeLabels: Record<XanoObjectType, string> = {
       addon: 'Addons',
+      agent: 'Agents',
+      agent_trigger: 'Agent Triggers',
       api_endpoint: 'API Endpoints',
       api_group: 'API Groups',
       function: 'Functions',
+      mcp_server: 'MCP Servers',
+      mcp_server_trigger: 'MCP Server Triggers',
       middleware: 'Middleware',
+      realtime_channel: 'Realtime Channels',
+      realtime_trigger: 'Realtime Triggers',
       table: 'Tables',
       table_trigger: 'Table Triggers',
       task: 'Tasks',
+      tool: 'Tools',
       workflow_test: 'Workflow Tests',
     }
 

@@ -202,6 +202,7 @@ The `xano.json` file is created by `xano init` and should be committed to versio
   "instance": "a1b2-c3d4-e5f6",
   "workspace": "My Project",
   "workspaceId": 123,
+  "naming": "default",
   "paths": {
     "functions": "app/functions",
     "apis": "app/apis",
@@ -220,7 +221,27 @@ The `xano.json` file is created by `xano init` and should be committed to versio
 | `instance` | Your Xano instance identifier (from workspace URL) |
 | `workspace` | Workspace name (for reference) |
 | `workspaceId` | Numeric workspace ID |
+| `naming` | Naming mode for file paths (see below) |
 | `paths` | Local directory mappings for each object type |
+
+### Naming Modes
+
+The `naming` field controls how files are named and organized:
+
+| Mode | Description |
+|------|-------------|
+| `default` | CLI native structure (recommended for new projects) |
+| `vscode` | VSCode extension compatible structure |
+| `vscode_name` | Same as `vscode` |
+| `vscode_id` | VSCode with numeric ID prefixes |
+
+**Key differences:**
+
+| Object Type | `default` mode | `vscode` mode |
+|------------|----------------|---------------|
+| API Groups | `apis/{group}.xs` | `apis/{group}/api_group.xs` |
+| Triggers | `triggers/{table}/{trigger}.xs` | `triggers/{trigger}.xs` |
+| Functions | `functions/{path}.xs` | `functions/{id}_{name}.xs` (with `vscode_id`) |
 
 **Path Configuration:**
 
@@ -228,6 +249,7 @@ All paths are relative to the project root. You can customize them to match your
 
 ```json
 {
+  "naming": "default",
   "paths": {
     "functions": "src/functions",
     "apis": "src/api",
@@ -235,6 +257,50 @@ All paths are relative to the project root. You can customize them to match your
   }
 }
 ```
+
+### xano.js (advanced)
+
+For custom path resolution, use `xano.js` instead of `xano.json`:
+
+```javascript
+module.exports = {
+  instance: 'a1b2-c3d4-e5f6',
+  workspaceId: 123,
+  naming: 'default',
+  paths: {
+    functions: 'app/functions',
+    apis: 'app/apis',
+    tables: 'data/tables',
+    triggers: 'data/triggers'
+  },
+
+  // Custom sanitize function (optional)
+  // Receives context with: { type, naming, default }
+  sanitize(name, context) {
+    // Return custom sanitized name, or use default
+    return context.default
+  },
+
+  // Custom path resolver (optional)
+  // Receives context with: { type, naming, default }
+  resolvePath(obj, paths, context) {
+    // Override specific types
+    if (context.type === 'function' && obj.name.startsWith('test_')) {
+      return `tests/${obj.name}.xs`
+    }
+    // Return null to use default path from context
+    return null
+  }
+}
+```
+
+**Context object passed to custom functions:**
+
+| Field | Description |
+|-------|-------------|
+| `type` | Object type (`function`, `table`, `api_endpoint`, etc.) |
+| `naming` | Current naming mode (`default`, `vscode`, etc.) |
+| `default` | Default result for the current mode |
 
 ### Environment Variables
 

@@ -5,7 +5,7 @@
 
 import * as path from 'node:path'
 
-import type { XanoObjectType, XanoPaths } from './types.js'
+import type { NamingMode, ResolverContext, XanoObjectType, XanoPaths } from './types.js'
 
 /**
  * Sanitize a single name segment for filesystem usage
@@ -17,6 +17,22 @@ export function sanitize(name: string): string {
     .toLowerCase()
     .replace(/[\s-]+/g, '_')                  // spaces/hyphens → underscore
     .replace(/[^a-z0-9_]/g, '_')              // remove invalid chars
+    .replace(/_+/g, '_')                      // collapse underscores
+    .replace(/^_|_$/g, '')                    // trim leading/trailing
+}
+
+/**
+ * VSCode-compatible snake_case conversion (matches lodash.snakeCase)
+ * "MyFunctionName" → "my_function_name"
+ * "API Endpoint" → "api_endpoint"
+ */
+export function snakeCase(str: string): string {
+  return str
+    .replace(/([a-z])([A-Z])/g, '$1_$2')     // camelCase → snake_case
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2') // ABCDef → ABC_Def
+    .replace(/[\s\-./]+/g, '_')              // spaces, hyphens, dots, slashes → underscore
+    .replace(/[^a-zA-Z0-9_]/g, '')           // remove other invalid chars
+    .toLowerCase()
     .replace(/_+/g, '_')                      // collapse underscores
     .replace(/^_|_$/g, '')                    // trim leading/trailing
 }
@@ -279,31 +295,161 @@ export interface PathResolverObject {
 }
 
 /**
- * Generate expected file path from object data
- * Uses new naming convention without ID prefix
+ * Options for generateFilePath
  */
-export function generateFilePath(
+export interface GenerateFilePathOptions {
+  customResolver?: (obj: PathResolverObject, paths: XanoPaths, context: ResolverContext) => string | null
+  customSanitize?: (name: string, context: ResolverContext) => string
+  naming?: NamingMode
+}
+
+/**
+ * Generate VSCode-style file path with optional ID prefix
+ * Matches VSCode extension behavior exactly
+ */
+function generateVSCodePath(
   obj: PathResolverObject,
   paths: XanoPaths,
-  customSanitize?: (name: string) => string,
-  customResolver?: (obj: PathResolverObject, paths: XanoPaths) => string | null
+  includeId: boolean
 ): string {
-  // Try custom resolver first
-  if (customResolver) {
-    const customPath = customResolver(obj, paths)
-    if (customPath) {
-      return customPath
+  const s = snakeCase
+
+  // Helper for path with subfolders (e.g., "User/Auth/Login" → "user/auth/login")
+  const pathWithFolders = (name: string): { filename: string; folders: string } => {
+    const parts = name.split('/')
+    if (parts.length > 1) {
+      const folders = parts.slice(0, -1).map(p => s(p)).join('/')
+      const filename = s(parts[parts.length - 1])
+      return { filename, folders }
     }
+    return { filename: s(name), folders: '' }
   }
 
-  const s = customSanitize || sanitize
-  // Helper for path-aware sanitization (handles forward slashes as subdirectories)
+  // Build filename with or without ID prefix
+  const withId = (name: string): string => includeId ? `${obj.id}_${name}` : name
+
+  switch (obj.type) {
+    case 'addon': {
+      const addonDir = paths.addOns || 'addons'
+      return `${addonDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'agent': {
+      const agentDir = paths.agents || 'agents'
+      return `${agentDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'agent_trigger': {
+      const triggerDir = paths.agentTriggers || 'agents/triggers'
+      return `${triggerDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'api_endpoint': {
+      // VSCode: apis/groupName/path_VERB.xs or apis/groupName/id_path_VERB.xs
+      const groupFolder = s(obj.group || 'default')
+      const v = (obj.verb || 'GET').toUpperCase()
+      const endpointPath = s(obj.path || obj.name)
+      const filename = includeId
+        ? `${obj.id}_${endpointPath}_${v}.xs`
+        : `${endpointPath}_${v}.xs`
+      return `${paths.apis}/${groupFolder}/${filename}`
+    }
+
+    case 'api_group': {
+      // VSCode: apis/groupName/api_group.xs (special case - always api_group.xs in a folder)
+      return `${paths.apis}/${s(obj.name)}/api_group.xs`
+    }
+
+    case 'function': {
+      // VSCode preserves folder structure: functions/folder/subfolder/name.xs
+      const { filename, folders } = pathWithFolders(obj.name)
+      const fullFilename = withId(filename) + '.xs'
+      return folders
+        ? `${paths.functions}/${folders}/${fullFilename}`
+        : `${paths.functions}/${fullFilename}`
+    }
+
+    case 'mcp_server': {
+      const mcpDir = paths.mcpServers || 'mcp_servers'
+      return `${mcpDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'mcp_server_trigger': {
+      const triggerDir = paths.mcpServerTriggers || 'mcp_servers/triggers'
+      return `${triggerDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'middleware': {
+      const middlewareDir = paths.middlewares || 'middlewares'
+      return `${middlewareDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'realtime_channel': {
+      const channelDir = paths.realtimeChannels || 'realtime'
+      return `${channelDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'realtime_trigger': {
+      const triggerDir = paths.realtimeTriggers || 'realtime/triggers'
+      return `${triggerDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'table': {
+      return `${paths.tables}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'table_trigger': {
+      // VSCode: flat structure - tables/triggers/{triggerName}.xs
+      // Trigger name typically includes table name (e.g., "accounts_after_edit")
+      const baseDir = paths.tableTriggers || `${paths.tables}/triggers`
+      return `${baseDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'task': {
+      return `${paths.tasks}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'tool': {
+      const toolDir = paths.tools || 'tools'
+      return `${toolDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'workflow_test': {
+      return `${paths.workflowTests}/${withId(s(obj.name))}.xs`
+    }
+
+    default: {
+      return `${withId(s(obj.name))}.xs`
+    }
+  }
+}
+
+/**
+ * Generate default-mode file path (CLI native behavior)
+ * - Nested triggers: {tableTriggers}/{tableName}/{triggerName}.xs
+ * - Flat API groups: {apis}/{groupName}.xs
+ */
+function generateDefaultPath(
+  obj: PathResolverObject,
+  paths: XanoPaths,
+  s: (name: string) => string
+): string {
   const sp = (name: string) => sanitizePath(name, s)
 
   switch (obj.type) {
     case 'addon': {
       const addonDir = paths.addOns || 'addons'
       return `${addonDir}/${sp(obj.name)}.xs`
+    }
+
+    case 'agent': {
+      const agentDir = paths.agents || 'agents'
+      return `${agentDir}/${sp(obj.name)}.xs`
+    }
+
+    case 'agent_trigger': {
+      const triggerDir = paths.agentTriggers || 'agents/triggers'
+      return `${triggerDir}/${sp(obj.name)}.xs`
     }
 
     case 'api_endpoint': {
@@ -314,6 +460,7 @@ export function generateFilePath(
     }
 
     case 'api_group': {
+      // Default mode: flat file (apis/groupName.xs)
       return `${paths.apis}/${sp(obj.name)}.xs`
     }
 
@@ -321,9 +468,29 @@ export function generateFilePath(
       return `${paths.functions}/${sp(obj.name)}.xs`
     }
 
+    case 'mcp_server': {
+      const mcpDir = paths.mcpServers || 'mcp_servers'
+      return `${mcpDir}/${sp(obj.name)}.xs`
+    }
+
+    case 'mcp_server_trigger': {
+      const triggerDir = paths.mcpServerTriggers || 'mcp_servers/triggers'
+      return `${triggerDir}/${sp(obj.name)}.xs`
+    }
+
     case 'middleware': {
       const middlewareDir = paths.middlewares || 'middlewares'
       return `${middlewareDir}/${sp(obj.name)}.xs`
+    }
+
+    case 'realtime_channel': {
+      const channelDir = paths.realtimeChannels || 'realtime'
+      return `${channelDir}/${sp(obj.name)}.xs`
+    }
+
+    case 'realtime_trigger': {
+      const triggerDir = paths.realtimeTriggers || 'realtime/triggers'
+      return `${triggerDir}/${sp(obj.name)}.xs`
     }
 
     case 'table': {
@@ -332,12 +499,18 @@ export function generateFilePath(
 
     case 'table_trigger': {
       const tableName = s(obj.table || 'unknown')
-      const baseDir = paths.tableTriggers || `${paths.tables}/triggers`
+      // Default mode: nested structure (tableTriggers/{tableName}/{triggerName}.xs)
+      const baseDir = paths.tableTriggers || paths.tables
       return `${baseDir}/${tableName}/${sp(obj.name)}.xs`
     }
 
     case 'task': {
       return `${paths.tasks}/${sp(obj.name)}.xs`
+    }
+
+    case 'tool': {
+      const toolDir = paths.tools || 'tools'
+      return `${toolDir}/${sp(obj.name)}.xs`
     }
 
     case 'workflow_test': {
@@ -346,6 +519,214 @@ export function generateFilePath(
 
     default: {
       return `${sp(obj.name)}.xs`
+    }
+  }
+}
+
+/**
+ * Get the default sanitize function for a naming mode
+ */
+function getDefaultSanitizer(naming: NamingMode): (name: string) => string {
+  switch (naming) {
+    case 'vscode':
+    case 'vscode_id':
+    case 'vscode_name':
+      return snakeCase
+    case 'default':
+    default:
+      return sanitize
+  }
+}
+
+/**
+ * Create a context-aware sanitize wrapper
+ */
+function createSanitizeWrapper(
+  naming: NamingMode,
+  type: XanoObjectType,
+  customSanitize?: (name: string, context: ResolverContext) => string
+): (name: string) => string {
+  const defaultSanitizer = getDefaultSanitizer(naming)
+
+  if (!customSanitize) {
+    return defaultSanitizer
+  }
+
+  return (name: string) => {
+    const defaultResult = defaultSanitizer(name)
+    const context: ResolverContext = {
+      default: defaultResult,
+      naming,
+      type,
+    }
+    return customSanitize(name, context)
+  }
+}
+
+/**
+ * Generate expected file path from object data
+ * Supports multiple naming modes and custom overrides with context
+ *
+ * @param obj - Object metadata (id, name, type, etc.)
+ * @param paths - Path configuration from xano.json
+ * @param options - Naming mode and custom overrides
+ */
+export function generateFilePath(
+  obj: PathResolverObject,
+  paths: XanoPaths,
+  options: GenerateFilePathOptions = {}
+): string {
+  const { customResolver, customSanitize, naming = 'default' } = options
+
+  // Create sanitize function (with context if custom provided)
+  const s = createSanitizeWrapper(naming, obj.type, customSanitize)
+
+  // Compute default path based on naming mode
+  let defaultPath: string
+  switch (naming) {
+    case 'vscode_id':
+      defaultPath = generateVSCodePath(obj, paths, true)
+      break
+    case 'vscode_name':
+    case 'vscode':
+      defaultPath = generateVSCodePath(obj, paths, false)
+      break
+    case 'default':
+    default:
+      defaultPath = generateDefaultPath(obj, paths, s)
+      break
+  }
+
+  // Try custom resolver with context
+  if (customResolver) {
+    const context: ResolverContext = {
+      default: defaultPath,
+      naming,
+      type: obj.type,
+    }
+    const customPath = customResolver(obj, paths, context)
+    if (customPath) {
+      return customPath
+    }
+  }
+
+  // For VSCode modes with custom sanitize, recompute with custom sanitization
+  if (customSanitize && (naming === 'vscode' || naming === 'vscode_name' || naming === 'vscode_id')) {
+    return generateVSCodePathWithSanitizer(obj, paths, naming === 'vscode_id', s)
+  }
+
+  return defaultPath
+}
+
+/**
+ * Generate VSCode-style path with custom sanitizer
+ */
+function generateVSCodePathWithSanitizer(
+  obj: PathResolverObject,
+  paths: XanoPaths,
+  includeId: boolean,
+  s: (name: string) => string
+): string {
+  // Helper for path with subfolders
+  const pathWithFolders = (name: string): { filename: string; folders: string } => {
+    const parts = name.split('/')
+    if (parts.length > 1) {
+      const folders = parts.slice(0, -1).map(p => s(p)).join('/')
+      const filename = s(parts[parts.length - 1])
+      return { filename, folders }
+    }
+    return { filename: s(name), folders: '' }
+  }
+
+  const withId = (name: string): string => includeId ? `${obj.id}_${name}` : name
+
+  switch (obj.type) {
+    case 'addon': {
+      const addonDir = paths.addOns || 'addons'
+      return `${addonDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'agent': {
+      const agentDir = paths.agents || 'agents'
+      return `${agentDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'agent_trigger': {
+      const triggerDir = paths.agentTriggers || 'agents/triggers'
+      return `${triggerDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'api_endpoint': {
+      const groupFolder = s(obj.group || 'default')
+      const v = (obj.verb || 'GET').toUpperCase()
+      const endpointPath = s(obj.path || obj.name)
+      const filename = includeId
+        ? `${obj.id}_${endpointPath}_${v}.xs`
+        : `${endpointPath}_${v}.xs`
+      return `${paths.apis}/${groupFolder}/${filename}`
+    }
+
+    case 'api_group': {
+      return `${paths.apis}/${s(obj.name)}/api_group.xs`
+    }
+
+    case 'function': {
+      const { filename, folders } = pathWithFolders(obj.name)
+      const fullFilename = withId(filename) + '.xs'
+      return folders
+        ? `${paths.functions}/${folders}/${fullFilename}`
+        : `${paths.functions}/${fullFilename}`
+    }
+
+    case 'mcp_server': {
+      const mcpDir = paths.mcpServers || 'mcp_servers'
+      return `${mcpDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'mcp_server_trigger': {
+      const triggerDir = paths.mcpServerTriggers || 'mcp_servers/triggers'
+      return `${triggerDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'middleware': {
+      const middlewareDir = paths.middlewares || 'middlewares'
+      return `${middlewareDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'realtime_channel': {
+      const channelDir = paths.realtimeChannels || 'realtime'
+      return `${channelDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'realtime_trigger': {
+      const triggerDir = paths.realtimeTriggers || 'realtime/triggers'
+      return `${triggerDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'table': {
+      return `${paths.tables}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'table_trigger': {
+      const baseDir = paths.tableTriggers || `${paths.tables}/triggers`
+      return `${baseDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'task': {
+      return `${paths.tasks}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'tool': {
+      const toolDir = paths.tools || 'tools'
+      return `${toolDir}/${withId(s(obj.name))}.xs`
+    }
+
+    case 'workflow_test': {
+      return `${paths.workflowTests}/${withId(s(obj.name))}.xs`
+    }
+
+    default: {
+      return `${withId(s(obj.name))}.xs`
     }
   }
 }
@@ -366,4 +747,49 @@ export function generateFilePathLegacy(
     { group: apiGroup, id, name, path: name, type, verb },
     { ...paths, tableTriggers: `${paths.tables}/triggers` }
   )
+}
+
+/**
+ * Detect naming mode from existing files in project
+ * Checks if .xs files have ID prefix (e.g., "123_filename.xs")
+ *
+ * @param xsFiles - Array of .xs file paths or filenames
+ * @returns Detected naming mode ('vscode_id' or 'vscode_name')
+ */
+export function detectNamingMode(xsFiles: string[]): NamingMode {
+  // Pattern: ID prefix at start of filename (e.g., "123_my_function.xs")
+  const idPrefixPattern = /^\d+_/
+
+  let withIdCount = 0
+  let withoutIdCount = 0
+
+  for (const filePath of xsFiles) {
+    const filename = path.basename(filePath)
+
+    // Skip special files that never have ID prefix
+    if (filename === 'api_group.xs') {
+      continue
+    }
+
+    if (idPrefixPattern.test(filename)) {
+      withIdCount++
+    } else {
+      withoutIdCount++
+    }
+  }
+
+  // If we found any files with ID prefix, assume vscode_id mode
+  // (even mixed is likely vscode_id with some manually created files)
+  return withIdCount > 0 ? 'vscode_id' : 'vscode_name'
+}
+
+/**
+ * Extract ID from filename if present
+ * "123_my_function.xs" → 123
+ * "my_function.xs" → null
+ */
+export function extractIdFromFilename(filename: string): number | null {
+  const basename = path.basename(filename, '.xs')
+  const match = basename.match(/^(\d+)_/)
+  return match ? parseInt(match[1], 10) : null
 }

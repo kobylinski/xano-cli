@@ -60,6 +60,7 @@ async function loadJsConfig(filePath: string): Promise<LoadedConfig | null> {
 
     const config: XanoProjectConfig = {
       instance: exported.instance,
+      naming: exported.naming,
       paths: {
         ...getDefaultPaths(),
         ...exported.paths,
@@ -95,6 +96,7 @@ function loadJsonConfig(filePath: string): LoadedConfig | null {
 
     const config: XanoProjectConfig = {
       instance: parsed.instance,
+      naming: parsed.naming,
       paths: {
         ...getDefaultPaths(),
         ...parsed.paths,

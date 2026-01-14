@@ -293,70 +293,166 @@ function my_func { }`
       workflowTests: 'workflow_tests',
     }
 
-    it('generates function path', () => {
-      const result = generateFilePath({ id: 123, name: 'calculate_total', type: 'function' }, paths)
-      expect(result).to.equal('functions/calculate_total.xs')
+    describe('default naming mode (CLI native)', () => {
+      it('generates function path', () => {
+        const result = generateFilePath({ id: 123, name: 'calculate_total', type: 'function' }, paths)
+        expect(result).to.equal('functions/calculate_total.xs')
+      })
+
+      it('generates table path', () => {
+        const result = generateFilePath({ id: 456, name: 'users', type: 'table' }, paths)
+        expect(result).to.equal('tables/users.xs')
+      })
+
+      it('generates task path', () => {
+        const result = generateFilePath({ id: 789, name: 'cleanup', type: 'task' }, paths)
+        expect(result).to.equal('tasks/cleanup.xs')
+      })
+
+      it('generates api_endpoint path with group and verb', () => {
+        const result = generateFilePath({ group: 'auth', id: 100, name: '/users', path: '/users', type: 'api_endpoint', verb: 'POST' }, paths)
+        expect(result).to.equal('apis/auth/users_POST.xs')
+      })
+
+      it('generates api_endpoint path with default group and verb', () => {
+        const result = generateFilePath({ id: 100, name: '/users', path: '/users', type: 'api_endpoint' }, paths)
+        expect(result).to.equal('apis/default/users_GET.xs')
+      })
+
+      it('generates table_trigger path with table subdirectory (nested)', () => {
+        // Default mode: nested structure - tables/{tableName}/{triggerName}.xs
+        const result = generateFilePath({ id: 200, name: 'audit', table: 'users', type: 'table_trigger' }, paths)
+        expect(result).to.equal('tables/users/audit.xs')
+      })
+
+      it('generates api_group path as flat file', () => {
+        // Default mode: flat file (apis/groupName.xs)
+        const result = generateFilePath({ id: 300, name: 'auth', type: 'api_group' }, paths)
+        expect(result).to.equal('apis/auth.xs')
+      })
+
+      it('sanitizes path characters in api endpoint names', () => {
+        const result = generateFilePath({ group: 'default', id: 100, name: '/users/{id}', path: '/users/{id}', type: 'api_endpoint', verb: 'GET' }, paths)
+        expect(result).to.equal('apis/default/users_id_GET.xs')
+      })
+
+      it('generates workflow_test path', () => {
+        const result = generateFilePath({ id: 500, name: 'login_flow', type: 'workflow_test' }, paths)
+        expect(result).to.equal('workflow_tests/login_flow.xs')
+      })
+
+      it('converts camelCase to snake_case', () => {
+        const result = generateFilePath({ id: 1, name: 'calculateTotal', type: 'function' }, paths)
+        expect(result).to.equal('functions/calculate_total.xs')
+      })
+
+      it('converts function names with slashes to subdirectories', () => {
+        const result = generateFilePath({ id: 1, name: 'User/Security Events/Log Auth', type: 'function' }, paths)
+        expect(result).to.equal('functions/user/security_events/log_auth.xs')
+      })
+
+      it('converts task names with slashes to subdirectories', () => {
+        const result = generateFilePath({ id: 1, name: 'Maintenance/Daily Cleanup', type: 'task' }, paths)
+        expect(result).to.equal('tasks/maintenance/daily_cleanup.xs')
+      })
+
+      it('converts api group names with slashes to subdirectories', () => {
+        const result = generateFilePath({ id: 1, name: 'Admin/User Management', type: 'api_group' }, paths)
+        expect(result).to.equal('apis/admin/user_management.xs')
+      })
     })
 
-    it('generates table path', () => {
-      const result = generateFilePath({ id: 456, name: 'users', type: 'table' }, paths)
-      expect(result).to.equal('tables/users.xs')
+    describe('vscode naming mode', () => {
+      it('generates table_trigger path as flat file', () => {
+        // VSCode: flat structure - tables/triggers/{triggerName}.xs
+        const result = generateFilePath({ id: 200, name: 'users_after_insert', table: 'users', type: 'table_trigger' }, paths, { naming: 'vscode' })
+        expect(result).to.equal('tables/triggers/users_after_insert.xs')
+      })
+
+      it('generates api_group path as folder with api_group.xs', () => {
+        // VSCode: apis/groupName/api_group.xs
+        const result = generateFilePath({ id: 300, name: 'auth', type: 'api_group' }, paths, { naming: 'vscode' })
+        expect(result).to.equal('apis/auth/api_group.xs')
+      })
+
+      it('flattens task names with slashes', () => {
+        // VSCode uses snakeCase which flattens slashes
+        const result = generateFilePath({ id: 1, name: 'Maintenance/Daily Cleanup', type: 'task' }, paths, { naming: 'vscode' })
+        expect(result).to.equal('tasks/maintenance_daily_cleanup.xs')
+      })
+
+      it('flattens api group names with slashes', () => {
+        const result = generateFilePath({ id: 1, name: 'Admin/User Management', type: 'api_group' }, paths, { naming: 'vscode' })
+        expect(result).to.equal('apis/admin_user_management/api_group.xs')
+      })
     })
 
-    it('generates task path', () => {
-      const result = generateFilePath({ id: 789, name: 'cleanup', type: 'task' }, paths)
-      expect(result).to.equal('tasks/cleanup.xs')
+    describe('vscode_id naming mode', () => {
+      it('generates function path with ID prefix', () => {
+        const result = generateFilePath({ id: 123, name: 'calculate_total', type: 'function' }, paths, { naming: 'vscode_id' })
+        expect(result).to.equal('functions/123_calculate_total.xs')
+      })
+
+      it('generates api_endpoint path with ID prefix', () => {
+        const result = generateFilePath({ group: 'auth', id: 100, name: '/users', path: '/users', type: 'api_endpoint', verb: 'POST' }, paths, { naming: 'vscode_id' })
+        expect(result).to.equal('apis/auth/100_users_POST.xs')
+      })
     })
 
-    it('generates api_endpoint path with group and verb', () => {
-      const result = generateFilePath({ group: 'auth', id: 100, name: '/users', path: '/users', type: 'api_endpoint', verb: 'POST' }, paths)
-      expect(result).to.equal('apis/auth/users_POST.xs')
+    describe('custom resolver with context', () => {
+      it('receives context with default path', () => {
+        let receivedContext: any = null
+        const customResolver = (_obj: any, _paths: any, ctx: any) => {
+          receivedContext = ctx
+          return null // Use default
+        }
+        generateFilePath({ id: 123, name: 'test', type: 'function' }, paths, { customResolver })
+        expect(receivedContext).to.not.be.null
+        expect(receivedContext.type).to.equal('function')
+        expect(receivedContext.naming).to.equal('default')
+        expect(receivedContext.default).to.equal('functions/test.xs')
+      })
+
+      it('can override path selectively', () => {
+        const customResolver = (obj: any, _paths: any, ctx: any) => {
+          if (obj.type === 'function' && obj.name.startsWith('test_')) {
+            return `tests/${obj.name}.xs`
+          }
+          return null // Use default from ctx.default
+        }
+        const result1 = generateFilePath({ id: 1, name: 'test_login', type: 'function' }, paths, { customResolver })
+        const result2 = generateFilePath({ id: 2, name: 'calculate', type: 'function' }, paths, { customResolver })
+        expect(result1).to.equal('tests/test_login.xs')
+        expect(result2).to.equal('functions/calculate.xs')
+      })
     })
 
-    it('generates api_endpoint path with default group and verb', () => {
-      const result = generateFilePath({ id: 100, name: '/users', path: '/users', type: 'api_endpoint' }, paths)
-      expect(result).to.equal('apis/default/users_GET.xs')
-    })
+    describe('custom sanitize with context', () => {
+      it('receives context with default sanitized result', () => {
+        let receivedContext: any = null
+        const customSanitize = (name: string, ctx: any) => {
+          receivedContext = ctx
+          return ctx.default // Use default
+        }
+        generateFilePath({ id: 123, name: 'MyFunction', type: 'function' }, paths, { customSanitize })
+        expect(receivedContext).to.not.be.null
+        expect(receivedContext.type).to.equal('function')
+        expect(receivedContext.naming).to.equal('default')
+        expect(receivedContext.default).to.equal('my_function')
+      })
 
-    it('generates table_trigger path', () => {
-      const result = generateFilePath({ id: 200, name: 'audit', table: 'users', type: 'table_trigger' }, paths)
-      // Default tableTriggers path is 'tables/triggers' when not specified
-      expect(result).to.equal('tables/triggers/users/audit.xs')
-    })
-
-    it('generates api_group path', () => {
-      const result = generateFilePath({ id: 300, name: 'auth', type: 'api_group' }, paths)
-      expect(result).to.equal('apis/auth.xs')
-    })
-
-    it('sanitizes path characters in api endpoint names', () => {
-      const result = generateFilePath({ group: 'default', id: 100, name: '/users/{id}', path: '/users/{id}', type: 'api_endpoint', verb: 'GET' }, paths)
-      expect(result).to.equal('apis/default/users_id_GET.xs')
-    })
-
-    it('generates workflow_test path', () => {
-      const result = generateFilePath({ id: 500, name: 'login_flow', type: 'workflow_test' }, paths)
-      expect(result).to.equal('workflow_tests/login_flow.xs')
-    })
-
-    it('converts camelCase to snake_case', () => {
-      const result = generateFilePath({ id: 1, name: 'calculateTotal', type: 'function' }, paths)
-      expect(result).to.equal('functions/calculate_total.xs')
-    })
-
-    it('converts natural text function names with slashes to subdirectories', () => {
-      const result = generateFilePath({ id: 1, name: 'User/Security Events/Log Auth', type: 'function' }, paths)
-      expect(result).to.equal('functions/user/security_events/log_auth.xs')
-    })
-
-    it('converts natural text task names with slashes to subdirectories', () => {
-      const result = generateFilePath({ id: 1, name: 'Maintenance/Daily Cleanup', type: 'task' }, paths)
-      expect(result).to.equal('tasks/maintenance/daily_cleanup.xs')
-    })
-
-    it('converts api group names with slashes to subdirectories', () => {
-      const result = generateFilePath({ id: 1, name: 'Admin/User Management', type: 'api_group' }, paths)
-      expect(result).to.equal('apis/admin/user_management.xs')
+      it('can override sanitization selectively', () => {
+        const customSanitize = (name: string, ctx: any) => {
+          if (ctx.type === 'table') {
+            return name.toUpperCase()
+          }
+          return ctx.default
+        }
+        const result1 = generateFilePath({ id: 1, name: 'users', type: 'table' }, paths, { customSanitize })
+        const result2 = generateFilePath({ id: 2, name: 'myFunction', type: 'function' }, paths, { customSanitize })
+        expect(result1).to.equal('tables/USERS.xs')
+        expect(result2).to.equal('functions/my_function.xs')
+      })
     })
   })
 })
