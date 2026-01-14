@@ -1,8 +1,8 @@
 import {Args, Flags} from '@oclif/core'
 import * as yaml from 'js-yaml'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 import BaseCommand from '../../../base-command.js'
 
@@ -49,12 +49,12 @@ Profile 'default' updated successfully at ~/.xano/credentials.yaml
   ]
 static override flags = {
     ...BaseCommand.baseFlags,
-    access_token: Flags.string({
+    access_token: Flags.string({ // eslint-disable-line camelcase
       char: 't',
       description: 'Update access token for the Xano Metadata API',
       required: false,
     }),
-    account_origin: Flags.string({
+    account_origin: Flags.string({ // eslint-disable-line camelcase
       char: 'a',
       description: 'Update account origin URL',
       required: false,
@@ -64,7 +64,7 @@ static override flags = {
       description: 'Update branch name',
       required: false,
     }),
-    instance_origin: Flags.string({
+    instance_origin: Flags.string({ // eslint-disable-line camelcase
       char: 'i',
       description: 'Update instance origin URL',
       required: false,
@@ -92,18 +92,18 @@ static override flags = {
     // Use provided name or default profile
     const profileName = args.name || this.getDefaultProfile()
 
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Check if credentials file exists
-    if (!fs.existsSync(credentialsPath)) {
+    if (!existsSync(credentialsPath)) {
       this.error(`Credentials file not found at ${credentialsPath}. Create a profile first using 'profile:create'.`)
     }
 
     // Read existing credentials file
     let credentials: CredentialsFile
     try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {
@@ -134,9 +134,9 @@ static override flags = {
     // Update only the fields that were provided
     const updatedProfile = {
       ...existingProfile,
-      ...(flags.account_origin !== undefined && {account_origin: flags.account_origin}),
-      ...(flags.instance_origin !== undefined && {instance_origin: flags.instance_origin}),
-      ...(flags.access_token !== undefined && {access_token: flags.access_token}),
+      ...(flags.account_origin !== undefined && {account_origin: flags.account_origin}), // eslint-disable-line camelcase
+      ...(flags.instance_origin !== undefined && {instance_origin: flags.instance_origin}), // eslint-disable-line camelcase
+      ...(flags.access_token !== undefined && {access_token: flags.access_token}), // eslint-disable-line camelcase
       ...(flags.workspace !== undefined && {workspace: flags.workspace}),
       ...(flags.branch !== undefined && {branch: flags.branch}),
     }
@@ -160,7 +160,7 @@ static override flags = {
         noRefs: true,
       })
 
-      fs.writeFileSync(credentialsPath, yamlContent, 'utf8')
+      writeFileSync(credentialsPath, yamlContent, 'utf8')
       this.log(`Profile '${profileName}' updated successfully at ${credentialsPath}`)
     } catch (error) {
       this.error(`Failed to write credentials file: ${error}`)

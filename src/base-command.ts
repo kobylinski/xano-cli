@@ -1,8 +1,8 @@
 import {Command, Flags} from '@oclif/core'
 import * as yaml from 'js-yaml'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 interface CredentialsFile {
   default?: string
@@ -26,14 +26,14 @@ export default abstract class BaseCommand extends Command {
   // Helper method to get the default profile from credentials file
   protected getDefaultProfile(): string {
     try {
-      const configDir = path.join(os.homedir(), '.xano')
-      const credentialsPath = path.join(configDir, 'credentials.yaml')
+      const configDir = join(homedir(), '.xano')
+      const credentialsPath = join(configDir, 'credentials.yaml')
 
-      if (!fs.existsSync(credentialsPath)) {
+      if (!existsSync(credentialsPath)) {
         return 'default'
       }
 
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (parsed && typeof parsed === 'object' && 'default' in parsed && parsed.default) {
@@ -48,6 +48,7 @@ export default abstract class BaseCommand extends Command {
 
   // Helper method to get the profile flag value
   protected getProfile(): string | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- oclif workaround to access flags before parsing
     return (this as any).flags?.profile
   }
 }

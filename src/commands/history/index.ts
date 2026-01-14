@@ -204,10 +204,8 @@ static flags = {
       this.error('No objects found. Run "xano pull --sync" first.')
     }
 
-    // Resolve file path
-    const filePath = args.file.startsWith('/')
-      ? args.file
-      : path.resolve(projectRoot, args.file)
+    // Resolve file path from cwd, so "." in a subdirectory means that subdirectory
+    const filePath = path.resolve(args.file)
 
     // Check if it's a directory (for API group)
     const isDirectory = fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()

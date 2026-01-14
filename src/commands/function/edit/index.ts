@@ -2,9 +2,9 @@ import {Args, Flags} from '@oclif/core'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
 import {execSync} from 'node:child_process'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { extname, join } from 'node:path'
 
 import BaseCommand from '../../../base-command.js'
 
@@ -23,6 +23,11 @@ interface CredentialsFile {
   }
 }
 
+interface XanoScriptValue {
+  status?: string
+  value?: string
+}
+
 interface Function {
   created_at?: number | string
   description?: string
@@ -30,7 +35,7 @@ interface Function {
   name: string
   type?: string
   updated_at?: number | string
-  xanoscript?: any
+  xanoscript?: string | XanoScriptValue
 }
 
 interface FunctionListResponse {
@@ -39,14 +44,14 @@ interface FunctionListResponse {
 }
 
 interface EditFunctionResponse {
-  [key: string]: any
+  [key: string]: unknown
   id: number
   name: string
 }
 
 export default class FunctionEdit extends BaseCommand {
   static args = {
-    function_id: Args.string({
+    function_id: Args.string({ // eslint-disable-line camelcase
       description: 'Function ID to edit',
       required: false,
     }),
@@ -187,8 +192,7 @@ static override flags = {
     }
 
     // If function_id is not provided, prompt user to select from list
-    let functionId: string
-    functionId = args.function_id ? args.function_id : (await this.promptForFunctionId(profile, workspaceId));
+    const functionId = args.function_id || (await this.promptForFunctionId(profile, workspaceId));
 
     // Read XanoScript content
     let xanoscript: string
@@ -202,12 +206,12 @@ static override flags = {
       }
 
       try {
-        xanoscript = fs.readFileSync(fileToRead, 'utf8')
+        xanoscript = readFileSync(fileToRead, 'utf8')
 
         // Clean up temp file if it was created
         if (flags.edit && fileToRead !== flags.file) {
           try {
-            fs.unlinkSync(fileToRead)
+            unlinkSync(fileToRead)
           } catch {
             // Ignore cleanup errors
           }
@@ -240,7 +244,7 @@ static override flags = {
 
     // Construct the API URL
     const queryParams = new URLSearchParams({
-      include_xanoscript: 'false',
+      include_xanoscript: 'false', // eslint-disable-line camelcase
       publish: flags.publish ? 'true' : 'false',
     })
     const apiUrl = `${profile.instance_origin}/api:meta/workspace/${workspaceId}/function/${functionId}?${queryParams.toString()}`
@@ -313,18 +317,18 @@ static override flags = {
     // Read the original file
     let originalContent: string
     try {
-      originalContent = fs.readFileSync(filePath, 'utf8')
+      originalContent = readFileSync(filePath, 'utf8')
     } catch (error) {
       this.error(`Failed to read file '${filePath}': ${error}`)
     }
 
     // Create a temporary file with the same extension
-    const ext = path.extname(filePath)
-    const tmpFile = path.join(os.tmpdir(), `xano-edit-${Date.now()}${ext}`)
+    const ext = extname(filePath)
+    const tmpFile = join(tmpdir(), `xano-edit-${Date.now()}${ext}`)
 
     // Copy content to temp file
     try {
-      fs.writeFileSync(tmpFile, originalContent, 'utf8')
+      writeFileSync(tmpFile, originalContent, 'utf8')
     } catch (error) {
       this.error(`Failed to create temporary file: ${error}`)
     }
@@ -335,7 +339,7 @@ static override flags = {
     } catch (error) {
       // Clean up temp file
       try {
-        fs.unlinkSync(tmpFile)
+        unlinkSync(tmpFile)
       } catch {
         // Ignore cleanup errors
       }
@@ -362,11 +366,11 @@ static override flags = {
     }
 
     // Create a temporary file with .xs extension
-    const tmpFile = path.join(os.tmpdir(), `xano-edit-${Date.now()}.xs`)
+    const tmpFile = join(tmpdir(), `xano-edit-${Date.now()}.xs`)
 
     // Write content to temp file
     try {
-      fs.writeFileSync(tmpFile, xanoscript, 'utf8')
+      writeFileSync(tmpFile, xanoscript, 'utf8')
     } catch (error) {
       throw new Error(`Failed to create temporary file: ${error}`)
     }
@@ -377,7 +381,7 @@ static override flags = {
     } catch (error) {
       // Clean up temp file
       try {
-        fs.unlinkSync(tmpFile)
+        unlinkSync(tmpFile)
       } catch {
         // Ignore cleanup errors
       }
@@ -387,10 +391,10 @@ static override flags = {
 
     // Read the edited content
     try {
-      const editedContent = fs.readFileSync(tmpFile, 'utf8')
+      const editedContent = readFileSync(tmpFile, 'utf8')
       // Clean up temp file
       try {
-        fs.unlinkSync(tmpFile)
+        unlinkSync(tmpFile)
       } catch {
         // Ignore cleanup errors
       }
@@ -403,52 +407,47 @@ static override flags = {
 
   private async fetchFunctionCode(profile: ProfileConfig, workspaceId: string, functionId: string): Promise<string> {
     const queryParams = new URLSearchParams({
-      include_xanoscript: 'true',
+      include_xanoscript: 'true', // eslint-disable-line camelcase
     })
     const apiUrl = `${profile.instance_origin}/api:meta/workspace/${workspaceId}/function/${functionId}?${queryParams.toString()}`
 
-    try {
-      const response = await fetch(apiUrl, {
-        headers: {
-          'accept': 'application/json',
-          'Authorization': `Bearer ${profile.access_token}`,
-        },
-        method: 'GET',
-      })
+    const response = await fetch(apiUrl, {
+      headers: {
+        'accept': 'application/json',
+        'Authorization': `Bearer ${profile.access_token}`,
+      },
+      method: 'GET',
+    })
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`API request failed with status ${response.status}: ${response.statusText}\n${errorText}`)
-      }
-
-      const result = await response.json() as any
-
-      // Handle xanoscript as an object with status and value
-      if (result.xanoscript) {
-        if (result.xanoscript.status === 'ok' && result.xanoscript.value !== undefined) {
-          return result.xanoscript.value
-        }
-
- if (typeof result.xanoscript === 'string') {
-          return result.xanoscript
-        }
- 
-          throw new Error(`Invalid xanoscript format: ${JSON.stringify(result.xanoscript)}`)
-        
-      }
-
-      return ''
-    } catch (error) {
-      throw error
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`API request failed with status ${response.status}: ${response.statusText}\n${errorText}`)
     }
+
+    const result = await response.json() as Function
+
+    // Handle xanoscript as an object with status and value
+    if (result.xanoscript) {
+      if (typeof result.xanoscript === 'object' && result.xanoscript.status === 'ok' && result.xanoscript.value !== undefined) {
+        return result.xanoscript.value
+      }
+
+      if (typeof result.xanoscript === 'string') {
+        return result.xanoscript
+      }
+
+      throw new Error(`Invalid xanoscript format: ${JSON.stringify(result.xanoscript)}`)
+    }
+
+    return ''
   }
 
   private loadCredentials(): CredentialsFile {
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Check if credentials file exists
-    if (!fs.existsSync(credentialsPath)) {
+    if (!existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
         `Create a profile using 'xano profile:create'`,
@@ -457,7 +456,7 @@ static override flags = {
 
     // Read credentials file
     try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {
@@ -474,11 +473,11 @@ static override flags = {
     try {
       // Fetch list of functions
       const queryParams = new URLSearchParams({
-        include_draft: 'false',
-        include_xanoscript: 'false',
+        include_draft: 'false', // eslint-disable-line camelcase
+        include_xanoscript: 'false', // eslint-disable-line camelcase
         order: 'desc',
         page: '1',
-        per_page: '50',
+        per_page: '50', // eslint-disable-line camelcase
         sort: 'created_at',
       })
 

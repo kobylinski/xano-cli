@@ -83,7 +83,7 @@ export default class DataBulk extends Command {
     let records: Record<string, unknown>[]
     try {
       if (flags.file) {
-        const content = fs.readFileSync(flags.file, 'utf-8')
+        const content = fs.readFileSync(flags.file, 'utf8')
         records = JSON.parse(content)
       } else {
         records = JSON.parse(flags.data!)
@@ -92,8 +92,9 @@ export default class DataBulk extends Command {
       if (!Array.isArray(records)) {
         this.error('Data must be an array of objects')
       }
-    } catch (error: any) {
-      this.error(`Invalid JSON: ${error.message}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.error(`Invalid JSON: ${message}`)
     }
 
     if (records.length === 0) {
@@ -134,7 +135,7 @@ export default class DataBulk extends Command {
     }
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<number | null> {
+  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

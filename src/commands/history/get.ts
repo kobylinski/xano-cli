@@ -66,15 +66,12 @@ export default class HistoryGet extends Command {
       required: true,
     }),
   }
-
-  static description = 'Get details of a specific request from history'
-
-  static examples = [
+static description = 'Get details of a specific request from history'
+static examples = [
     '<%= config.bin %> history:get 2777374',
     '<%= config.bin %> history:get 2777374 --json',
   ]
-
-  static flags = {
+static flags = {
     json: Flags.boolean({
       default: false,
       description: 'Output as JSON',

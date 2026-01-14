@@ -3,7 +3,7 @@
  * Resolves user input to XanoObjectTypes based on paths config
  */
 
-import * as path from 'node:path'
+import { isAbsolute, relative } from 'node:path'
 
 import type {
   TypeResolver,
@@ -15,17 +15,34 @@ import type {
  * Map paths config key to XanoObjectType(s)
  * Uses VSCode extension's camelCase naming convention
  */
-function getTypesForPathKey(key: string): XanoObjectType[] | null {
+function getTypesForPathKey(key: string): null | XanoObjectType[] {
   switch (key) {
-    case 'addOns': return ['addon']
-    case 'apis': return ['api_endpoint', 'api_group']
-    case 'functions': return ['function']
-    case 'middlewares': return ['middleware']
-    case 'tables': return ['table']
-    case 'tableTriggers': return ['table_trigger']
-    case 'tasks': return ['task']
-    case 'workflowTests': return ['workflow_test']
-    default: return null
+    case 'addOns': { return ['addon']
+    }
+
+    case 'apis': { return ['api_endpoint', 'api_group']
+    }
+
+    case 'functions': { return ['function']
+    }
+
+    case 'middlewares': { return ['middleware']
+    }
+
+    case 'tables': { return ['table']
+    }
+
+    case 'tableTriggers': { return ['table_trigger']
+    }
+
+    case 'tasks': { return ['task']
+    }
+
+    case 'workflowTests': { return ['workflow_test']
+    }
+
+    default: { return null
+    }
   }
 }
 
@@ -41,12 +58,12 @@ function getMatchingPathKeys(inputPath: string, paths: XanoPaths): string[] {
 
   for (const [key, basePath] of entries) {
     // Check if input matches this path (input is same or inside basePath)
-    const relToBase = path.relative(basePath, inputPath)
-    const inputMatchesBase = relToBase === '' || (!relToBase.startsWith('..') && !path.isAbsolute(relToBase))
+    const relToBase = relative(basePath, inputPath)
+    const inputMatchesBase = relToBase === '' || (!relToBase.startsWith('..') && !isAbsolute(relToBase))
 
     // Check if this path is nested under input (basePath is same or inside input)
-    const relToInput = path.relative(inputPath, basePath)
-    const baseIsUnderInput = relToInput === '' || (!relToInput.startsWith('..') && !path.isAbsolute(relToInput))
+    const relToInput = relative(inputPath, basePath)
+    const baseIsUnderInput = relToInput === '' || (!relToInput.startsWith('..') && !isAbsolute(relToInput))
 
     if (inputMatchesBase || baseIsUnderInput) {
       matchedKeys.push(key)
@@ -61,7 +78,7 @@ function getMatchingPathKeys(inputPath: string, paths: XanoPaths): string[] {
  *
  * Priority:
  * 1. Dynamic resolver (xano.js resolveType function) - if provided
- * 2. Match against configured paths using path.relative
+ * 2. Match against configured paths using relative
  *
  * Returns types for matched path AND all nested paths under it
  */
@@ -69,7 +86,7 @@ export function resolveInputToTypes(
   inputPath: string,
   paths: XanoPaths,
   dynamicResolver?: TypeResolver
-): XanoObjectType[] | null {
+): null | XanoObjectType[] {
   // Normalize input - remove trailing slash
   const normalized = inputPath.replace(/\/$/, '')
 

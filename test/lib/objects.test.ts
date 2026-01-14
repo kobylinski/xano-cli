@@ -1,7 +1,7 @@
 import { expect } from 'chai'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type { XanoObjectsFile } from '../../src/lib/types.js'
 
@@ -28,16 +28,16 @@ describe('lib/objects', () => {
   let tempDir: string
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xano-cli-test-'))
+    tempDir = mkdtempSync(join(tmpdir(), 'xano-cli-test-'))
   })
 
   afterEach(() => {
-    fs.rmSync(tempDir, { force: true, recursive: true })
+    rmSync(tempDir, { force: true, recursive: true })
   })
 
   describe('getObjectsJsonPath', () => {
     it('returns correct path', () => {
-      expect(getObjectsJsonPath(tempDir)).to.equal(path.join(tempDir, '.xano', 'objects.json'))
+      expect(getObjectsJsonPath(tempDir)).to.equal(join(tempDir, '.xano', 'objects.json'))
     })
   })
 
@@ -66,12 +66,12 @@ describe('lib/objects', () => {
 
     it('creates .xano directory when saving', () => {
       saveObjects(tempDir, sampleObjects)
-      expect(fs.existsSync(path.join(tempDir, '.xano'))).to.be.true
+      expect(existsSync(join(tempDir, '.xano'))).to.be.true
     })
 
     it('returns empty array for invalid JSON', () => {
-      fs.mkdirSync(path.join(tempDir, '.xano'))
-      fs.writeFileSync(path.join(tempDir, '.xano', 'objects.json'), 'invalid json')
+      mkdirSync(join(tempDir, '.xano'))
+      writeFileSync(join(tempDir, '.xano', 'objects.json'), 'invalid json')
       expect(loadObjects(tempDir)).to.deep.equal([])
     })
   })
@@ -152,12 +152,12 @@ describe('lib/objects', () => {
 
   describe('computeFileSha256', () => {
     it('returns null for nonexistent file', () => {
-      expect(computeFileSha256(path.join(tempDir, 'nonexistent.txt'))).to.be.null
+      expect(computeFileSha256(join(tempDir, 'nonexistent.txt'))).to.be.null
     })
 
     it('computes hash of file content', () => {
-      const filePath = path.join(tempDir, 'test.txt')
-      fs.writeFileSync(filePath, 'test content')
+      const filePath = join(tempDir, 'test.txt')
+      writeFileSync(filePath, 'test content')
       const hash = computeFileSha256(filePath)
       expect(hash).to.equal(computeSha256('test content'))
     })
@@ -182,8 +182,8 @@ describe('lib/objects', () => {
   describe('upsertObject', () => {
     it('adds new object', () => {
       const objects: XanoObjectsFile = []
-      const filePath = path.join(tempDir, 'test.xs')
-      fs.writeFileSync(filePath, 'function test {}')
+      const filePath = join(tempDir, 'test.xs')
+      writeFileSync(filePath, 'function test {}')
 
       const result = upsertObject(objects, filePath, { id: 1, type: 'function' })
       expect(result).to.have.length(1)
@@ -193,8 +193,8 @@ describe('lib/objects', () => {
     })
 
     it('updates existing object', () => {
-      const filePath = path.join(tempDir, 'test.xs')
-      fs.writeFileSync(filePath, 'function test {}')
+      const filePath = join(tempDir, 'test.xs')
+      writeFileSync(filePath, 'function test {}')
 
       const objects: XanoObjectsFile = [
         { id: 1, original: 'old', path: filePath, sha256: 'old', staged: true, status: 'changed', type: 'function' },
@@ -254,8 +254,8 @@ describe('lib/objects', () => {
 
     it('marks modified files as changed', () => {
       const filePath = 'test.xs'
-      const fullPath = path.join(tempDir, filePath)
-      fs.writeFileSync(fullPath, 'new content')
+      const fullPath = join(tempDir, filePath)
+      writeFileSync(fullPath, 'new content')
 
       const objects: XanoObjectsFile = [
         { id: 1, original: '', path: filePath, sha256: 'oldhash', staged: false, status: 'unchanged', type: 'function' },
@@ -267,9 +267,9 @@ describe('lib/objects', () => {
 
     it('keeps unchanged files as unchanged', () => {
       const filePath = 'test.xs'
-      const fullPath = path.join(tempDir, filePath)
+      const fullPath = join(tempDir, filePath)
       const content = 'test content'
-      fs.writeFileSync(fullPath, content)
+      writeFileSync(fullPath, content)
 
       const objects: XanoObjectsFile = [
         { id: 1, original: '', path: filePath, sha256: computeSha256(content), staged: false, status: 'unchanged', type: 'function' },

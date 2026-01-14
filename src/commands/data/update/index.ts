@@ -13,12 +13,12 @@ import {
 
 export default class DataUpdate extends Command {
   static args = {
-    table: Args.string({
-      description: 'Table name or ID',
-      required: true,
-    }),
     pk: Args.string({
       description: 'Primary key value',
+      required: true,
+    }),
+    table: Args.string({
+      description: 'Table name or ID',
       required: true,
     }),
   }
@@ -83,13 +83,14 @@ export default class DataUpdate extends Command {
     let data: Record<string, unknown>
     try {
       if (flags.file) {
-        const content = fs.readFileSync(flags.file, 'utf-8')
+        const content = fs.readFileSync(flags.file, 'utf8')
         data = JSON.parse(content)
       } else {
         data = JSON.parse(flags.data!)
       }
-    } catch (error: any) {
-      this.error(`Invalid JSON: ${error.message}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.error(`Invalid JSON: ${message}`)
     }
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
@@ -123,12 +124,13 @@ export default class DataUpdate extends Command {
         } else {
           displayValue = String(value)
         }
+
         this.log(`  ${key}: ${displayValue}`)
       }
     }
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<number | null> {
+  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

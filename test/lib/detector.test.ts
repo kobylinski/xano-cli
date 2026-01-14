@@ -1,5 +1,7 @@
 import { expect } from 'chai'
 
+import type { PathResolver, ResolverContext, SanitizeFunction } from '../../src/lib/types.js'
+
 import {
   detectType,
   detectTypeFromPath,
@@ -66,6 +68,7 @@ describe('lib/detector', () => {
     })
 
     it('uses custom sanitize function', () => {
+      // eslint-disable-next-line unicorn/consistent-function-scoping
       const upper = (s: string) => s.toUpperCase()
       expect(sanitizePath('user/events', upper)).to.equal('USER/EVENTS')
     })
@@ -401,25 +404,29 @@ function my_func { }`
 
     describe('custom resolver with context', () => {
       it('receives context with default path', () => {
-        let receivedContext: any = null
-        const customResolver = (_obj: any, _paths: any, ctx: any) => {
+        let receivedContext: null | ResolverContext = null
+        const customResolver: PathResolver = (_obj, _paths, ctx) => {
           receivedContext = ctx
           return null // Use default
         }
+
         generateFilePath({ id: 123, name: 'test', type: 'function' }, paths, { customResolver })
         expect(receivedContext).to.not.be.null
-        expect(receivedContext.type).to.equal('function')
-        expect(receivedContext.naming).to.equal('default')
-        expect(receivedContext.default).to.equal('functions/test.xs')
+        expect(receivedContext!.type).to.equal('function')
+        expect(receivedContext!.naming).to.equal('default')
+        expect(receivedContext!.default).to.equal('functions/test.xs')
       })
 
       it('can override path selectively', () => {
-        const customResolver = (obj: any, _paths: any, ctx: any) => {
+        // eslint-disable-next-line unicorn/consistent-function-scoping
+        const customResolver: PathResolver = (obj, _paths, _ctx) => {
           if (obj.type === 'function' && obj.name.startsWith('test_')) {
             return `tests/${obj.name}.xs`
           }
+
           return null // Use default from ctx.default
         }
+
         const result1 = generateFilePath({ id: 1, name: 'test_login', type: 'function' }, paths, { customResolver })
         const result2 = generateFilePath({ id: 2, name: 'calculate', type: 'function' }, paths, { customResolver })
         expect(result1).to.equal('tests/test_login.xs')
@@ -429,25 +436,29 @@ function my_func { }`
 
     describe('custom sanitize with context', () => {
       it('receives context with default sanitized result', () => {
-        let receivedContext: any = null
-        const customSanitize = (name: string, ctx: any) => {
+        let receivedContext: null | ResolverContext = null
+        const customSanitize: SanitizeFunction = (_name, ctx) => {
           receivedContext = ctx
           return ctx.default // Use default
         }
+
         generateFilePath({ id: 123, name: 'MyFunction', type: 'function' }, paths, { customSanitize })
         expect(receivedContext).to.not.be.null
-        expect(receivedContext.type).to.equal('function')
-        expect(receivedContext.naming).to.equal('default')
-        expect(receivedContext.default).to.equal('my_function')
+        expect(receivedContext!.type).to.equal('function')
+        expect(receivedContext!.naming).to.equal('default')
+        expect(receivedContext!.default).to.equal('my_function')
       })
 
       it('can override sanitization selectively', () => {
-        const customSanitize = (name: string, ctx: any) => {
+        // eslint-disable-next-line unicorn/consistent-function-scoping
+        const customSanitize: SanitizeFunction = (name, ctx) => {
           if (ctx.type === 'table') {
             return name.toUpperCase()
           }
+
           return ctx.default
         }
+
         const result1 = generateFilePath({ id: 1, name: 'users', type: 'table' }, paths, { customSanitize })
         const result2 = generateFilePath({ id: 2, name: 'myFunction', type: 'function' }, paths, { customSanitize })
         expect(result1).to.equal('tables/USERS.xs')

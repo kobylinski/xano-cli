@@ -1,5 +1,4 @@
 import { Args, Command, Flags } from '@oclif/core'
-import * as path from 'node:path'
 
 import type {
   XanoLocalConfig,
@@ -11,7 +10,6 @@ import {
   XanoApi,
 } from '../../lib/api.js'
 import {
-  findObjectByPath,
   loadObjects,
 } from '../../lib/objects.js'
 import {
@@ -176,7 +174,7 @@ static flags = {
       const endpointPath = ep.path || ep.endpoint || ep.name || ep.route || '(unknown)'
 
       results.push({
-        apigroup_name: groupName,
+        apigroup_name: groupName, // eslint-disable-line camelcase
         id: ep.id,
         localPath: localPaths.get(`api_endpoint:${ep.id}`),
         name: endpointPath,
@@ -263,7 +261,7 @@ static flags = {
     typeFilter: null | XanoObjectType,
     config: XanoLocalConfig,
     long: boolean,
-    remoteOnly: boolean
+    _remoteOnly: boolean
   ): void {
     if (objects.length === 0) {
       this.log('No objects found.')
@@ -278,6 +276,7 @@ static flags = {
       byType.set(obj.type, list)
     }
 
+    /* eslint-disable camelcase */
     const typeLabels: Record<XanoObjectType, string> = {
       addon: 'Addons',
       agent: 'Agents',
@@ -296,6 +295,7 @@ static flags = {
       tool: 'Tools',
       workflow_test: 'Workflow Tests',
     }
+    /* eslint-enable camelcase */
 
     for (const [type, list] of byType) {
       this.log(`${typeLabels[type] || type}:`)
@@ -315,7 +315,7 @@ static flags = {
     }
   }
 
-  private outputLongFormat(obj: RemoteObject, config: XanoLocalConfig): void {
+  private outputLongFormat(obj: RemoteObject, _config: XanoLocalConfig): void {
     const status = obj.localPath ? '✓' : '-'
     let {name} = obj
 

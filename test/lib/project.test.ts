@@ -1,7 +1,7 @@
 import { expect } from 'chai'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type { XanoLocalConfig, XanoProjectConfig } from '../../src/lib/types.js'
 
@@ -27,11 +27,11 @@ describe('lib/project', () => {
   let tempDir: string
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xano-cli-test-'))
+    tempDir = mkdtempSync(join(tmpdir(), 'xano-cli-test-'))
   })
 
   afterEach(() => {
-    fs.rmSync(tempDir, { force: true, recursive: true })
+    rmSync(tempDir, { force: true, recursive: true })
   })
 
   describe('findProjectRoot', () => {
@@ -41,31 +41,31 @@ describe('lib/project', () => {
     })
 
     it('finds project root by xano.json', () => {
-      fs.writeFileSync(path.join(tempDir, 'xano.json'), '{}')
+      writeFileSync(join(tempDir, 'xano.json'), '{}')
       const result = findProjectRoot(tempDir)
       expect(result).to.equal(tempDir)
     })
 
     it('finds project root by .xano/config.json', () => {
-      fs.mkdirSync(path.join(tempDir, '.xano'))
-      fs.writeFileSync(path.join(tempDir, '.xano', 'config.json'), '{}')
+      mkdirSync(join(tempDir, '.xano'))
+      writeFileSync(join(tempDir, '.xano', 'config.json'), '{}')
       const result = findProjectRoot(tempDir)
       expect(result).to.equal(tempDir)
     })
 
     it('prefers .xano/config.json over xano.json', () => {
-      fs.writeFileSync(path.join(tempDir, 'xano.json'), '{}')
-      fs.mkdirSync(path.join(tempDir, '.xano'))
-      fs.writeFileSync(path.join(tempDir, '.xano', 'config.json'), '{}')
+      writeFileSync(join(tempDir, 'xano.json'), '{}')
+      mkdirSync(join(tempDir, '.xano'))
+      writeFileSync(join(tempDir, '.xano', 'config.json'), '{}')
       const result = findProjectRoot(tempDir)
       expect(result).to.equal(tempDir)
     })
 
     it('finds project root from nested directory', () => {
-      fs.mkdirSync(path.join(tempDir, '.xano'))
-      fs.writeFileSync(path.join(tempDir, '.xano', 'config.json'), '{}')
-      const nestedDir = path.join(tempDir, 'src', 'functions')
-      fs.mkdirSync(nestedDir, { recursive: true })
+      mkdirSync(join(tempDir, '.xano'))
+      writeFileSync(join(tempDir, '.xano', 'config.json'), '{}')
+      const nestedDir = join(tempDir, 'src', 'functions')
+      mkdirSync(nestedDir, { recursive: true })
       const result = findProjectRoot(nestedDir)
       expect(result).to.equal(tempDir)
     })
@@ -77,28 +77,28 @@ describe('lib/project', () => {
     })
 
     it('returns true when xano.json exists', () => {
-      fs.writeFileSync(path.join(tempDir, 'xano.json'), '{}')
+      writeFileSync(join(tempDir, 'xano.json'), '{}')
       expect(isXanoProject(tempDir)).to.be.true
     })
 
     it('returns true when .xano/config.json exists', () => {
-      fs.mkdirSync(path.join(tempDir, '.xano'))
-      fs.writeFileSync(path.join(tempDir, '.xano', 'config.json'), '{}')
+      mkdirSync(join(tempDir, '.xano'))
+      writeFileSync(join(tempDir, '.xano', 'config.json'), '{}')
       expect(isXanoProject(tempDir)).to.be.true
     })
   })
 
   describe('path helpers', () => {
     it('getXanoJsonPath returns correct path', () => {
-      expect(getXanoJsonPath(tempDir)).to.equal(path.join(tempDir, 'xano.json'))
+      expect(getXanoJsonPath(tempDir)).to.equal(join(tempDir, 'xano.json'))
     })
 
     it('getXanoDirPath returns correct path', () => {
-      expect(getXanoDirPath(tempDir)).to.equal(path.join(tempDir, '.xano'))
+      expect(getXanoDirPath(tempDir)).to.equal(join(tempDir, '.xano'))
     })
 
     it('getConfigJsonPath returns correct path', () => {
-      expect(getConfigJsonPath(tempDir)).to.equal(path.join(tempDir, '.xano', 'config.json'))
+      expect(getConfigJsonPath(tempDir)).to.equal(join(tempDir, '.xano', 'config.json'))
     })
   })
 
@@ -127,7 +127,7 @@ describe('lib/project', () => {
     })
 
     it('returns null for invalid JSON', () => {
-      fs.writeFileSync(path.join(tempDir, 'xano.json'), 'not valid json')
+      writeFileSync(join(tempDir, 'xano.json'), 'not valid json')
       expect(loadXanoJson(tempDir)).to.be.null
     })
   })
@@ -168,7 +168,7 @@ describe('lib/project', () => {
 
     it('creates .xano directory when saving', () => {
       saveLocalConfig(tempDir, sampleLocalConfig)
-      expect(fs.existsSync(path.join(tempDir, '.xano'))).to.be.true
+      expect(existsSync(join(tempDir, '.xano'))).to.be.true
     })
   })
 
@@ -200,11 +200,11 @@ describe('lib/project', () => {
   describe('ensureXanoDir', () => {
     it('creates .xano directory if it does not exist', () => {
       ensureXanoDir(tempDir)
-      expect(fs.existsSync(path.join(tempDir, '.xano'))).to.be.true
+      expect(existsSync(join(tempDir, '.xano'))).to.be.true
     })
 
     it('does not fail if directory already exists', () => {
-      fs.mkdirSync(path.join(tempDir, '.xano'))
+      mkdirSync(join(tempDir, '.xano'))
       expect(() => ensureXanoDir(tempDir)).not.to.throw()
     })
   })
@@ -215,8 +215,8 @@ describe('lib/project', () => {
     })
 
     it('returns true when .xano/config.json exists', () => {
-      fs.mkdirSync(path.join(tempDir, '.xano'))
-      fs.writeFileSync(path.join(tempDir, '.xano', 'config.json'), '{}')
+      mkdirSync(join(tempDir, '.xano'))
+      writeFileSync(join(tempDir, '.xano', 'config.json'), '{}')
       expect(isInitialized(tempDir)).to.be.true
     })
   })
@@ -257,17 +257,17 @@ describe('lib/project', () => {
       const paths = getDefaultPaths()
       expect(paths).to.deep.equal({
         addOns: 'addons',
-        agentTriggers: 'agents/triggers',
         agents: 'agents',
+        agentTriggers: 'agents/triggers',
         apis: 'apis',
         functions: 'functions',
-        mcpServerTriggers: 'mcp_servers/triggers',
         mcpServers: 'mcp_servers',
+        mcpServerTriggers: 'mcp_servers/triggers',
         middlewares: 'middlewares',
         realtimeChannels: 'realtime',
         realtimeTriggers: 'realtime/triggers',
-        tableTriggers: 'tables/triggers',
         tables: 'tables',
+        tableTriggers: 'tables/triggers',
         tasks: 'tasks',
         tools: 'tools',
         workflowTests: 'workflow_tests',

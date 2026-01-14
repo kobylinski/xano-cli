@@ -2,17 +2,17 @@
  * Configuration loader supporting xano.js and xano.json
  */
 
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import type {
   PathResolver,
   SanitizeFunction,
   TypeResolver,
-  XanoPaths,
   XanoProjectConfig,
 } from './types.js'
+
 import { getDefaultPaths } from './project.js'
 
 export interface LoadedConfig {
@@ -27,16 +27,16 @@ export interface LoadedConfig {
  * Priority: xano.js > xano.json
  */
 export async function loadConfig(projectRoot: string): Promise<LoadedConfig | null> {
-  const jsPath = path.join(projectRoot, 'xano.js')
-  const jsonPath = path.join(projectRoot, 'xano.json')
+  const jsPath = join(projectRoot, 'xano.js')
+  const jsonPath = join(projectRoot, 'xano.json')
 
   // Try xano.js first
-  if (fs.existsSync(jsPath)) {
+  if (existsSync(jsPath)) {
     return loadJsConfig(jsPath)
   }
 
   // Fall back to xano.json
-  if (fs.existsSync(jsonPath)) {
+  if (existsSync(jsonPath)) {
     return loadJsonConfig(jsonPath)
   }
 
@@ -86,7 +86,7 @@ async function loadJsConfig(filePath: string): Promise<LoadedConfig | null> {
  */
 function loadJsonConfig(filePath: string): LoadedConfig | null {
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readFileSync(filePath, 'utf8')
     const parsed = JSON.parse(content) as XanoProjectConfig
 
     // Validate required fields
@@ -118,27 +118,27 @@ function loadJsonConfig(filePath: string): LoadedConfig | null {
  * Save config to xano.json
  */
 export function saveConfig(projectRoot: string, config: XanoProjectConfig): void {
-  const filePath = path.join(projectRoot, 'xano.json')
-  fs.writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf8')
+  const filePath = join(projectRoot, 'xano.json')
+  writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf8')
 }
 
 /**
  * Check if config file exists (xano.js or xano.json)
  */
 export function hasConfig(projectRoot: string): boolean {
-  const jsPath = path.join(projectRoot, 'xano.js')
-  const jsonPath = path.join(projectRoot, 'xano.json')
-  return fs.existsSync(jsPath) || fs.existsSync(jsonPath)
+  const jsPath = join(projectRoot, 'xano.js')
+  const jsonPath = join(projectRoot, 'xano.json')
+  return existsSync(jsPath) || existsSync(jsonPath)
 }
 
 /**
  * Get config file path that exists
  */
-export function getConfigPath(projectRoot: string): string | null {
-  const jsPath = path.join(projectRoot, 'xano.js')
-  const jsonPath = path.join(projectRoot, 'xano.json')
+export function getConfigPath(projectRoot: string): null | string {
+  const jsPath = join(projectRoot, 'xano.js')
+  const jsonPath = join(projectRoot, 'xano.json')
 
-  if (fs.existsSync(jsPath)) return jsPath
-  if (fs.existsSync(jsonPath)) return jsonPath
+  if (existsSync(jsPath)) return jsPath
+  if (existsSync(jsonPath)) return jsonPath
   return null
 }

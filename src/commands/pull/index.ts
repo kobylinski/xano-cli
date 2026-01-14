@@ -1,7 +1,7 @@
 import { Args, Command, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 
 import type {
   NamingMode,
@@ -9,6 +9,7 @@ import type {
   SanitizeFunction,
   TypeResolver,
   XanoObjectsFile,
+  XanoObjectType,
   XanoPaths,
 } from '../../lib/types.js'
 
@@ -83,8 +84,7 @@ export default class Pull extends Command {
     }),
   }
   static strict = false // Allow multiple path arguments
-
-  private customResolver?: PathResolver
+private customResolver?: PathResolver
   private customResolveType?: TypeResolver
   private customSanitize?: SanitizeFunction
   private naming?: NamingMode
@@ -156,20 +156,15 @@ export default class Pull extends Command {
           type: obj.type,
         })
       }
+
       saveObjects(projectRoot, objects)
       saveGroups(projectRoot, fetchResult.apiGroups)
     }
 
     // Determine which files to pull
-    let filesToPull: string[]
-
-    if (inputPaths.length === 0) {
-      // Pull all known objects
-      filesToPull = objects.map((o) => o.path)
-    } else {
-      // Smart path detection: expand directories, normalize files
-      filesToPull = this.expandPaths(projectRoot, inputPaths, objects)
-    }
+    const filesToPull = inputPaths.length === 0
+      ? objects.map((o) => o.path) // Pull all known objects
+      : this.expandPaths(projectRoot, inputPaths, objects) // Expand directories, normalize files
 
     if (filesToPull.length === 0) {
       this.log('No files to pull.')
@@ -209,9 +204,11 @@ export default class Pull extends Command {
 
       // Use already-fetched content if available, otherwise fetch individually
       const fetched = fetchedByPath.get(file)
+      /* eslint-disable no-await-in-loop -- Sequential operations for progress logging */
       const result = fetched
         ? await this.pullFromFetched(projectRoot, file, fetched, objects, flags.force, flags.merge)
         : await this.pullFromApi(projectRoot, file, obj.id, obj.type, api, objects, flags.force, flags.merge)
+      /* eslint-enable no-await-in-loop */
 
       if (result.success) {
         objects = result.objects
@@ -243,6 +240,52 @@ export default class Pull extends Command {
     this.log(`Pulled: ${successCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`)
   }
 
+  private attemptMerge(
+    projectRoot: string,
+    filePath: string,
+    localContent: string,
+    serverContent: string,
+    originalBase64: string
+  ): { error?: string; hasConflicts: boolean; success: boolean } {
+    try {
+      const baseContent = Buffer.from(originalBase64, 'base64').toString('utf8')
+      const tmpDir = mkdtempSync(join(projectRoot, '.xano-merge-'))
+      const basePath = join(tmpDir, 'base.xs')
+      const localPath = join(tmpDir, 'local.xs')
+      const serverPath = join(tmpDir, 'server.xs')
+
+      writeFileSync(basePath, baseContent)
+      writeFileSync(localPath, localContent)
+      writeFileSync(serverPath, serverContent)
+
+      try {
+        execSync(`git merge-file -p "${localPath}" "${basePath}" "${serverPath}" > "${filePath}"`, {
+          cwd: projectRoot,
+          encoding: 'utf8',
+        })
+        rmSync(tmpDir, { recursive: true })
+        return { hasConflicts: false, success: true }
+      } catch (mergeError) {
+        // execSync throws an error object with status property for non-zero exit codes
+        const exitStatus = mergeError && typeof mergeError === 'object' && 'status' in mergeError
+          ? (mergeError as { status: number }).status
+          : null
+        if (exitStatus === 1) {
+          const mergedContent = readFileSync(localPath, 'utf8')
+          writeFileSync(filePath, mergedContent)
+          rmSync(tmpDir, { recursive: true })
+          return { hasConflicts: true, success: true }
+        }
+
+        rmSync(tmpDir, { recursive: true })
+        return { error: 'Git merge-file failed', hasConflicts: false, success: false }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { error: message, hasConflicts: false, success: false }
+    }
+  }
+
   /**
    * Expand input paths to actual file paths
    * Priority:
@@ -258,11 +301,10 @@ export default class Pull extends Command {
     const result: string[] = []
 
     for (const inputPath of inputPaths) {
-      // Normalize path
-      let normalizedPath = inputPath
-      if (path.isAbsolute(inputPath)) {
-        normalizedPath = path.relative(projectRoot, inputPath)
-      }
+      // Normalize path: resolve from cwd first, then make relative to project root
+      // This ensures "." in a subdirectory means that subdirectory, not project root
+      const absolutePath = resolve(inputPath)
+      const normalizedPath = relative(projectRoot, absolutePath)
 
       // Remove trailing slash for comparisons
       const cleanPath = normalizedPath.replace(/\/$/, '')
@@ -275,9 +317,9 @@ export default class Pull extends Command {
       }
 
       // 2. Check if it's a directory (by path or by existence)
-      const fullPath = path.join(projectRoot, normalizedPath)
+      const fullPath = join(projectRoot, normalizedPath)
       const isDir = normalizedPath.endsWith('/') ||
-        (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
+        (existsSync(fullPath) && statSync(fullPath).isDirectory())
 
       if (isDir) {
         // Find all tracked files under this directory
@@ -315,57 +357,17 @@ export default class Pull extends Command {
     return [...new Set(result)] // Remove duplicates
   }
 
-  private attemptMerge(
-    projectRoot: string,
-    filePath: string,
-    localContent: string,
-    serverContent: string,
-    originalBase64: string
-  ): { error?: string; hasConflicts: boolean; success: boolean } {
-    try {
-      const baseContent = Buffer.from(originalBase64, 'base64').toString('utf-8')
-      const tmpDir = fs.mkdtempSync(path.join(projectRoot, '.xano-merge-'))
-      const basePath = path.join(tmpDir, 'base.xs')
-      const localPath = path.join(tmpDir, 'local.xs')
-      const serverPath = path.join(tmpDir, 'server.xs')
-
-      fs.writeFileSync(basePath, baseContent)
-      fs.writeFileSync(localPath, localContent)
-      fs.writeFileSync(serverPath, serverContent)
-
-      try {
-        execSync(`git merge-file -p "${localPath}" "${basePath}" "${serverPath}" > "${filePath}"`, {
-          cwd: projectRoot,
-          encoding: 'utf-8',
-        })
-        fs.rmSync(tmpDir, { recursive: true })
-        return { hasConflicts: false, success: true }
-      } catch (mergeError: any) {
-        if (mergeError.status === 1) {
-          const mergedContent = fs.readFileSync(localPath, 'utf8')
-          fs.writeFileSync(filePath, mergedContent)
-          fs.rmSync(tmpDir, { recursive: true })
-          return { hasConflicts: true, success: true }
-        }
-        fs.rmSync(tmpDir, { recursive: true })
-        return { error: 'Git merge-file failed', hasConflicts: false, success: false }
-      }
-    } catch (error: any) {
-      return { error: error.message, hasConflicts: false, success: false }
-    }
-  }
-
   private async pullFromApi(
     projectRoot: string,
     filePath: string,
     id: number,
-    type: string,
+    type: XanoObjectType,
     api: XanoApi,
     objects: XanoObjectsFile,
     force: boolean,
     merge: boolean
   ): Promise<{ error?: string; objects: XanoObjectsFile; skipped?: boolean; success: boolean }> {
-    const response = await api.getObject(type as any, id)
+    const response = await api.getObject(type, id)
 
     if (!response.ok) {
       return {
@@ -407,18 +409,18 @@ export default class Pull extends Command {
     projectRoot: string,
     filePath: string,
     id: number,
-    type: string,
+    type: XanoObjectType,
     serverContent: string,
     objects: XanoObjectsFile,
     force: boolean,
     merge: boolean
   ): { error?: string; objects: XanoObjectsFile; skipped?: boolean; success: boolean } {
-    const fullPath = path.join(projectRoot, filePath)
+    const fullPath = join(projectRoot, filePath)
     const serverSha256 = computeSha256(serverContent)
 
     // Check if local file exists and has changes
-    if (fs.existsSync(fullPath) && !force) {
-      const localContent = fs.readFileSync(fullPath, 'utf8')
+    if (existsSync(fullPath) && !force) {
+      const localContent = readFileSync(fullPath, 'utf8')
       const localSha256 = computeSha256(localContent)
       const obj = findObjectByPath(objects, filePath)
 
@@ -430,13 +432,13 @@ export default class Pull extends Command {
             return { error: mergeResult.error || 'Merge failed', objects, success: false }
           }
 
-          const mergedContent = fs.readFileSync(fullPath, 'utf8')
+          const mergedContent = readFileSync(fullPath, 'utf8')
           objects = upsertObject(objects, filePath, {
             id,
             original: encodeBase64(serverContent),
             sha256: computeSha256(mergedContent),
             status: mergeResult.hasConflicts ? 'changed' : 'unchanged',
-            type: type as any,
+            type,
           })
 
           if (mergeResult.hasConflicts) {
@@ -456,12 +458,12 @@ export default class Pull extends Command {
     }
 
     // Write file
-    const dir = path.dirname(fullPath)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+    const dir = dirname(fullPath)
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true })
     }
 
-    fs.writeFileSync(fullPath, serverContent, 'utf-8')
+    writeFileSync(fullPath, serverContent, 'utf8')
 
     // Update objects.json
     objects = upsertObject(objects, filePath, {
@@ -469,7 +471,7 @@ export default class Pull extends Command {
       original: encodeBase64(serverContent),
       sha256: serverSha256,
       status: 'unchanged',
-      type: type as any,
+      type,
     })
 
     return { objects, success: true }

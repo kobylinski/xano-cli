@@ -1,16 +1,15 @@
 import { Args, Command, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
+// Import xanoscript-lint library
+// @ts-expect-error - xanoscript-lint doesn't have TypeScript types
+import { XanoScriptValidator } from 'xanoscript-lint/lib/validator.js'
 
 import {
   findProjectRoot,
   loadLocalConfig,
 } from '../../lib/project.js'
-
-// Import xanoscript-lint library
-// @ts-expect-error - xanoscript-lint doesn't have TypeScript types
-import { XanoScriptValidator } from 'xanoscript-lint/lib/validator.js'
 
 export default class Lint extends Command {
   static args = {
@@ -19,17 +18,14 @@ export default class Lint extends Command {
       required: false,
     }),
   }
-
-  static description = 'Lint XanoScript files'
-
-  static examples = [
+static description = 'Lint XanoScript files'
+static examples = [
     '<%= config.bin %> lint',
     '<%= config.bin %> lint functions/my_function.xs',
     '<%= config.bin %> lint functions/',
     '<%= config.bin %> lint --staged',
   ]
-
-  static flags = {
+static flags = {
     fix: Flags.boolean({
       default: false,
       description: 'Attempt to fix issues (if supported)',
@@ -39,8 +35,7 @@ export default class Lint extends Command {
       description: 'Lint only git-staged .xs files',
     }),
   }
-
-  static strict = false // Allow multiple file arguments
+static strict = false // Allow multiple file arguments
 
   async run(): Promise<void> {
     const { argv, flags } = await this.parse(Lint)
@@ -76,23 +71,18 @@ export default class Lint extends Command {
       await validator.start()
 
       // Convert relative paths to absolute paths
-      const absolutePaths = filesToLint.map((f) => path.join(projectRoot, f))
+      const absolutePaths = filesToLint.map((f) => join(projectRoot, f))
 
       // Validate all files with single LSP instance
       const results = await validator.validateFiles(absolutePaths)
 
       // Display results
-      let filesWithErrors = 0
-      let filesWithWarnings = 0
-
-      for (let i = 0; i < results.length; i++) {
-        const result = results[i]
+      for (const [i, result] of results.entries()) {
         const relativePath = filesToLint[i]
 
         if (result.error) {
           this.log(`${relativePath}: error`)
           this.log(`  ❌ ${result.error}`)
-          filesWithErrors++
         } else if (result.errorCount > 0) {
           this.log(`${relativePath}: errors`)
           for (const diag of result.diagnostics) {
@@ -100,7 +90,6 @@ export default class Lint extends Command {
               this.log(`  ❌ Line ${diag.line}:${diag.column} - ${diag.message}`)
             }
           }
-          filesWithErrors++
         } else if (result.warningCount > 0) {
           this.log(`${relativePath}: warnings`)
           for (const diag of result.diagnostics) {
@@ -108,7 +97,6 @@ export default class Lint extends Command {
               this.log(`  ⚠️  Line ${diag.line}:${diag.column} - ${diag.message}`)
             }
           }
-          filesWithWarnings++
         } else {
           this.log(`${relativePath}: ok`)
         }
@@ -120,8 +108,9 @@ export default class Lint extends Command {
       this.log(`Checked ${summary.totalFiles} file(s): ${summary.totalErrors} error(s), ${summary.totalWarnings} warning(s)`)
 
       hasErrors = summary.hasErrors
-    } catch (error: any) {
-      this.error(`Lint failed: ${error.message}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.error(`Lint failed: ${message}`)
     } finally {
       if (validator) {
         await validator.shutdown()
@@ -139,20 +128,19 @@ export default class Lint extends Command {
     for (const input of inputs) {
       // Trim trailing slash
       const cleaned = input.replace(/\/$/, '')
-      const fullPath = path.isAbsolute(cleaned)
-        ? cleaned
-        : path.join(projectRoot, cleaned)
+      // Resolve from cwd first, so "." in a subdirectory means that subdirectory
+      const fullPath = resolve(cleaned)
 
-      if (!fs.existsSync(fullPath)) {
+      if (!existsSync(fullPath)) {
         this.warn(`Path not found: ${input}`)
         continue
       }
 
-      const stat = fs.statSync(fullPath)
+      const stat = statSync(fullPath)
       if (stat.isDirectory()) {
         this.walkDir(fullPath, projectRoot, files)
       } else if (fullPath.endsWith('.xs')) {
-        files.push(path.relative(projectRoot, fullPath))
+        files.push(relative(projectRoot, fullPath))
       }
     }
 
@@ -167,8 +155,8 @@ export default class Lint extends Command {
 
     const files: string[] = []
     for (const dir of dirs) {
-      const fullDir = path.join(projectRoot, dir)
-      if (fs.existsSync(fullDir)) {
+      const fullDir = join(projectRoot, dir)
+      if (existsSync(fullDir)) {
         this.walkDir(fullDir, projectRoot, files)
       }
     }
@@ -180,7 +168,7 @@ export default class Lint extends Command {
     try {
       const output = execSync('git diff --cached --name-only --diff-filter=ACM', {
         cwd: projectRoot,
-        encoding: 'utf-8',
+        encoding: 'utf8',
       })
       return output
         .split('\n')
@@ -193,13 +181,13 @@ export default class Lint extends Command {
   }
 
   private walkDir(dir: string, projectRoot: string, files: string[]): void {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    const entries = readdirSync(dir, { withFileTypes: true })
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name)
+      const fullPath = join(dir, entry.name)
       if (entry.isDirectory()) {
         this.walkDir(fullPath, projectRoot, files)
       } else if (entry.name.endsWith('.xs')) {
-        files.push(path.relative(projectRoot, fullPath))
+        files.push(relative(projectRoot, fullPath))
       }
     }
   }

@@ -1,8 +1,8 @@
 import { Args, Command, Flags } from '@oclif/core'
 import * as yaml from 'js-yaml'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 interface ProfileConfig {
   access_token: string
@@ -27,26 +27,21 @@ export default class ProfileCreate extends Command {
       required: true,
     }),
   }
-
-  static description = '[DEPRECATED] Create a profile - use "xano init" instead'
-
-  static examples = [
+static description = '[DEPRECATED] Create a profile - use "xano init" instead'
+static examples = [
     '<%= config.bin %> init              # Recommended: interactive setup',
     '<%= config.bin %> init profile      # Recommended: profile management',
     '',
     '# Legacy usage (still works):',
     '<%= config.bin %> profile:create production -i https://instance.xano.com -t token123',
   ]
-
-  static hidden = true
-
-  static override flags = {
-    access_token: Flags.string({
+static override flags = {
+    access_token: Flags.string({ // eslint-disable-line camelcase
       char: 't',
       description: 'Access token for the Xano Metadata API',
       required: true,
     }),
-    account_origin: Flags.string({
+    account_origin: Flags.string({ // eslint-disable-line camelcase
       char: 'a',
       description: 'Account origin URL',
       required: false,
@@ -61,7 +56,7 @@ export default class ProfileCreate extends Command {
       description: 'Set this profile as the default',
       required: false,
     }),
-    instance_origin: Flags.string({
+    instance_origin: Flags.string({ // eslint-disable-line camelcase
       char: 'i',
       description: 'Instance origin URL',
       required: true,
@@ -72,6 +67,7 @@ export default class ProfileCreate extends Command {
       required: false,
     }),
   }
+static hidden = true
 
   async run(): Promise<void> {
     this.warn('profile:create is deprecated. Use "xano init" for interactive setup.')
@@ -79,20 +75,20 @@ export default class ProfileCreate extends Command {
 
     const { args, flags } = await this.parse(ProfileCreate)
 
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Ensure the .xano directory exists
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true })
+    if (!existsSync(configDir)) {
+      mkdirSync(configDir, { recursive: true })
     }
 
     // Read existing credentials file or create new structure
     let credentials: CredentialsFile = { profiles: {} }
 
-    if (fs.existsSync(credentialsPath)) {
+    if (existsSync(credentialsPath)) {
       try {
-        const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+        const fileContent = readFileSync(credentialsPath, 'utf8')
         const parsed = yaml.load(fileContent) as CredentialsFile
 
         if (parsed && typeof parsed === 'object' && 'profiles' in parsed) {
@@ -107,9 +103,9 @@ export default class ProfileCreate extends Command {
     const profileExists = args.name in credentials.profiles
 
     credentials.profiles[args.name] = {
-      access_token: flags.access_token,
-      account_origin: flags.account_origin ?? 'https://app.xano.com',
-      instance_origin: flags.instance_origin,
+      access_token: flags.access_token, // eslint-disable-line camelcase
+      account_origin: flags.account_origin ?? 'https://app.xano.com', // eslint-disable-line camelcase
+      instance_origin: flags.instance_origin, // eslint-disable-line camelcase
       ...(flags.workspace && { workspace: flags.workspace }),
       ...(flags.branch && { branch: flags.branch }),
     }
@@ -126,7 +122,7 @@ export default class ProfileCreate extends Command {
       noRefs: true,
     })
 
-    fs.writeFileSync(credentialsPath, yamlContent, 'utf8')
+    writeFileSync(credentialsPath, yamlContent, 'utf8')
 
     if (profileExists) {
       this.log(`Profile '${args.name}' updated successfully.`)

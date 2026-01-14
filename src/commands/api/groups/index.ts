@@ -87,6 +87,7 @@ export default class ApiGroups extends Command {
       this.log(`  ${group.name}`)
       this.log(`    ID: ${group.id}, Canonical: ${group.canonical}`)
     }
+
     this.log('')
     this.log('Use the canonical ID with "xano api:call" to invoke live endpoints.')
   }

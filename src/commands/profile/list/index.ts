@@ -1,8 +1,8 @@
 import {Command, Flags} from '@oclif/core'
 import * as yaml from 'js-yaml'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 interface ProfileConfig {
   access_token: string
@@ -68,11 +68,11 @@ static override flags = {
   async run(): Promise<void> {
     const {flags} = await this.parse(ProfileList)
 
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Check if credentials file exists
-    if (!fs.existsSync(credentialsPath)) {
+    if (!existsSync(credentialsPath)) {
       this.log(`No profiles found. The credentials file does not exist at ${credentialsPath}`)
       this.log(`Create a profile using 'xano profile:create'`)
       return
@@ -81,7 +81,7 @@ static override flags = {
     // Read credentials file
     let credentials: CredentialsFile
     try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {

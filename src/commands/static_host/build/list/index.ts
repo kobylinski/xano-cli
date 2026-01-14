@@ -1,8 +1,8 @@
 import {Args, Flags} from '@oclif/core'
 import * as yaml from 'js-yaml'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 import BaseCommand from '../../../../base-command.js'
 
@@ -39,7 +39,7 @@ interface BuildListResponse {
 
 export default class StaticHostBuildList extends BaseCommand {
   static args = {
-    static_host: Args.string({
+    static_host: Args.string({ // eslint-disable-line camelcase
       description: 'Static Host name',
       required: true,
     }),
@@ -88,7 +88,7 @@ static override flags = {
       description: 'Page number for pagination',
       required: false,
     }),
-    per_page: Flags.integer({
+    per_page: Flags.integer({ // eslint-disable-line camelcase
       default: 50,
       description: 'Number of results per page',
       required: false,
@@ -190,19 +190,16 @@ static override flags = {
       // Output results
       if (flags.output === 'json') {
         this.log(JSON.stringify(builds, null, 2))
+      } else if (builds.length === 0) {
+        this.log('No builds found')
       } else {
-        // summary format
-        if (builds.length === 0) {
-          this.log('No builds found')
-        } else {
-          this.log('Available builds:')
-          for (const build of builds) {
-            if (build.id === undefined) {
-              this.log(`  - ${build.name}`)
-            } else {
-              const statusInfo = build.status ? ` - Status: ${build.status}` : ''
-              this.log(`  - ${build.name} (ID: ${build.id})${statusInfo}`)
-            }
+        this.log('Available builds:')
+        for (const build of builds) {
+          if (build.id === undefined) {
+            this.log(`  - ${build.name}`)
+          } else {
+            const statusInfo = build.status ? ` - Status: ${build.status}` : ''
+            this.log(`  - ${build.name} (ID: ${build.id})${statusInfo}`)
           }
         }
       }
@@ -216,11 +213,11 @@ static override flags = {
   }
 
   private loadCredentials(): CredentialsFile {
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Check if credentials file exists
-    if (!fs.existsSync(credentialsPath)) {
+    if (!existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
         `Create a profile using 'xano profile:create'`,
@@ -229,7 +226,7 @@ static override flags = {
 
     // Read credentials file
     try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {

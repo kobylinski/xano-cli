@@ -1,6 +1,6 @@
 import { Args, Command, Flags } from '@oclif/core'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 
 import type {
   NamingMode,
@@ -80,8 +80,7 @@ export default class Push extends Command {
     }),
   }
   static strict = false // Allow multiple path arguments
-
-  private customResolver?: PathResolver
+private customResolver?: PathResolver
   private customResolveType?: TypeResolver
   private customSanitize?: SanitizeFunction
   private naming?: NamingMode
@@ -163,20 +162,15 @@ export default class Push extends Command {
           type: obj.type,
         })
       }
+
       saveObjects(projectRoot, objects)
       saveGroups(projectRoot, fetchResult.apiGroups)
     }
 
     // Determine which files to push
-    let filesToPush: string[]
-
-    if (inputPaths.length === 0) {
-      // Push all modified files
-      filesToPush = this.getAllChangedFiles(projectRoot, objects)
-    } else {
-      // Smart path detection: expand directories, find modified files
-      filesToPush = this.expandPaths(projectRoot, inputPaths, objects)
-    }
+    const filesToPush = inputPaths.length === 0
+      ? this.getAllChangedFiles(projectRoot, objects) // Push all modified files
+      : this.expandPaths(projectRoot, inputPaths, objects) // Expand directories, find modified files
 
     // Find orphan objects (in objects.json but deleted locally)
     const orphanObjects = this.findOrphanObjects(projectRoot, objects)
@@ -198,6 +192,7 @@ export default class Push extends Command {
     let errorCount = 0
 
     for (const file of filesToPush) {
+      // eslint-disable-next-line no-await-in-loop -- Sequential operations for progress logging
       const result = await this.pushFile(projectRoot, file, api, objects)
 
       if (result.success) {
@@ -217,7 +212,7 @@ export default class Push extends Command {
       this.log(`Deleting ${orphanObjects.length} orphan object(s) from Xano...`)
 
       for (const obj of orphanObjects) {
-        let deleteOptions: { apigroup_id?: number } | undefined
+        let deleteOptions: undefined | { apigroup_id?: number }
 
         // For api_endpoints, we need to find the apigroup_id
         if (obj.type === 'api_endpoint') {
@@ -225,17 +220,18 @@ export default class Push extends Command {
           const apiGroup = findApiGroupForEndpoint(objects, obj.path)
 
           if (apiGroup) {
-            deleteOptions = { apigroup_id: apiGroup.id }
+            deleteOptions = { apigroup_id: apiGroup.id } // eslint-disable-line camelcase
           } else {
             // Fetch from Xano on-demand (once per session)
             if (!apiGroupCache) {
               this.log('  Fetching API group mappings from Xano...')
+              // eslint-disable-next-line no-await-in-loop -- Only fetched once per session
               apiGroupCache = await this.fetchApiGroupMappings(api)
             }
 
             const cachedGroupId = apiGroupCache.get(obj.id)
             if (cachedGroupId) {
-              deleteOptions = { apigroup_id: cachedGroupId }
+              deleteOptions = { apigroup_id: cachedGroupId } // eslint-disable-line camelcase
             } else {
               this.log(`  ✗ Cannot delete ${obj.path}: API group not found locally or on Xano`)
               continue
@@ -243,6 +239,7 @@ export default class Push extends Command {
           }
         }
 
+        // eslint-disable-next-line no-await-in-loop -- Sequential deletions for progress logging
         const response = await api.deleteObject(obj.type, obj.id, deleteOptions)
         if (response.ok) {
           // Remove from objects.json
@@ -259,6 +256,7 @@ export default class Push extends Command {
       for (const obj of orphanObjects.slice(0, 5)) {
         this.log(`  ${obj.path}`)
       }
+
       if (orphanObjects.length > 5) {
         this.log(`  ... and ${orphanObjects.length - 5} more`)
       }
@@ -272,6 +270,187 @@ export default class Push extends Command {
   }
 
   /**
+   * Auto-create api_group.xs for new API group directories
+   * Only creates if:
+   * - Directory is directly under the apis path
+   * - No api_group.xs or {groupName}.xs file exists
+   */
+  private ensureApiGroupFile(projectRoot: string, dirPath: string): void {
+    const apisPath = this.paths.apis
+
+    // Check if this directory is directly under apis path
+    // e.g., "app/apis/new_group" when apis = "app/apis"
+    const parent = dirname(dirPath)
+    if (parent !== apisPath) {
+      return // Not a direct child of apis directory
+    }
+
+    const groupDirName = basename(dirPath)
+    const fullDirPath = join(projectRoot, dirPath)
+
+    // Check if directory exists
+    if (!existsSync(fullDirPath)) {
+      // Create the directory
+      mkdirSync(fullDirPath, { recursive: true })
+    }
+
+    // Check for existing api_group file (VSCode mode: api_group.xs, default mode: {name}.xs in parent)
+    const apiGroupFile = join(fullDirPath, 'api_group.xs')
+    const flatGroupFile = join(projectRoot, apisPath, `${groupDirName}.xs`)
+
+    if (existsSync(apiGroupFile) || existsSync(flatGroupFile)) {
+      return // API group file already exists
+    }
+
+    // Convert snake_case to Title Case
+    const groupName = groupDirName
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ')
+
+    // Create api_group.xs file
+    const content = `api_group "${groupName}" {\n}\n`
+    writeFileSync(apiGroupFile, content, 'utf8')
+
+    this.log(`  Created ${dirPath}/api_group.xs`)
+  }
+
+  /**
+   * Expand input paths to actual file paths
+   * Priority:
+   * 1. Exact file match (tracked or new)
+   * 2. Directory prefix match (for directories)
+   * 3. Type-based filtering (only for directory paths, not specific files)
+   */
+  private expandPaths(
+    projectRoot: string,
+    inputPaths: string[],
+    objects: XanoObjectsFile
+  ): string[] {
+    const result: string[] = []
+    const objectPaths = new Set(objects.map((o) => o.path))
+
+    for (const inputPath of inputPaths) {
+      // Normalize path: resolve from cwd first, then make relative to project root
+      // This ensures "." in a subdirectory means that subdirectory, not project root
+      const absolutePath = resolve(inputPath)
+      const normalizedPath = relative(projectRoot, absolutePath)
+
+      // Remove trailing slash for comparisons
+      const cleanPath = normalizedPath.replace(/\/$/, '')
+      const fullPath = join(projectRoot, cleanPath)
+
+      // 1. Check for exact file match first (highest priority)
+      if (existsSync(fullPath) && statSync(fullPath).isFile()) {
+        result.push(cleanPath)
+        continue
+      }
+
+      // 2. Check if it's a directory
+      const isDir = normalizedPath.endsWith('/') ||
+        (existsSync(fullPath) && statSync(fullPath).isDirectory())
+
+      if (isDir) {
+        // Auto-create api_group.xs for new API group directories
+        this.ensureApiGroupFile(projectRoot, cleanPath)
+
+        // Find all files under this directory (both tracked modified and new)
+        const dirPrefix = cleanPath + '/'
+        let foundAny = false
+
+        // Add tracked files that are modified
+        for (const obj of objects) {
+          if (obj.path.startsWith(dirPrefix)) {
+            const objFullPath = join(projectRoot, obj.path)
+            if (existsSync(objFullPath)) {
+              const currentSha256 = computeFileSha256(objFullPath)
+              if (currentSha256 !== obj.sha256) {
+                result.push(obj.path)
+                foundAny = true
+              }
+            }
+          }
+        }
+
+        // Add new files in directory
+        if (existsSync(fullPath)) {
+          const beforeCount = result.length
+          this.walkDir(fullPath, projectRoot, objectPaths, result)
+          if (result.length > beforeCount) foundAny = true
+        }
+
+        // If no files found via prefix, try type-based filtering
+        if (!foundAny) {
+          const types = resolveInputToTypes(
+            cleanPath,
+            this.paths,
+            this.customResolveType
+          )
+
+          if (types && types.length > 0) {
+            // Filter by type - find modified tracked files
+            for (const obj of objects) {
+              if (types.includes(obj.type)) {
+                const objFullPath = join(projectRoot, obj.path)
+                if (existsSync(objFullPath)) {
+                  const currentSha256 = computeFileSha256(objFullPath)
+                  if (currentSha256 !== obj.sha256) {
+                    result.push(obj.path)
+                  }
+                }
+              }
+            }
+
+            // Also find new files in directories for these types
+            for (const type of types) {
+              const typeDir = this.getDirectoryForType(type)
+              if (typeDir) {
+                const fullDir = join(projectRoot, typeDir)
+                if (existsSync(fullDir)) {
+                  this.walkDir(fullDir, projectRoot, objectPaths, result)
+                }
+              }
+            }
+          }
+        }
+      }
+      // If file doesn't exist and it's not a directory, skip it (nothing to push)
+    }
+
+    return [...new Set(result)]
+  }
+
+  /**
+   * Fetch API endpoint -> API group mappings from Xano
+   * Returns a Map of endpoint_id -> apigroup_id
+   */
+  private async fetchApiGroupMappings(api: XanoApi): Promise<Map<number, number>> {
+    const mappings = new Map<number, number>()
+
+    // listApiEndpoints already fetches per-group and includes apigroup_id
+    const endpointsResponse = await api.listApiEndpoints(1, 1000)
+    if (endpointsResponse.ok && endpointsResponse.data?.items) {
+      for (const endpoint of endpointsResponse.data.items) {
+        if (endpoint.apigroup_id) {
+          mappings.set(endpoint.id, endpoint.apigroup_id)
+        }
+      }
+    }
+
+    return mappings
+  }
+
+  /**
+   * Find objects in objects.json whose local files have been deleted
+   */
+  private findOrphanObjects(projectRoot: string, objects: XanoObjectsFile): XanoObjectsFile {
+    return objects.filter((obj) => {
+      const fullPath = join(projectRoot, obj.path)
+      return !existsSync(fullPath)
+    })
+  }
+
+  /**
    * Find all modified or new files
    */
   private getAllChangedFiles(projectRoot: string, objects: XanoObjectsFile): string[] {
@@ -279,8 +458,8 @@ export default class Push extends Command {
 
     // Check existing objects for modifications
     for (const obj of objects) {
-      const fullPath = path.join(projectRoot, obj.path)
-      if (fs.existsSync(fullPath)) {
+      const fullPath = join(projectRoot, obj.path)
+      if (existsSync(fullPath)) {
         const currentSha256 = computeFileSha256(fullPath)
         if (currentSha256 !== obj.sha256) {
           changedFiles.push(obj.path)
@@ -302,8 +481,8 @@ export default class Push extends Command {
     ].filter((d): d is string => d !== undefined)
 
     for (const dir of dirs) {
-      const fullDir = path.join(projectRoot, dir)
-      if (fs.existsSync(fullDir)) {
+      const fullDir = join(projectRoot, dir)
+      if (existsSync(fullDir)) {
         this.walkDir(fullDir, projectRoot, knownPaths, changedFiles)
       }
     }
@@ -312,133 +491,38 @@ export default class Push extends Command {
   }
 
   /**
-   * Expand input paths to actual file paths
-   * Priority:
-   * 1. Exact file match (tracked or new)
-   * 2. Directory prefix match (for directories)
-   * 3. Type-based filtering (only for directory paths, not specific files)
-   */
-  private expandPaths(
-    projectRoot: string,
-    inputPaths: string[],
-    objects: XanoObjectsFile
-  ): string[] {
-    const result: string[] = []
-    const objectPaths = new Set(objects.map((o) => o.path))
-
-    for (const inputPath of inputPaths) {
-      let normalizedPath = inputPath
-      if (path.isAbsolute(inputPath)) {
-        normalizedPath = path.relative(projectRoot, inputPath)
-      }
-
-      // Remove trailing slash for comparisons
-      const cleanPath = normalizedPath.replace(/\/$/, '')
-      const fullPath = path.join(projectRoot, cleanPath)
-
-      // 1. Check for exact file match first (highest priority)
-      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-        result.push(cleanPath)
-        continue
-      }
-
-      // 2. Check if it's a directory
-      const isDir = normalizedPath.endsWith('/') ||
-        (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory())
-
-      if (isDir) {
-        // Find all files under this directory (both tracked modified and new)
-        const dirPrefix = cleanPath + '/'
-        let foundAny = false
-
-        // Add tracked files that are modified
-        for (const obj of objects) {
-          if (obj.path.startsWith(dirPrefix)) {
-            const objFullPath = path.join(projectRoot, obj.path)
-            if (fs.existsSync(objFullPath)) {
-              const currentSha256 = computeFileSha256(objFullPath)
-              if (currentSha256 !== obj.sha256) {
-                result.push(obj.path)
-                foundAny = true
-              }
-            }
-          }
-        }
-
-        // Add new files in directory
-        if (fs.existsSync(fullPath)) {
-          const beforeCount = result.length
-          this.walkDir(fullPath, projectRoot, objectPaths, result)
-          if (result.length > beforeCount) foundAny = true
-        }
-
-        // If no files found via prefix, try type-based filtering
-        if (!foundAny) {
-          const types = resolveInputToTypes(
-            cleanPath,
-            this.paths,
-            this.customResolveType
-          )
-
-          if (types && types.length > 0) {
-            // Filter by type - find modified tracked files
-            for (const obj of objects) {
-              if (types.includes(obj.type)) {
-                const objFullPath = path.join(projectRoot, obj.path)
-                if (fs.existsSync(objFullPath)) {
-                  const currentSha256 = computeFileSha256(objFullPath)
-                  if (currentSha256 !== obj.sha256) {
-                    result.push(obj.path)
-                  }
-                }
-              }
-            }
-
-            // Also find new files in directories for these types
-            for (const type of types) {
-              const typeDir = this.getDirectoryForType(type)
-              if (typeDir) {
-                const fullDir = path.join(projectRoot, typeDir)
-                if (fs.existsSync(fullDir)) {
-                  this.walkDir(fullDir, projectRoot, objectPaths, result)
-                }
-              }
-            }
-          }
-        }
-      }
-      // If file doesn't exist and it's not a directory, skip it (nothing to push)
-    }
-
-    return [...new Set(result)]
-  }
-
-  /**
    * Get the configured directory for a given type
    */
   private getDirectoryForType(type: string): string | undefined {
     switch (type) {
-      case 'function': return this.paths.functions
-      case 'api_endpoint':
-      case 'api_group': return this.paths.apis
-      case 'table': return this.paths.tables
-      case 'table_trigger': return this.paths.tableTriggers || this.paths.tables
-      case 'task': return this.paths.tasks
-      case 'workflow_test': return this.paths.workflowTests
-      case 'addon': return this.paths.addOns
-      case 'middleware': return this.paths.middlewares
-      default: return undefined
-    }
-  }
+      case 'addon': { return this.paths.addOns
+      }
 
-  /**
-   * Find objects in objects.json whose local files have been deleted
-   */
-  private findOrphanObjects(projectRoot: string, objects: XanoObjectsFile): XanoObjectsFile {
-    return objects.filter((obj) => {
-      const fullPath = path.join(projectRoot, obj.path)
-      return !fs.existsSync(fullPath)
-    })
+      case 'api_endpoint':
+      case 'api_group': { return this.paths.apis
+      }
+
+      case 'function': { return this.paths.functions
+      }
+
+      case 'middleware': { return this.paths.middlewares
+      }
+
+      case 'table': { return this.paths.tables
+      }
+
+      case 'table_trigger': { return this.paths.tableTriggers || this.paths.tables
+      }
+
+      case 'task': { return this.paths.tasks
+      }
+
+      case 'workflow_test': { return this.paths.workflowTests
+      }
+
+      default: { return undefined
+      }
+    }
   }
 
   private async pushFile(
@@ -447,13 +531,13 @@ export default class Push extends Command {
     api: XanoApi,
     objects: XanoObjectsFile
   ): Promise<{ error?: string; objects: XanoObjectsFile; success: boolean }> {
-    const fullPath = path.join(projectRoot, filePath)
+    const fullPath = join(projectRoot, filePath)
 
-    if (!fs.existsSync(fullPath)) {
+    if (!existsSync(fullPath)) {
       return { error: 'File not found', objects, success: false }
     }
 
-    const content = fs.readFileSync(fullPath, 'utf8')
+    let content = readFileSync(fullPath, 'utf8')
     const existingObj = findObjectByPath(objects, filePath)
     let newId: number
     let objectType: XanoObjectType
@@ -467,11 +551,11 @@ export default class Push extends Command {
       if (objectType === 'api_endpoint') {
         const apiGroup = findApiGroupForEndpoint(objects, filePath)
         if (apiGroup) {
-          updateOptions.apigroup_id = apiGroup.id
+          updateOptions.apigroup_id = apiGroup.id // eslint-disable-line camelcase
         } else {
           // Extract expected group name from path for better error message
           const parts = filePath.split('/')
-          const groupName = parts.length >= 3 ? parts[parts.length - 2] : 'unknown'
+          const groupName = parts.length >= 3 ? parts.at(-2) : 'unknown'
           return {
             error: `Cannot find API group for endpoint. Expected "${groupName}.xs" file in apis directory. Run "xano pull --sync" to fetch API groups.`,
             objects,
@@ -519,11 +603,11 @@ export default class Push extends Command {
       if (objectType === 'api_endpoint') {
         const apiGroup = findApiGroupForEndpoint(objects, filePath)
         if (apiGroup) {
-          createOptions.apigroup_id = apiGroup.id
+          createOptions.apigroup_id = apiGroup.id // eslint-disable-line camelcase
         } else {
           // Extract expected group name from path for better error message
           const parts = filePath.split('/')
-          const groupName = parts.length >= 3 ? parts[parts.length - 2] : 'unknown'
+          const groupName = parts.length >= 3 ? parts.at(-2) : 'unknown'
           return {
             error: `Cannot find API group for new endpoint. Expected "${groupName}.xs" file in apis directory. Create the API group first or run "xano pull --sync".`,
             objects,
@@ -551,6 +635,18 @@ export default class Push extends Command {
       }
 
       newId = response.data.id
+
+      // Write back the xanoscript returned by Xano (includes real canonical, etc.)
+      const responseData = response.data as { id: number; xanoscript?: string | { status?: string; value: string } }
+      if (responseData.xanoscript) {
+        const xsValue = typeof responseData.xanoscript === 'string'
+          ? responseData.xanoscript
+          : responseData.xanoscript.value
+        if (xsValue) {
+          writeFileSync(fullPath, xsValue, 'utf8')
+          content = xsValue // Update content for objects.json
+        }
+      }
     }
 
     // Update objects.json
@@ -571,37 +667,17 @@ export default class Push extends Command {
     knownPaths: Set<string>,
     newFiles: string[]
   ): void {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    const entries = readdirSync(dir, { withFileTypes: true })
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name)
+      const fullPath = join(dir, entry.name)
       if (entry.isDirectory()) {
         this.walkDir(fullPath, projectRoot, knownPaths, newFiles)
       } else if (entry.name.endsWith('.xs')) {
-        const relativePath = path.relative(projectRoot, fullPath)
+        const relativePath = relative(projectRoot, fullPath)
         if (!knownPaths.has(relativePath)) {
           newFiles.push(relativePath)
         }
       }
     }
-  }
-
-  /**
-   * Fetch API endpoint -> API group mappings from Xano
-   * Returns a Map of endpoint_id -> apigroup_id
-   */
-  private async fetchApiGroupMappings(api: XanoApi): Promise<Map<number, number>> {
-    const mappings = new Map<number, number>()
-
-    // listApiEndpoints already fetches per-group and includes apigroup_id
-    const endpointsResponse = await api.listApiEndpoints(1, 1000)
-    if (endpointsResponse.ok && endpointsResponse.data?.items) {
-      for (const endpoint of endpointsResponse.data.items) {
-        if (endpoint.apigroup_id) {
-          mappings.set(endpoint.id, endpoint.apigroup_id)
-        }
-      }
-    }
-
-    return mappings
   }
 }

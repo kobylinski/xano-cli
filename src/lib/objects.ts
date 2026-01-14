@@ -3,9 +3,9 @@
  * Handles .xano/objects.json (VSCode compatible)
  */
 
-import * as crypto from 'node:crypto'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import type { XanoObject, XanoObjectsFile, XanoObjectType } from './types.js'
 
@@ -31,14 +31,14 @@ export type ApiGroupsFile = Record<string, ApiGroupInfo>
  * Get path to .xano/objects.json
  */
 export function getObjectsJsonPath(projectRoot: string): string {
-  return path.join(getXanoDirPath(projectRoot), OBJECTS_JSON)
+  return join(getXanoDirPath(projectRoot), OBJECTS_JSON)
 }
 
 /**
  * Get path to .xano/groups.json
  */
 export function getGroupsJsonPath(projectRoot: string): string {
-  return path.join(getXanoDirPath(projectRoot), GROUPS_JSON)
+  return join(getXanoDirPath(projectRoot), GROUPS_JSON)
 }
 
 /**
@@ -47,12 +47,12 @@ export function getGroupsJsonPath(projectRoot: string): string {
 export function loadObjects(projectRoot: string): XanoObjectsFile {
   const filePath = getObjectsJsonPath(projectRoot)
 
-  if (!fs.existsSync(filePath)) {
+  if (!existsSync(filePath)) {
     return []
   }
 
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readFileSync(filePath, 'utf8')
     return JSON.parse(content) as XanoObjectsFile
   } catch {
     return []
@@ -65,7 +65,7 @@ export function loadObjects(projectRoot: string): XanoObjectsFile {
 export function saveObjects(projectRoot: string, objects: XanoObjectsFile): void {
   ensureXanoDir(projectRoot)
   const filePath = getObjectsJsonPath(projectRoot)
-  fs.writeFileSync(filePath, JSON.stringify(objects, null, 2) + '\n', 'utf-8')
+  writeFileSync(filePath, JSON.stringify(objects, null, 2) + '\n', 'utf8')
 }
 
 /**
@@ -74,12 +74,12 @@ export function saveObjects(projectRoot: string, objects: XanoObjectsFile): void
 export function loadGroups(projectRoot: string): ApiGroupsFile {
   const filePath = getGroupsJsonPath(projectRoot)
 
-  if (!fs.existsSync(filePath)) {
+  if (!existsSync(filePath)) {
     return {}
   }
 
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readFileSync(filePath, 'utf8')
     return JSON.parse(content) as ApiGroupsFile
   } catch {
     return {}
@@ -92,7 +92,7 @@ export function loadGroups(projectRoot: string): ApiGroupsFile {
 export function saveGroups(projectRoot: string, groups: ApiGroupsFile): void {
   ensureXanoDir(projectRoot)
   const filePath = getGroupsJsonPath(projectRoot)
-  fs.writeFileSync(filePath, JSON.stringify(groups, null, 2) + '\n', 'utf-8')
+  writeFileSync(filePath, JSON.stringify(groups, null, 2) + '\n', 'utf8')
 }
 
 /**
@@ -124,6 +124,7 @@ export function findGroupByCanonical(groups: ApiGroupsFile, canonical: string): 
       return name
     }
   }
+
   return undefined
 }
 
@@ -152,18 +153,18 @@ export function findObjectsByType(objects: XanoObjectsFile, type: XanoObjectType
  * Compute SHA256 hash of content
  */
 export function computeSha256(content: string): string {
-  return crypto.createHash('sha256').update(content, 'utf-8').digest('hex')
+  return createHash('sha256').update(content, 'utf8').digest('hex')
 }
 
 /**
  * Compute SHA256 hash of file
  */
 export function computeFileSha256(filePath: string): null | string {
-  if (!fs.existsSync(filePath)) {
+  if (!existsSync(filePath)) {
     return null
   }
 
-  const content = fs.readFileSync(filePath, 'utf8')
+  const content = readFileSync(filePath, 'utf8')
   return computeSha256(content)
 }
 
@@ -171,14 +172,14 @@ export function computeFileSha256(filePath: string): null | string {
  * Encode content to base64
  */
 export function encodeBase64(content: string): string {
-  return Buffer.from(content, 'utf-8').toString('base64')
+  return Buffer.from(content, 'utf8').toString('base64')
 }
 
 /**
  * Decode content from base64
  */
 export function decodeBase64(base64: string): string {
-  return Buffer.from(base64, 'base64').toString('utf-8')
+  return Buffer.from(base64, 'base64').toString('utf8')
 }
 
 /**
@@ -190,7 +191,7 @@ export function upsertObject(
   data: Partial<XanoObject> & { id: number; type: XanoObjectType }
 ): XanoObjectsFile {
   const existingIndex = objects.findIndex((obj) => obj.path === filePath)
-  const fileContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : ''
+  const fileContent = existsSync(filePath) ? readFileSync(filePath, 'utf8') : ''
 
   const newObject: XanoObject = {
     id: data.id,
@@ -223,7 +224,7 @@ export function upsertObject(
 export function findApiGroupForEndpoint(
   objects: XanoObjectsFile,
   endpointPath: string
-): XanoObject | undefined {
+): undefined | XanoObject {
   // Get the parent directory of the endpoint
   // e.g., app/apis/bootstrap/auth_login_POST.xs -> ['app', 'apis', 'bootstrap', 'auth_login_POST.xs']
   const parts = endpointPath.split('/')
@@ -278,9 +279,9 @@ export function updateObjectStatus(
   projectRoot: string
 ): XanoObjectsFile {
   return objects.map((obj) => {
-    const fullPath = path.join(projectRoot, obj.path)
+    const fullPath = join(projectRoot, obj.path)
 
-    if (!fs.existsSync(fullPath)) {
+    if (!existsSync(fullPath)) {
       return { ...obj, status: 'notfound' as const }
     }
 

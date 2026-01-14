@@ -12,12 +12,12 @@ import {
 
 export default class DataGet extends Command {
   static args = {
-    table: Args.string({
-      description: 'Table name or ID',
-      required: true,
-    }),
     pk: Args.string({
       description: 'Primary key value',
+      required: true,
+    }),
+    table: Args.string({
+      description: 'Table name or ID',
       required: true,
     }),
   }
@@ -99,11 +99,12 @@ export default class DataGet extends Command {
       } else {
         displayValue = String(value)
       }
+
       this.log(`${key}: ${displayValue}`)
     }
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<number | null> {
+  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

@@ -1,13 +1,14 @@
 import { expect } from 'chai'
 
-import { XanoApi } from '../../src/lib/api.js'
 import type { XanoProfile } from '../../src/lib/types.js'
+
+import { XanoApi } from '../../src/lib/api.js'
 
 describe('lib/api - Table Content Methods', () => {
   // Mock profile for testing
   const mockProfile: XanoProfile = {
-    access_token: 'test-token',
-    instance_origin: 'https://test.xano.io',
+    access_token: 'test-token', // eslint-disable-line camelcase
+    instance_origin: 'https://test.xano.io', // eslint-disable-line camelcase
   }
 
   const workspaceId = 123

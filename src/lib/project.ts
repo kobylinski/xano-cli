@@ -3,8 +3,8 @@
  * Handles xano.json (versioned) and .xano/config.json (local)
  */
 
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 import type { XanoLocalConfig, XanoPaths, XanoProjectConfig } from './types.js'
 
@@ -19,26 +19,26 @@ const CONFIG_JSON = 'config.json'
 export function findProjectRoot(startDir: string = process.cwd()): null | string {
   let currentDir = startDir
 
-  while (currentDir !== path.dirname(currentDir)) {
+  while (currentDir !== dirname(currentDir)) {
     // Primary: look for .xano/config.json
-    const configJsonPath = path.join(currentDir, XANO_DIR, CONFIG_JSON)
-    if (fs.existsSync(configJsonPath)) {
+    const configJsonPath = join(currentDir, XANO_DIR, CONFIG_JSON)
+    if (existsSync(configJsonPath)) {
       return currentDir
     }
 
     // Fallback: look for xano.js (dynamic config)
-    const xanoJsPath = path.join(currentDir, XANO_JS)
-    if (fs.existsSync(xanoJsPath)) {
+    const xanoJsPath = join(currentDir, XANO_JS)
+    if (existsSync(xanoJsPath)) {
       return currentDir
     }
 
     // Fallback: look for xano.json (static config)
-    const xanoJsonPath = path.join(currentDir, XANO_JSON)
-    if (fs.existsSync(xanoJsonPath)) {
+    const xanoJsonPath = join(currentDir, XANO_JSON)
+    if (existsSync(xanoJsonPath)) {
       return currentDir
     }
 
-    currentDir = path.dirname(currentDir)
+    currentDir = dirname(currentDir)
   }
 
   return null
@@ -55,21 +55,21 @@ export function isXanoProject(dir: string = process.cwd()): boolean {
  * Get path to xano.json
  */
 export function getXanoJsonPath(projectRoot: string): string {
-  return path.join(projectRoot, XANO_JSON)
+  return join(projectRoot, XANO_JSON)
 }
 
 /**
  * Get path to .xano directory
  */
 export function getXanoDirPath(projectRoot: string): string {
-  return path.join(projectRoot, XANO_DIR)
+  return join(projectRoot, XANO_DIR)
 }
 
 /**
  * Get path to .xano/config.json
  */
 export function getConfigJsonPath(projectRoot: string): string {
-  return path.join(projectRoot, XANO_DIR, CONFIG_JSON)
+  return join(projectRoot, XANO_DIR, CONFIG_JSON)
 }
 
 /**
@@ -78,12 +78,12 @@ export function getConfigJsonPath(projectRoot: string): string {
 export function loadXanoJson(projectRoot: string): null | XanoProjectConfig {
   const filePath = getXanoJsonPath(projectRoot)
 
-  if (!fs.existsSync(filePath)) {
+  if (!existsSync(filePath)) {
     return null
   }
 
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readFileSync(filePath, 'utf8')
     return JSON.parse(content) as XanoProjectConfig
   } catch {
     return null
@@ -95,7 +95,7 @@ export function loadXanoJson(projectRoot: string): null | XanoProjectConfig {
  */
 export function saveXanoJson(projectRoot: string, config: XanoProjectConfig): void {
   const filePath = getXanoJsonPath(projectRoot)
-  fs.writeFileSync(filePath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+  writeFileSync(filePath, JSON.stringify(config, null, 2) + '\n', 'utf8')
 }
 
 /**
@@ -104,8 +104,8 @@ export function saveXanoJson(projectRoot: string, config: XanoProjectConfig): vo
 export function ensureXanoDir(projectRoot: string): string {
   const xanoDir = getXanoDirPath(projectRoot)
 
-  if (!fs.existsSync(xanoDir)) {
-    fs.mkdirSync(xanoDir, { recursive: true })
+  if (!existsSync(xanoDir)) {
+    mkdirSync(xanoDir, { recursive: true })
   }
 
   return xanoDir
@@ -118,12 +118,12 @@ export function ensureXanoDir(projectRoot: string): string {
 export function loadLocalConfig(projectRoot: string): null | XanoLocalConfig {
   const filePath = getConfigJsonPath(projectRoot)
 
-  if (!fs.existsSync(filePath)) {
+  if (!existsSync(filePath)) {
     return null
   }
 
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readFileSync(filePath, 'utf8')
     const parsed = JSON.parse(content) as XanoLocalConfig
 
     // Normalize paths to canonical CLI format (handles VSCode camelCase keys)
@@ -144,7 +144,7 @@ export function loadLocalConfig(projectRoot: string): null | XanoLocalConfig {
 export function saveLocalConfig(projectRoot: string, config: XanoLocalConfig): void {
   ensureXanoDir(projectRoot)
   const filePath = getConfigJsonPath(projectRoot)
-  fs.writeFileSync(filePath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+  writeFileSync(filePath, JSON.stringify(config, null, 2) + '\n', 'utf8')
 }
 
 /**
@@ -168,7 +168,7 @@ export function createLocalConfig(
  * Check if .xano/config.json exists (project is initialized)
  */
 export function isInitialized(projectRoot: string): boolean {
-  return fs.existsSync(getConfigJsonPath(projectRoot))
+  return existsSync(getConfigJsonPath(projectRoot))
 }
 
 /**
@@ -197,17 +197,17 @@ export function setCurrentBranch(projectRoot: string, branch: string): void {
 export function getDefaultPaths(): XanoPaths {
   return {
     addOns: 'addons',
-    agentTriggers: 'agents/triggers',
     agents: 'agents',
+    agentTriggers: 'agents/triggers',
     apis: 'apis',
     functions: 'functions',
-    mcpServerTriggers: 'mcp_servers/triggers',
     mcpServers: 'mcp_servers',
+    mcpServerTriggers: 'mcp_servers/triggers',
     middlewares: 'middlewares',
     realtimeChannels: 'realtime',
     realtimeTriggers: 'realtime/triggers',
-    tableTriggers: 'tables/triggers',
     tables: 'tables',
+    tableTriggers: 'tables/triggers',
     tasks: 'tasks',
     tools: 'tools',
     workflowTests: 'workflow_tests',
@@ -221,7 +221,7 @@ export function getDefaultPaths(): XanoPaths {
 const LEGACY_KEY_MAPPING: Record<string, string> = {
   addons: 'addOns',
   triggers: 'tableTriggers',
-  workflow_tests: 'workflowTests',
+  workflow_tests: 'workflowTests', // eslint-disable-line camelcase
 }
 
 /**

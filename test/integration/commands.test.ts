@@ -6,9 +6,9 @@
 
 import { runCommand } from '@oclif/test'
 import { expect } from 'chai'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   INTEGRATION_ENABLED,
@@ -41,12 +41,12 @@ describe('Integration: Commands', function () {
     }
 
     // Create temp directory for test project
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xano-cli-integration-'))
+    tempDir = mkdtempSync(join(tmpdir(), 'xano-cli-integration-'))
   })
 
   afterEach(() => {
-    if (tempDir && fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { force: true, recursive: true })
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { force: true, recursive: true })
     }
   })
 
@@ -58,9 +58,9 @@ describe('Integration: Commands', function () {
       }
 
       // Create minimal project config for list command
-      fs.mkdirSync(path.join(tempDir, '.xano'), { recursive: true })
-      fs.writeFileSync(
-        path.join(tempDir, '.xano', 'config.json'),
+      mkdirSync(join(tempDir, '.xano'), { recursive: true })
+      writeFileSync(
+        join(tempDir, '.xano', 'config.json'),
         JSON.stringify({
           branch: testConfig.branch,
           instanceName: testConfig.instance,
@@ -74,7 +74,7 @@ describe('Integration: Commands', function () {
           workspaceName: 'Test',
         })
       )
-      fs.writeFileSync(path.join(tempDir, '.xano', 'objects.json'), '[]')
+      writeFileSync(join(tempDir, '.xano', 'objects.json'), '[]')
     })
 
     it('lists all object types', async function () {
@@ -163,9 +163,9 @@ describe('Integration: Commands', function () {
       }
 
       // Create minimal project config
-      fs.mkdirSync(path.join(tempDir, '.xano'), { recursive: true })
-      fs.writeFileSync(
-        path.join(tempDir, '.xano', 'config.json'),
+      mkdirSync(join(tempDir, '.xano'), { recursive: true })
+      writeFileSync(
+        join(tempDir, '.xano', 'config.json'),
         JSON.stringify({
           branch: testConfig.branch,
           instanceName: testConfig.instance,

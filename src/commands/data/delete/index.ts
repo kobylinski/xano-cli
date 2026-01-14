@@ -12,12 +12,12 @@ import {
 
 export default class DataDelete extends Command {
   static args = {
-    table: Args.string({
-      description: 'Table name or ID',
-      required: true,
-    }),
     pk: Args.string({
       description: 'Primary key value',
+      required: true,
+    }),
+    table: Args.string({
+      description: 'Table name or ID',
       required: true,
     }),
   }
@@ -92,9 +92,11 @@ export default class DataDelete extends Command {
           } else {
             displayValue = String(value)
           }
+
           this.log(`  ${key}: ${displayValue}`)
         }
       }
+
       this.log('')
       this.log('Use --force to confirm deletion')
       return
@@ -109,7 +111,7 @@ export default class DataDelete extends Command {
     this.log(`Record ${args.pk} deleted successfully.`)
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<number | null> {
+  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

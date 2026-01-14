@@ -36,22 +36,22 @@ export type XanoObjectType =
 
 // Paths configuration (VSCode extension compatible - camelCase keys)
 export interface XanoPaths {
+  [key: string]: string | undefined
   addOns?: string
-  agentTriggers?: string
   agents?: string
+  agentTriggers?: string
   apis: string
   functions: string
-  mcpServerTriggers?: string
   mcpServers?: string
+  mcpServerTriggers?: string
   middlewares?: string
   realtimeChannels?: string
   realtimeTriggers?: string
-  tableTriggers?: string
   tables: string
+  tableTriggers?: string
   tasks: string
   tools?: string
   workflowTests: string
-  [key: string]: string | undefined
 }
 
 // xano.json - versioned project config
@@ -69,7 +69,7 @@ export type PathResolver = (
   obj: { group?: string; id: number; name: string; path?: string; table?: string; type: XanoObjectType; verb?: string },
   paths: XanoPaths,
   context: ResolverContext
-) => string | null
+) => null | string
 
 // Sanitize function type
 // Returns sanitized name, can use context.default to delegate to default sanitization
@@ -79,7 +79,7 @@ export type SanitizeFunction = (name: string, context: ResolverContext) => strin
 export type TypeResolver = (
   inputPath: string,
   paths: XanoPaths
-) => XanoObjectType[] | null
+) => null | XanoObjectType[]
 
 // xano.js dynamic config
 export interface XanoDynamicConfig extends XanoProjectConfig {

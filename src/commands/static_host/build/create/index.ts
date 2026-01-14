@@ -1,8 +1,8 @@
 import {Args, Flags} from '@oclif/core'
 import * as yaml from 'js-yaml'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, join, resolve } from 'node:path'
 
 import BaseCommand from '../../../../base-command.js'
 
@@ -22,7 +22,7 @@ interface CredentialsFile {
 }
 
 interface BuildCreateResponse {
-  [key: string]: any
+  [key: string]: unknown
   id: number
   name: string
   status?: string
@@ -30,7 +30,7 @@ interface BuildCreateResponse {
 
 export default class StaticHostBuildCreate extends BaseCommand {
   static args = {
-    static_host: Args.string({
+    static_host: Args.string({ // eslint-disable-line camelcase
       description: 'Static Host name',
       required: true,
     }),
@@ -131,20 +131,20 @@ static override flags = {
     }
 
     // Validate file exists
-    const filePath = path.resolve(flags.file)
-    if (!fs.existsSync(filePath)) {
+    const filePath = resolve(flags.file)
+    if (!existsSync(filePath)) {
       this.error(`File not found: ${filePath}`)
     }
 
     // Check if file is readable
     try {
-      fs.accessSync(filePath, fs.constants.R_OK)
+      accessSync(filePath, constants.R_OK)
     } catch {
       this.error(`File is not readable: ${filePath}`)
     }
 
     // Get file stats
-    const stats = fs.statSync(filePath)
+    const stats = statSync(filePath)
     if (!stats.isFile()) {
       this.error(`Path is not a file: ${filePath}`)
     }
@@ -152,14 +152,13 @@ static override flags = {
     // Construct the API URL
     const apiUrl = `${profile.instance_origin}/api:meta/workspace/${workspaceId}/static_host/${args.static_host}/build`
 
-    // Create FormData
-    const FormData = (await import('node:buffer')).Blob
-    const formData = new (globalThis as any).FormData()
+    // Create FormData (using global FormData available in Node.js 18+)
+    const formData = new FormData()
 
     // Read file and create blob
-    const fileBuffer = fs.readFileSync(filePath)
+    const fileBuffer = readFileSync(filePath)
     const blob = new Blob([fileBuffer], {type: 'application/zip'})
-    formData.append('file', blob, path.basename(filePath))
+    formData.append('file', blob, basename(filePath))
     formData.append('name', flags.name)
 
     if (flags.description) {
@@ -218,11 +217,11 @@ static override flags = {
   }
 
   private loadCredentials(): CredentialsFile {
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Check if credentials file exists
-    if (!fs.existsSync(credentialsPath)) {
+    if (!existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
         `Create a profile using 'xano profile:create'`,
@@ -231,7 +230,7 @@ static override flags = {
 
     // Read credentials file
     try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {

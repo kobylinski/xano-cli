@@ -1,9 +1,9 @@
 import {Args, Flags} from '@oclif/core'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 import BaseCommand from '../../../base-command.js'
 
@@ -22,6 +22,11 @@ interface CredentialsFile {
   }
 }
 
+interface XanoScriptValue {
+  status?: string
+  value?: string
+}
+
 interface Function {
   created_at?: number | string
   description?: string
@@ -29,8 +34,7 @@ interface Function {
   name: string
   type?: string
   updated_at?: number | string
-  xanoscript?: any
-  // Add other function properties as needed
+  xanoscript?: string | XanoScriptValue
 }
 
 interface FunctionListResponse {
@@ -41,7 +45,7 @@ interface FunctionListResponse {
 
 export default class FunctionGet extends BaseCommand {
   static args = {
-    function_id: Args.string({
+    function_id: Args.string({ // eslint-disable-line camelcase
       description: 'Function ID',
       required: false,
     }),
@@ -87,12 +91,12 @@ function yo {
   ]
 static override flags = {
     ...BaseCommand.baseFlags,
-    include_draft: Flags.boolean({
+    include_draft: Flags.boolean({ // eslint-disable-line camelcase
       default: false,
       description: 'Include draft version',
       required: false,
     }),
-    include_xanoscript: Flags.boolean({
+    include_xanoscript: Flags.boolean({ // eslint-disable-line camelcase
       default: false,
       description: 'Include XanoScript in response',
       required: false,
@@ -154,16 +158,15 @@ static override flags = {
     }
 
     // If function_id is not provided, prompt user to select from list
-    let functionId: string
-    functionId = args.function_id ? args.function_id : (await this.promptForFunctionId(profile, workspaceId));
+    const functionId = args.function_id || (await this.promptForFunctionId(profile, workspaceId));
 
     // Build query parameters
     // Automatically set include_xanoscript to true if output format is xs
     const includeXanoscript = flags.output === 'xs' ? true : flags.include_xanoscript
 
     const queryParams = new URLSearchParams({
-      include_draft: flags.include_draft.toString(),
-      include_xanoscript: includeXanoscript.toString(),
+      include_draft: flags.include_draft.toString(), // eslint-disable-line camelcase
+      include_xanoscript: includeXanoscript.toString(), // eslint-disable-line camelcase
     })
 
     // Construct the API URL
@@ -200,8 +203,10 @@ static override flags = {
         // xs (XanoScript) format - output only the xanoscript element
         if (func.xanoscript) {
           // If status is "ok", output only the value, otherwise output the full xanoscript object
-          if (func.xanoscript.status === 'ok' && func.xanoscript.value !== undefined) {
+          if (typeof func.xanoscript === 'object' && func.xanoscript.status === 'ok' && func.xanoscript.value !== undefined) {
             this.log(func.xanoscript.value)
+          } else if (typeof func.xanoscript === 'string') {
+            this.log(func.xanoscript)
           } else {
             this.log(JSON.stringify(func.xanoscript, null, 2))
           }
@@ -239,11 +244,11 @@ static override flags = {
   }
 
   private loadCredentials(): CredentialsFile {
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Check if credentials file exists
-    if (!fs.existsSync(credentialsPath)) {
+    if (!existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
         `Create a profile using 'xano profile:create'`,
@@ -252,7 +257,7 @@ static override flags = {
 
     // Read credentials file
     try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {
@@ -269,11 +274,11 @@ static override flags = {
     try {
       // Fetch list of functions
       const queryParams = new URLSearchParams({
-        include_draft: 'false',
-        include_xanoscript: 'false',
+        include_draft: 'false', // eslint-disable-line camelcase
+        include_xanoscript: 'false', // eslint-disable-line camelcase
         order: 'desc',
         page: '1',
-        per_page: '50',
+        per_page: '50', // eslint-disable-line camelcase
         sort: 'created_at',
       })
 

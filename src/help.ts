@@ -1,4 +1,4 @@
-import {Help as BaseHelp, Command, Interfaces} from '@oclif/core'
+import {Help as BaseHelp, Command} from '@oclif/core'
 import {CommandHelp as BaseCommandHelp} from '@oclif/core/help'
 
 /**

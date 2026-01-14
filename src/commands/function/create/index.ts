@@ -1,9 +1,9 @@
 import {Flags} from '@oclif/core'
 import * as yaml from 'js-yaml'
 import {execSync} from 'node:child_process'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { extname, join } from 'node:path'
 
 import BaseCommand from '../../../base-command.js'
 
@@ -23,7 +23,7 @@ interface CredentialsFile {
 }
 
 interface CreateFunctionResponse {
-  [key: string]: any
+  [key: string]: unknown
   id: number
   name: string
 }
@@ -151,12 +151,12 @@ static override flags = {
       }
 
       try {
-        xanoscript = fs.readFileSync(fileToRead, 'utf8')
+        xanoscript = readFileSync(fileToRead, 'utf8')
 
         // Clean up temp file if it was created
         if (flags.edit && fileToRead !== flags.file) {
           try {
-            fs.unlinkSync(fileToRead)
+            unlinkSync(fileToRead)
           } catch {
             // Ignore cleanup errors
           }
@@ -182,7 +182,7 @@ static override flags = {
 
     // Construct the API URL
     const queryParams = new URLSearchParams({
-      include_xanoscript: 'false',
+      include_xanoscript: 'false', // eslint-disable-line camelcase
     })
     const apiUrl = `${profile.instance_origin}/api:meta/workspace/${workspaceId}/function?${queryParams.toString()}`
 
@@ -254,18 +254,18 @@ static override flags = {
     // Read the original file
     let originalContent: string
     try {
-      originalContent = fs.readFileSync(filePath, 'utf8')
+      originalContent = readFileSync(filePath, 'utf8')
     } catch (error) {
       this.error(`Failed to read file '${filePath}': ${error}`)
     }
 
     // Create a temporary file with the same extension
-    const ext = path.extname(filePath)
-    const tmpFile = path.join(os.tmpdir(), `xano-edit-${Date.now()}${ext}`)
+    const ext = extname(filePath)
+    const tmpFile = join(tmpdir(), `xano-edit-${Date.now()}${ext}`)
 
     // Copy content to temp file
     try {
-      fs.writeFileSync(tmpFile, originalContent, 'utf8')
+      writeFileSync(tmpFile, originalContent, 'utf8')
     } catch (error) {
       this.error(`Failed to create temporary file: ${error}`)
     }
@@ -276,7 +276,7 @@ static override flags = {
     } catch (error) {
       // Clean up temp file
       try {
-        fs.unlinkSync(tmpFile)
+        unlinkSync(tmpFile)
       } catch {
         // Ignore cleanup errors
       }
@@ -288,11 +288,11 @@ static override flags = {
   }
 
   private loadCredentials(): CredentialsFile {
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Check if credentials file exists
-    if (!fs.existsSync(credentialsPath)) {
+    if (!existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
         `Create a profile using 'xano profile:create'`,
@@ -301,7 +301,7 @@ static override flags = {
 
     // Read credentials file
     try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {

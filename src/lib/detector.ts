@@ -3,7 +3,7 @@
  * Detects object type from content and extracts natural key
  */
 
-import * as path from 'node:path'
+import { basename, dirname, extname, sep } from 'node:path'
 
 import type { NamingMode, ResolverContext, XanoObjectType, XanoPaths } from './types.js'
 
@@ -13,12 +13,12 @@ import type { NamingMode, ResolverContext, XanoObjectType, XanoPaths } from './t
  */
 export function sanitize(name: string): string {
   return name
-    .replace(/((?<!^)[A-Z][a-z]+)/g, '_$1')  // camelCase → snake_case
+    .replaceAll(/((?<!^)[A-Z][a-z]+)/g, '_$1')  // camelCase → snake_case
     .toLowerCase()
-    .replace(/[\s-]+/g, '_')                  // spaces/hyphens → underscore
-    .replace(/[^a-z0-9_]/g, '_')              // remove invalid chars
-    .replace(/_+/g, '_')                      // collapse underscores
-    .replace(/^_|_$/g, '')                    // trim leading/trailing
+    .replaceAll(/[\s-]+/g, '_')                  // spaces/hyphens → underscore
+    .replaceAll(/[^a-z0-9_]/g, '_')              // remove invalid chars
+    .replaceAll(/_+/g, '_')                      // collapse underscores
+    .replaceAll(/^_|_$/g, '')                    // trim leading/trailing
 }
 
 /**
@@ -28,13 +28,13 @@ export function sanitize(name: string): string {
  */
 export function snakeCase(str: string): string {
   return str
-    .replace(/([a-z])([A-Z])/g, '$1_$2')     // camelCase → snake_case
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2') // ABCDef → ABC_Def
-    .replace(/[\s\-./]+/g, '_')              // spaces, hyphens, dots, slashes → underscore
-    .replace(/[^a-zA-Z0-9_]/g, '')           // remove other invalid chars
+    .replaceAll(/([a-z])([A-Z])/g, '$1_$2')     // camelCase → snake_case
+    .replaceAll(/([A-Z]+)([A-Z][a-z])/g, '$1_$2') // ABCDef → ABC_Def
+    .replaceAll(/[\s\-./]+/g, '_')              // spaces, hyphens, dots, slashes → underscore
+    .replaceAll(/[^a-zA-Z0-9_]/g, '')           // remove other invalid chars
     .toLowerCase()
-    .replace(/_+/g, '_')                      // collapse underscores
-    .replace(/^_|_$/g, '')                    // trim leading/trailing
+    .replaceAll(/_+/g, '_')                      // collapse underscores
+    .replaceAll(/^_|_$/g, '')                    // trim leading/trailing
 }
 
 /**
@@ -217,44 +217,44 @@ export function generateKey(content: string): null | string {
  * Generate key from file path (fallback when content not available)
  */
 export function generateKeyFromPath(filePath: string): null | string {
-  const ext = path.extname(filePath)
+  const ext = extname(filePath)
   if (ext !== '.xs') return null
 
-  const basename = path.basename(filePath, ext)
-  const dir = path.dirname(filePath)
-  const parts = dir.split(path.sep)
+  const fileBasename = basename(filePath, ext)
+  const dir = dirname(filePath)
+  const parts = dir.split(sep)
 
   // Detect type from directory structure
   if (parts.includes('functions')) {
-    return `function:${basename}`
+    return `function:${fileBasename}`
   }
 
   if (parts.includes('tables')) {
     // Could be table or trigger
-    if (basename.includes('_trigger_') || parts.includes('triggers')) {
-      return `trigger:${basename}`
+    if (fileBasename.includes('_trigger_') || parts.includes('triggers')) {
+      return `trigger:${fileBasename}`
     }
 
-    return `table:${basename}`
+    return `table:${fileBasename}`
   }
 
   if (parts.includes('apis')) {
     // Extract verb from filename pattern: ID_VERB_path.xs
-    const match = basename.match(/^\d+_(\w+)_/)
+    const match = fileBasename.match(/^\d+_(\w+)_/)
     if (match) {
       const verb = match[1].toUpperCase()
-      return `api:${verb}:${basename}`
+      return `api:${verb}:${fileBasename}`
     }
 
-    return `api:${basename}`
+    return `api:${fileBasename}`
   }
 
   if (parts.includes('tasks')) {
-    return `task:${basename}`
+    return `task:${fileBasename}`
   }
 
   if (parts.includes('workflow_tests')) {
-    return `workflow_test:${basename}`
+    return `workflow_test:${fileBasename}`
   }
 
   return null
@@ -264,13 +264,13 @@ export function generateKeyFromPath(filePath: string): null | string {
  * Detect type from file path
  */
 export function detectTypeFromPath(filePath: string): null | XanoObjectType {
-  const dir = path.dirname(filePath)
-  const parts = dir.split(path.sep)
+  const dir = dirname(filePath)
+  const parts = dir.split(sep)
 
   if (parts.includes('functions')) return 'function'
   if (parts.includes('tables')) {
-    const basename = path.basename(filePath, '.xs')
-    if (basename.includes('trigger')) return 'table_trigger'
+    const fileBasename = basename(filePath, '.xs')
+    if (fileBasename.includes('trigger')) return 'table_trigger'
     return 'table'
   }
 
@@ -298,7 +298,7 @@ export interface PathResolverObject {
  * Options for generateFilePath
  */
 export interface GenerateFilePathOptions {
-  customResolver?: (obj: PathResolverObject, paths: XanoPaths, context: ResolverContext) => string | null
+  customResolver?: (obj: PathResolverObject, paths: XanoPaths, context: ResolverContext) => null | string
   customSanitize?: (name: string, context: ResolverContext) => string
   naming?: NamingMode
 }
@@ -319,9 +319,10 @@ function generateVSCodePath(
     const parts = name.split('/')
     if (parts.length > 1) {
       const folders = parts.slice(0, -1).map(p => s(p)).join('/')
-      const filename = s(parts[parts.length - 1])
+      const filename = s(parts.at(-1)!)
       return { filename, folders }
     }
+
     return { filename: s(name), folders: '' }
   }
 
@@ -530,11 +531,13 @@ function getDefaultSanitizer(naming: NamingMode): (name: string) => string {
   switch (naming) {
     case 'vscode':
     case 'vscode_id':
-    case 'vscode_name':
+    case 'vscode_name': {
       return snakeCase
-    case 'default':
-    default:
+    }
+
+    default: {
       return sanitize
+    }
   }
 }
 
@@ -584,17 +587,21 @@ export function generateFilePath(
   // Compute default path based on naming mode
   let defaultPath: string
   switch (naming) {
-    case 'vscode_id':
-      defaultPath = generateVSCodePath(obj, paths, true)
-      break
-    case 'vscode_name':
     case 'vscode':
+    case 'vscode_name': {
       defaultPath = generateVSCodePath(obj, paths, false)
       break
-    case 'default':
-    default:
+    }
+
+    case 'vscode_id': {
+      defaultPath = generateVSCodePath(obj, paths, true)
+      break
+    }
+
+    default: {
       defaultPath = generateDefaultPath(obj, paths, s)
       break
+    }
   }
 
   // Try custom resolver with context
@@ -632,9 +639,10 @@ function generateVSCodePathWithSanitizer(
     const parts = name.split('/')
     if (parts.length > 1) {
       const folders = parts.slice(0, -1).map(p => s(p)).join('/')
-      const filename = s(parts[parts.length - 1])
+      const filename = s(parts.at(-1)!)
       return { filename, folders }
     }
+
     return { filename: s(name), folders: '' }
   }
 
@@ -760,27 +768,21 @@ export function detectNamingMode(xsFiles: string[]): NamingMode {
   // Pattern: ID prefix at start of filename (e.g., "123_my_function.xs")
   const idPrefixPattern = /^\d+_/
 
-  let withIdCount = 0
-  let withoutIdCount = 0
-
   for (const filePath of xsFiles) {
-    const filename = path.basename(filePath)
+    const filename = basename(filePath)
 
     // Skip special files that never have ID prefix
     if (filename === 'api_group.xs') {
       continue
     }
 
+    // If we find any file with ID prefix, assume vscode_id mode
     if (idPrefixPattern.test(filename)) {
-      withIdCount++
-    } else {
-      withoutIdCount++
+      return 'vscode_id'
     }
   }
 
-  // If we found any files with ID prefix, assume vscode_id mode
-  // (even mixed is likely vscode_id with some manually created files)
-  return withIdCount > 0 ? 'vscode_id' : 'vscode_name'
+  return 'vscode_name'
 }
 
 /**
@@ -788,8 +790,8 @@ export function detectNamingMode(xsFiles: string[]): NamingMode {
  * "123_my_function.xs" → 123
  * "my_function.xs" → null
  */
-export function extractIdFromFilename(filename: string): number | null {
-  const basename = path.basename(filename, '.xs')
-  const match = basename.match(/^(\d+)_/)
-  return match ? parseInt(match[1], 10) : null
+export function extractIdFromFilename(filename: string): null | number {
+  const fileBasename = basename(filename, '.xs')
+  const match = fileBasename.match(/^(\d+)_/)
+  return match ? Number.parseInt(match[1], 10) : null
 }

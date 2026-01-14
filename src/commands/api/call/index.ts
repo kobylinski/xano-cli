@@ -1,6 +1,6 @@
 import { Args, Command, Flags } from '@oclif/core'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 
 import {
   getProfile,
@@ -32,15 +32,15 @@ function extractByPath(data: unknown, jsonPath: string): unknown {
   }
 
   // Parse path segments: field, field[0], etc.
-  const segments: Array<{ type: 'field' | 'index'; value: string | number }> = []
-  const regex = /([^.\[\]]+)|\[(\d+)\]/g
+  const segments: Array<{ type: 'field' | 'index'; value: number | string }> = []
+  const regex = /([^.[\]]+)|\[(\d+)\]/g
   let match
 
   while ((match = regex.exec(pathWithoutDot)) !== null) {
     if (match[1] !== undefined) {
       segments.push({ type: 'field', value: match[1] })
     } else if (match[2] !== undefined) {
-      segments.push({ type: 'index', value: parseInt(match[2], 10) })
+      segments.push({ type: 'index', value: Number.parseInt(match[2], 10) })
     }
   }
 
@@ -55,11 +55,13 @@ function extractByPath(data: unknown, jsonPath: string): unknown {
       if (typeof current !== 'object') {
         return undefined
       }
+
       current = (current as Record<string, unknown>)[segment.value as string]
     } else if (segment.type === 'index') {
       if (!Array.isArray(current)) {
         return undefined
       }
+
       current = current[segment.value as number]
     }
   }
@@ -174,7 +176,7 @@ export default class ApiCall extends Command {
     // Handle token authentication
     const token = this.resolveToken(flags.token, flags['token-file'])
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`
+      headers.Authorization = `Bearer ${token}`
     }
 
     // Parse custom headers
@@ -184,6 +186,7 @@ export default class ApiCall extends Command {
         if (colonIndex === -1) {
           this.error(`Invalid header format: "${h}". Use "Name: Value" format.`)
         }
+
         const name = h.slice(0, colonIndex).trim()
         const value = h.slice(colonIndex + 1).trim()
         headers[name] = value
@@ -195,15 +198,17 @@ export default class ApiCall extends Command {
     if (flags.body) {
       try {
         body = JSON.parse(flags.body)
-      } catch (error: any) {
-        this.error(`Invalid JSON body: ${error.message}`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.error(`Invalid JSON body: ${message}`)
       }
     } else if (flags['body-file']) {
       try {
-        const content = fs.readFileSync(flags['body-file'], 'utf-8')
+        const content = readFileSync(flags['body-file'], 'utf8')
         body = JSON.parse(content)
-      } catch (error: any) {
-        this.error(`Failed to read body file: ${error.message}`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.error(`Failed to read body file: ${message}`)
       }
     }
 
@@ -236,11 +241,12 @@ export default class ApiCall extends Command {
       // Still allow saving error response
       if (flags.save) {
         const savePath = flags.save
-        const saveDir = path.dirname(savePath)
-        if (saveDir && !fs.existsSync(saveDir)) {
-          fs.mkdirSync(saveDir, { recursive: true })
+        const saveDir = dirname(savePath)
+        if (saveDir && !existsSync(saveDir)) {
+          mkdirSync(saveDir, { recursive: true })
         }
-        fs.writeFileSync(savePath, JSON.stringify(errorOutput, null, 2) + '\n', 'utf-8')
+
+        writeFileSync(savePath, JSON.stringify(errorOutput, null, 2) + '\n', 'utf8')
         if (!flags.raw) {
           this.log(`Saved to ${savePath}`)
         }
@@ -259,8 +265,9 @@ export default class ApiCall extends Command {
         if (output === undefined) {
           this.error(`Field "${flags.extract}" not found in response`)
         }
-      } catch (error: any) {
-        this.error(`Extract error: ${error.message}`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.error(`Extract error: ${message}`)
       }
     }
 
@@ -280,11 +287,11 @@ export default class ApiCall extends Command {
     // Save to file if requested
     if (flags.save) {
       const savePath = flags.save
-      const saveDir = path.dirname(savePath)
+      const saveDir = dirname(savePath)
 
       // Create directory if it doesn't exist
-      if (saveDir && !fs.existsSync(saveDir)) {
-        fs.mkdirSync(saveDir, { recursive: true })
+      if (saveDir && !existsSync(saveDir)) {
+        mkdirSync(saveDir, { recursive: true })
       }
 
       // For extracted values, save just the raw value (no JSON wrapping for strings)
@@ -292,7 +299,7 @@ export default class ApiCall extends Command {
         ? output
         : typeof output === 'string' ? output : JSON.stringify(output, null, 2)
 
-      fs.writeFileSync(savePath, saveContent + '\n', 'utf-8')
+      writeFileSync(savePath, saveContent + '\n', 'utf8')
 
       // When saving, also output to console unless using --raw
       if (!flags.raw) {
@@ -307,36 +314,98 @@ export default class ApiCall extends Command {
   }
 
   /**
-   * Resolve auth token from flags
+   * Resolve canonical ID from endpoint path by looking up in objects.json
    */
-  private resolveToken(token?: string, tokenFile?: string): string | undefined {
-    if (token) {
-      return token
+  private resolveCanonicalFromPath(
+    projectRoot: string,
+    endpointPath: string,
+    method: string,
+    groups: ReturnType<typeof loadGroups>
+  ): string {
+    const objects = loadObjects(projectRoot)
+
+    // Normalize the path for comparison
+    const normalizedPath = endpointPath.startsWith('/') ? endpointPath.slice(1) : endpointPath
+
+    // Find matching api_endpoint objects
+    const matchingEndpoints: { groupName: string; path: string }[] = []
+
+    for (const obj of objects) {
+      if (obj.type !== 'api_endpoint') continue
+
+      // Extract endpoint path and group from the file path
+      // File path format: app/apis/{group}/{path}_{VERB}.xs
+      const parts = obj.path.split('/')
+      if (parts.length < 3) continue
+
+      const filename = parts.at(-1)!
+      const groupDir = parts.at(-2)!
+
+      // Parse filename to get endpoint path and verb
+      // Format: path_part_VERB.xs (e.g., auth_login_POST.xs, users_id_GET.xs)
+      const match = filename.match(/^(.+)_([A-Z]+)\.xs$/)
+      if (!match) continue
+
+      const [, pathPart, verb] = match
+
+      // Check if verb matches the requested method
+      if (verb !== method) continue
+
+      // Convert path_part back to path (approximate)
+      // This is tricky because we don't have the exact original path
+      // We'll try a simpler match: check if the normalized path contains the key parts
+
+      // For exact matching, we need to compare with the actual endpoint path
+      // Let's check if the path contains similar segments
+      const pathSegments = normalizedPath.replaceAll(/[{}]/g, '').split('/').filter(Boolean)
+      const filePathSegments = pathPart.split('_').filter(Boolean)
+
+      // Simple match: all path segments should appear in the file path
+      const isMatch = pathSegments.every(seg =>
+        filePathSegments.some(fileSeg =>
+          fileSeg.toLowerCase() === seg.toLowerCase() ||
+          fileSeg.toLowerCase() === 'id' && /^\{.*\}$/.test(seg)
+        )
+      )
+
+      if (isMatch || pathPart.toLowerCase().includes(pathSegments.join('_').toLowerCase())) {
+        matchingEndpoints.push({
+          groupName: groupDir,
+          path: obj.path,
+        })
+      }
     }
 
-    if (tokenFile) {
-      if (!fs.existsSync(tokenFile)) {
-        this.error(`Token file not found: ${tokenFile}`)
-      }
+    if (matchingEndpoints.length === 0) {
+      this.error(
+        `Could not find API endpoint for path "${endpointPath}".\n` +
+        'Run "xano pull --sync" to refresh metadata, or specify the group explicitly:\n' +
+        `  xano api:call <group> ${endpointPath}`
+      )
+    }
 
-      const content = fs.readFileSync(tokenFile, 'utf-8').trim()
-
-      // Try to parse as JSON and extract common token fields
-      try {
-        const json = JSON.parse(content)
-        if (json.authToken) return json.authToken
-        if (json.token) return json.token
-        if (json.access_token) return json.access_token
-        if (json.jwt) return json.jwt
-        // If JSON but no known token field, use the whole content
-        return content
-      } catch {
-        // Not JSON, use content as-is (trimmed)
-        return content
+    if (matchingEndpoints.length > 1) {
+      // Check if all matches are in the same group
+      const uniqueGroups = [...new Set(matchingEndpoints.map(e => e.groupName))]
+      if (uniqueGroups.length > 1) {
+        this.error(
+          `Ambiguous endpoint "${endpointPath}" found in multiple groups: ${uniqueGroups.join(', ')}\n` +
+          `Specify the group explicitly: xano api:call <group> ${endpointPath}`
+        )
       }
     }
 
-    return undefined
+    const {groupName} = matchingEndpoints[0]
+    const groupInfo = findGroupByName(groups, groupName)
+
+    if (!groupInfo) {
+      this.error(
+        `API group "${groupName}" not found in groups.json.\n` +
+        'Run "xano pull --sync" to refresh metadata.'
+      )
+    }
+
+    return groupInfo.canonical
   }
 
   /**
@@ -378,97 +447,35 @@ export default class ApiCall extends Command {
   }
 
   /**
-   * Resolve canonical ID from endpoint path by looking up in objects.json
+   * Resolve auth token from flags
    */
-  private resolveCanonicalFromPath(
-    projectRoot: string,
-    endpointPath: string,
-    method: string,
-    groups: ReturnType<typeof loadGroups>
-  ): string {
-    const objects = loadObjects(projectRoot)
+  private resolveToken(token?: string, tokenFile?: string): string | undefined {
+    if (token) {
+      return token
+    }
 
-    // Normalize the path for comparison
-    const normalizedPath = endpointPath.startsWith('/') ? endpointPath.slice(1) : endpointPath
+    if (tokenFile) {
+      if (!existsSync(tokenFile)) {
+        this.error(`Token file not found: ${tokenFile}`)
+      }
 
-    // Find matching api_endpoint objects
-    const matchingEndpoints: { groupName: string; path: string }[] = []
+      const content = readFileSync(tokenFile, 'utf8').trim()
 
-    for (const obj of objects) {
-      if (obj.type !== 'api_endpoint') continue
-
-      // Extract endpoint path and group from the file path
-      // File path format: app/apis/{group}/{path}_{VERB}.xs
-      const parts = obj.path.split('/')
-      if (parts.length < 3) continue
-
-      const filename = parts[parts.length - 1]
-      const groupDir = parts[parts.length - 2]
-
-      // Parse filename to get endpoint path and verb
-      // Format: path_part_VERB.xs (e.g., auth_login_POST.xs, users_id_GET.xs)
-      const match = filename.match(/^(.+)_([A-Z]+)\.xs$/)
-      if (!match) continue
-
-      const [, pathPart, verb] = match
-
-      // Check if verb matches the requested method
-      if (verb !== method) continue
-
-      // Convert path_part back to path (approximate)
-      // This is tricky because we don't have the exact original path
-      // We'll try a simpler match: check if the normalized path contains the key parts
-
-      // For exact matching, we need to compare with the actual endpoint path
-      // Let's check if the path contains similar segments
-      const pathSegments = normalizedPath.replace(/[{}]/g, '').split('/').filter(Boolean)
-      const filePathSegments = pathPart.split('_').filter(Boolean)
-
-      // Simple match: all path segments should appear in the file path
-      const isMatch = pathSegments.every(seg =>
-        filePathSegments.some(fileSeg =>
-          fileSeg.toLowerCase() === seg.toLowerCase() ||
-          fileSeg.toLowerCase() === 'id' && /^\{.*\}$/.test(seg)
-        )
-      )
-
-      if (isMatch || pathPart.toLowerCase().includes(pathSegments.join('_').toLowerCase())) {
-        matchingEndpoints.push({
-          groupName: groupDir,
-          path: obj.path,
-        })
+      // Try to parse as JSON and extract common token fields
+      try {
+        const json = JSON.parse(content)
+        if (json.authToken) return json.authToken
+        if (json.token) return json.token
+        if (json.access_token) return json.access_token
+        if (json.jwt) return json.jwt
+        // If JSON but no known token field, use the whole content
+        return content
+      } catch {
+        // Not JSON, use content as-is (trimmed)
+        return content
       }
     }
 
-    if (matchingEndpoints.length === 0) {
-      this.error(
-        `Could not find API endpoint for path "${endpointPath}".\n` +
-        'Run "xano pull --sync" to refresh metadata, or specify the group explicitly:\n' +
-        `  xano api:call <group> ${endpointPath}`
-      )
-    }
-
-    if (matchingEndpoints.length > 1) {
-      // Check if all matches are in the same group
-      const uniqueGroups = [...new Set(matchingEndpoints.map(e => e.groupName))]
-      if (uniqueGroups.length > 1) {
-        this.error(
-          `Ambiguous endpoint "${endpointPath}" found in multiple groups: ${uniqueGroups.join(', ')}\n` +
-          `Specify the group explicitly: xano api:call <group> ${endpointPath}`
-        )
-      }
-    }
-
-    const groupName = matchingEndpoints[0].groupName
-    const groupInfo = findGroupByName(groups, groupName)
-
-    if (!groupInfo) {
-      this.error(
-        `API group "${groupName}" not found in groups.json.\n` +
-        'Run "xano pull --sync" to refresh metadata.'
-      )
-    }
-
-    return groupInfo.canonical
+    return undefined
   }
 }

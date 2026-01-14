@@ -64,6 +64,7 @@ export default class ApiEndpoints extends Command {
 
     if (groupsResponse.ok && groupsResponse.data?.items) {
       for (const group of groupsResponse.data.items) {
+        // eslint-disable-next-line no-await-in-loop -- Sequential API calls for rate limiting
         const details = await api.getApiGroupWithCanonical(group.id)
         groupsMap.set(group.id, {
           canonical: details.data?.canonical,
@@ -73,12 +74,10 @@ export default class ApiEndpoints extends Command {
     }
 
     // Filter by group if specified
-    let filterGroupId: number | null = null
+    let filterGroupId: null | number = null
     if (args.group) {
       const numId = Number.parseInt(args.group, 10)
-      if (!Number.isNaN(numId)) {
-        filterGroupId = numId
-      } else {
+      if (Number.isNaN(numId)) {
         // Find by name
         for (const [id, info] of groupsMap) {
           if (info.name.toLowerCase() === args.group.toLowerCase()) {
@@ -86,9 +85,12 @@ export default class ApiEndpoints extends Command {
             break
           }
         }
+
         if (filterGroupId === null) {
           this.error(`API group not found: ${args.group}`)
         }
+      } else {
+        filterGroupId = numId
       }
     }
 
@@ -142,6 +144,7 @@ export default class ApiEndpoints extends Command {
       for (const ep of eps) {
         this.log(`  ${ep.verb.padEnd(6)} ${ep.path}`)
       }
+
       this.log('')
     }
 

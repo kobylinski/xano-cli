@@ -2,8 +2,8 @@
  * Shared sync functionality for pull/push commands
  */
 
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { existsSync, mkdirSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 
 import type {
   NamingMode,
@@ -77,6 +77,7 @@ export async function fetchAllObjects(
       apiGroups.set(group.id, group.name)
 
       // Fetch canonical ID for live API calls (different from guid)
+      // eslint-disable-next-line no-await-in-loop -- Sequential API calls for rate limiting
       const groupDetails = await api.getApiGroupWithCanonical(group.id)
       const canonical = groupDetails.data?.canonical || group.guid
 
@@ -96,6 +97,7 @@ export async function fetchAllObjects(
         })
       }
     }
+
     print(`  Found ${apiGroups.size} API groups`)
   }
 
@@ -114,6 +116,7 @@ export async function fetchAllObjects(
         })
       }
     }
+
     print(`  Found ${functionsResponse.data.items.length} functions`)
   }
 
@@ -125,8 +128,8 @@ export async function fetchAllObjects(
       const xs = extractXanoscript(endpoint.xanoscript)
       if (xs) {
         allObjects.push({
-          apigroup_id: endpoint.apigroup_id,
-          apigroup_name: apiGroups.get(endpoint.apigroup_id),
+          apigroup_id: endpoint.apigroup_id, // eslint-disable-line camelcase
+          apigroup_name: apiGroups.get(endpoint.apigroup_id), // eslint-disable-line camelcase
           id: endpoint.id,
           name: endpoint.name,
           path: endpoint.name,
@@ -136,6 +139,7 @@ export async function fetchAllObjects(
         })
       }
     }
+
     print(`  Found ${apisResponse.data.items.length} API endpoints`)
   }
 
@@ -156,6 +160,7 @@ export async function fetchAllObjects(
         })
       }
     }
+
     print(`  Found ${tablesResponse.data.items.length} tables`)
   }
 
@@ -169,13 +174,14 @@ export async function fetchAllObjects(
         allObjects.push({
           id: trigger.id,
           name: trigger.name,
-          table_id: trigger.table_id,
-          table_name: tableMap.get(trigger.table_id) || 'unknown',
+          table_id: trigger.table_id, // eslint-disable-line camelcase
+          table_name: tableMap.get(trigger.table_id) || 'unknown', // eslint-disable-line camelcase
           type: 'table_trigger',
           xanoscript: xs,
         })
       }
     }
+
     print(`  Found ${triggersResponse.data.items.length} table triggers`)
   }
 
@@ -194,6 +200,7 @@ export async function fetchAllObjects(
         })
       }
     }
+
     print(`  Found ${tasksResponse.data.items.length} tasks`)
   }
 
@@ -212,6 +219,7 @@ export async function fetchAllObjects(
         })
       }
     }
+
     print(`  Found ${workflowTestsResponse.data.items.length} workflow tests`)
   }
 
@@ -230,6 +238,7 @@ export async function fetchAllObjects(
         })
       }
     }
+
     print(`  Found ${addonsResponse.data.items.length} addons`)
   }
 
@@ -248,6 +257,7 @@ export async function fetchAllObjects(
         })
       }
     }
+
     print(`  Found ${middlewaresResponse.data.items.length} middlewares`)
   }
 
@@ -336,14 +346,14 @@ export async function syncFromXano(
   for (const obj of allObjects) {
     const key = `${obj.type}:${obj.id}`
     const existing = existingById.get(key)
-    if (!existing) {
-      newObjects.push(obj)
-    } else {
+    if (existing) {
       // Check if content changed
       const newSha256 = computeSha256(obj.xanoscript)
       if (newSha256 !== existing.sha256) {
         updatedObjects.push(obj)
       }
+    } else {
+      newObjects.push(obj)
     }
   }
 
@@ -404,14 +414,14 @@ export function writeObjectsToFiles(
 
   for (const obj of allObjects) {
     const filePath = generateObjectPath(obj, paths, { customResolver, customSanitize, naming })
-    const fullPath = path.join(projectRoot, filePath)
+    const fullPath = join(projectRoot, filePath)
 
-    const dir = path.dirname(fullPath)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+    const dir = dirname(fullPath)
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true })
     }
 
-    fs.writeFileSync(fullPath, obj.xanoscript, 'utf-8')
+    writeFileSync(fullPath, obj.xanoscript, 'utf8')
     writtenFiles.add(filePath)
   }
 
@@ -437,8 +447,8 @@ export function cleanLocalFiles(
   let deletedCount = 0
 
   for (const dir of dirs) {
-    const fullDir = path.join(projectRoot, dir)
-    if (fs.existsSync(fullDir)) {
+    const fullDir = join(projectRoot, dir)
+    if (existsSync(fullDir)) {
       deletedCount += walkAndDelete(fullDir, projectRoot, keepFiles)
     }
   }
@@ -452,20 +462,20 @@ function walkAndDelete(
   keepFiles: Set<string>
 ): number {
   let deletedCount = 0
-  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  const entries = readdirSync(dir, { withFileTypes: true })
 
   for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name)
+    const fullPath = join(dir, entry.name)
     if (entry.isDirectory()) {
       deletedCount += walkAndDelete(fullPath, projectRoot, keepFiles)
       // Remove empty directories
-      if (fs.readdirSync(fullPath).length === 0) {
-        fs.rmdirSync(fullPath)
+      if (readdirSync(fullPath).length === 0) {
+        rmdirSync(fullPath)
       }
     } else if (entry.name.endsWith('.xs')) {
-      const relativePath = path.relative(projectRoot, fullPath)
+      const relativePath = relative(projectRoot, fullPath)
       if (!keepFiles.has(relativePath)) {
-        fs.unlinkSync(fullPath)
+        unlinkSync(fullPath)
         deletedCount++
       }
     }

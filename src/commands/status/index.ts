@@ -1,6 +1,6 @@
 import { Args, Command, Flags } from '@oclif/core'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { join, relative, resolve, sep } from 'node:path'
 
 import type {
   NamingMode,
@@ -61,8 +61,7 @@ export default class Status extends Command {
     }),
   }
   static strict = false // Allow multiple path arguments
-
-  private customResolver?: PathResolver
+private customResolver?: PathResolver
   private customResolveType?: TypeResolver
   private customSanitize?: SanitizeFunction
   private naming?: NamingMode
@@ -110,6 +109,7 @@ export default class Status extends Command {
     if (!flags.json) {
       this.log('Fetching remote state from Xano...')
     }
+
     const fetchResult = await fetchAllObjects(api)
     const remoteObjects = fetchResult.objects
 
@@ -139,19 +139,14 @@ export default class Status extends Command {
     }
 
     // Filter paths if input paths specified
-    let pathsToCheck: string[]
-    if (inputPaths.length > 0) {
-      pathsToCheck = this.filterPaths(projectRoot, inputPaths, allPaths, remoteByPath)
-    } else {
-      pathsToCheck = [...allPaths]
-    }
+    const pathsToCheck = inputPaths.length > 0 ? this.filterPaths(projectRoot, inputPaths, allPaths, remoteByPath) : [...allPaths];
 
     // Collect status entries
     const entries: StatusEntry[] = []
 
     for (const filePath of pathsToCheck) {
-      const fullPath = path.join(projectRoot, filePath)
-      const fileExists = fs.existsSync(fullPath)
+      const fullPath = join(projectRoot, filePath)
+      const fileExists = existsSync(fullPath)
       const remoteObj = remoteByPath.get(filePath)
 
       if (fileExists && remoteObj) {
@@ -225,6 +220,7 @@ export default class Status extends Command {
       for (const entry of modified) {
         this.log(`  M ${entry.path}`)
       }
+
       this.log('')
     }
 
@@ -233,6 +229,7 @@ export default class Status extends Command {
       for (const entry of newEntries) {
         this.log(`  A ${entry.path}`)
       }
+
       this.log('')
     }
 
@@ -241,6 +238,7 @@ export default class Status extends Command {
       for (const entry of remoteOnly) {
         this.log(`  R ${entry.path}`)
       }
+
       this.log('')
     }
 
@@ -274,11 +272,10 @@ export default class Status extends Command {
     const result: string[] = []
 
     for (const inputPath of inputPaths) {
-      // Normalize path
-      let normalizedPath = inputPath
-      if (path.isAbsolute(inputPath)) {
-        normalizedPath = path.relative(projectRoot, inputPath)
-      }
+      // Normalize path: resolve from cwd first, then make relative to project root
+      // This ensures "." in a subdirectory means that subdirectory, not project root
+      const absolutePath = resolve(inputPath)
+      const normalizedPath = relative(projectRoot, absolutePath)
 
       // Remove trailing slash for type resolution
       const cleanPath = normalizedPath.replace(/\/$/, '')
@@ -301,7 +298,7 @@ export default class Status extends Command {
             // Local-only file - check if path is under a type directory
             for (const type of types) {
               const typeDir = this.getDirectoryForType(type)
-              if (typeDir && (p.startsWith(typeDir + '/') || p.startsWith(typeDir + path.sep))) {
+              if (typeDir && (p.startsWith(typeDir + '/') || p.startsWith(typeDir + sep))) {
                 result.push(p)
                 break
               }
@@ -310,45 +307,27 @@ export default class Status extends Command {
         }
       } else {
         // Fallback to path prefix matching
-        const fullPath = path.join(projectRoot, normalizedPath)
+        const fullPath = join(projectRoot, normalizedPath)
         const isDir = normalizedPath.endsWith('/') ||
-          (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) ||
+          (existsSync(fullPath) && statSync(fullPath).isDirectory()) ||
           this.isKnownDirectory(normalizedPath)
 
         if (isDir) {
           // Find all paths under this directory
           const dirPrefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`
           for (const p of allPaths) {
-            if (p.startsWith(dirPrefix) || p.startsWith(normalizedPath + path.sep)) {
+            if (p.startsWith(dirPrefix) || p.startsWith(normalizedPath + sep)) {
               result.push(p)
             }
           }
-        } else {
+        } else if (allPaths.has(normalizedPath)) {
           // Single file - add if it exists in allPaths
-          if (allPaths.has(normalizedPath)) {
-            result.push(normalizedPath)
-          }
+          result.push(normalizedPath)
         }
       }
     }
 
     return [...new Set(result)] // Remove duplicates
-  }
-
-  /**
-   * Get the configured directory for a given type
-   */
-  private getDirectoryForType(type: string): string | undefined {
-    switch (type) {
-      case 'function': return this.paths.functions
-      case 'api_endpoint':
-      case 'api_group': return this.paths.apis
-      case 'table': return this.paths.tables
-      case 'table_trigger': return this.paths.tableTriggers || `${this.paths.tables}/triggers`
-      case 'task': return this.paths.tasks
-      case 'workflow_test': return this.paths.workflowTests
-      default: return undefined
-    }
   }
 
   /**
@@ -365,13 +344,42 @@ export default class Status extends Command {
     ].filter((d): d is string => d !== undefined)
 
     for (const dir of dirs) {
-      const fullDir = path.join(projectRoot, dir)
-      if (fs.existsSync(fullDir)) {
+      const fullDir = join(projectRoot, dir)
+      if (existsSync(fullDir)) {
         this.walkDir(fullDir, projectRoot, files)
       }
     }
 
     return files
+  }
+
+  /**
+   * Get the configured directory for a given type
+   */
+  private getDirectoryForType(type: string): string | undefined {
+    switch (type) {
+      case 'api_endpoint':
+      case 'api_group': { return this.paths.apis
+      }
+
+      case 'function': { return this.paths.functions
+      }
+
+      case 'table': { return this.paths.tables
+      }
+
+      case 'table_trigger': { return this.paths.tableTriggers || `${this.paths.tables}/triggers`
+      }
+
+      case 'task': { return this.paths.tasks
+      }
+
+      case 'workflow_test': { return this.paths.workflowTests
+      }
+
+      default: { return undefined
+      }
+    }
   }
 
   /**
@@ -400,13 +408,13 @@ export default class Status extends Command {
     projectRoot: string,
     files: string[]
   ): void {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    const entries = readdirSync(dir, { withFileTypes: true })
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name)
+      const fullPath = join(dir, entry.name)
       if (entry.isDirectory()) {
         this.walkDir(fullPath, projectRoot, files)
       } else if (entry.name.endsWith('.xs')) {
-        const relativePath = path.relative(projectRoot, fullPath)
+        const relativePath = relative(projectRoot, fullPath)
         files.push(relativePath)
       }
     }

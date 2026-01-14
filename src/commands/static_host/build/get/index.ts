@@ -1,8 +1,8 @@
 import {Args, Flags} from '@oclif/core'
 import * as yaml from 'js-yaml'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 import BaseCommand from '../../../../base-command.js'
 
@@ -22,7 +22,7 @@ interface CredentialsFile {
 }
 
 interface Build {
-  [key: string]: any
+  [key: string]: unknown
   created_at?: number | string
   description?: string
   id: number
@@ -33,11 +33,11 @@ interface Build {
 
 export default class StaticHostBuildGet extends BaseCommand {
   static args = {
-    build_id: Args.string({
+    build_id: Args.string({ // eslint-disable-line camelcase
       description: 'Build ID',
       required: true,
     }),
-    static_host: Args.string({
+    static_host: Args.string({ // eslint-disable-line camelcase
       description: 'Static Host name',
       required: true,
     }),
@@ -189,11 +189,11 @@ static override flags = {
   }
 
   private loadCredentials(): CredentialsFile {
-    const configDir = path.join(os.homedir(), '.xano')
-    const credentialsPath = path.join(configDir, 'credentials.yaml')
+    const configDir = join(homedir(), '.xano')
+    const credentialsPath = join(configDir, 'credentials.yaml')
 
     // Check if credentials file exists
-    if (!fs.existsSync(credentialsPath)) {
+    if (!existsSync(credentialsPath)) {
       this.error(
         `Credentials file not found at ${credentialsPath}\n` +
         `Create a profile using 'xano profile:create'`,
@@ -202,7 +202,7 @@ static override flags = {
 
     // Read credentials file
     try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf8')
+      const fileContent = readFileSync(credentialsPath, 'utf8')
       const parsed = yaml.load(fileContent) as CredentialsFile
 
       if (!parsed || typeof parsed !== 'object' || !('profiles' in parsed)) {
