@@ -962,6 +962,55 @@ export class XanoApi {
     )
   }
 
+  /**
+   * Search/filter records in a table
+   *
+   * Search operators (use as object keys):
+   * - field: exact match
+   * - field|>: greater than
+   * - field|<: less than
+   * - field|>=: greater or equal
+   * - field|<=: less or equal
+   * - field|!=: not equal
+   * - field|in: value in array
+   * - field|not in: value not in array
+   * - field|>|or: greater than with OR logic
+   *
+   * @param tableId Table ID
+   * @param options Search options
+   */
+  async searchTableContent(
+    tableId: number,
+    options: {
+      datasource?: string
+      page?: number
+      perPage?: number
+      search?: Record<string, unknown> | Record<string, unknown>[]
+      sort?: Record<string, 'asc' | 'desc'> | Record<string, 'asc' | 'desc'>[]
+    } = {}
+  ): Promise<ApiResponse<{ curPage: number; items: Record<string, unknown>[]; itemsReceived: number; itemsTotal: number; nextPage: number | null; offset: number; pageTotal: number; prevPage: number | null }>> {
+    const body: {
+      page?: number
+      per_page?: number
+      search?: Record<string, unknown> | Record<string, unknown>[]
+      sort?: Record<string, 'asc' | 'desc'> | Record<string, 'asc' | 'desc'>[]
+    } = {}
+
+    if (options.page) body.page = options.page
+    if (options.perPage) body.per_page = options.perPage
+    if (options.search) body.search = options.search
+    if (options.sort) body.sort = options.sort
+
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/content/search?branch=${this.branch}`,
+      body,
+      'application/json',
+      this.datasourceHeaders(options.datasource)
+    )
+  }
+
   // ========== Request History ==========
 
   /**
