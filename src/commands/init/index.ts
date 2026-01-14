@@ -655,6 +655,7 @@ export default class Init extends Command {
         branch,
         files_created: hasXanoJson ? '.xano/config.json' : 'xano.json,.xano/config.json',
       }, 'xano pull')
+      console.log('AGENT_SUGGEST: Consider installing the Claude Code skill with "xano skill --project" for AI-assisted development')
     } else {
       this.log(`\nProject initialized!`)
       this.log(`  Profile: ${profileName}`)

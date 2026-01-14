@@ -34,6 +34,34 @@ project/
 
 ### Initialize a Project
 
+**Before initialization:**
+- If git is detected in the directory, ensure all local code is committed before running `xano init`. The init process may create or modify files that you'll want to track separately from your existing work.
+
+```bash
+# Check git status first
+git status
+
+# Commit any pending changes
+git add . && git commit -m "Pre-xano init checkpoint"
+
+# Then initialize
+xano init
+```
+
+**Naming mode selection during initialization:**
+
+When initializing a project, determine the appropriate naming mode:
+
+1. **Determine automatically if possible:**
+   - If existing `.xs` files are present, analyze their structure
+   - Check for VSCode-style patterns (flat triggers, api_group.xs files, ID prefixes)
+   - Check for CLI-style patterns (nested triggers, flat API group files)
+
+2. **Propose resolution:**
+   - If naming mode can be determined: **confirm** with user (e.g., "Detected VSCode naming pattern. Use `naming: vscode`?")
+   - If naming mode cannot be determined: **decide** by asking user to choose (e.g., "Select naming mode: default (CLI) or vscode?")
+   - For new empty projects: recommend `default` mode
+
 ```bash
 # Initialize in current directory
 xano init
@@ -43,6 +71,11 @@ xano init --branch v2
 
 # Force reinitialize
 xano init --force
+```
+
+After successful initialization, consider installing the Claude Code skill:
+```bash
+xano skill --project
 ```
 
 ### Pull from Xano

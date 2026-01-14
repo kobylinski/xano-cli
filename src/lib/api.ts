@@ -9,12 +9,13 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import type {
+  RequestHistoryItem,
   XanoApiAddon,
   XanoApiBranch,
   XanoApiEndpoint,
-  XanoApiMiddleware,
   XanoApiFunction,
   XanoApiGroup,
+  XanoApiMiddleware,
   XanoApiTable,
   XanoApiTableTrigger,
   XanoApiTask,
@@ -958,6 +959,159 @@ export class XanoApi {
       { allow_id_field: allowIdField, items: records },
       'application/json',
       this.datasourceHeaders(datasource)
+    )
+  }
+
+  // ========== Request History ==========
+
+  /**
+   * Browse request history for the workspace
+   * @param options Filter options
+   */
+  async browseRequestHistory(options: {
+    apiId?: number          // API Group ID
+    branchId?: string       // Branch ID
+    includeOutput?: boolean // Include response output
+    page?: number
+    perPage?: number
+    queryId?: number        // Specific endpoint ID
+  } = {}): Promise<ApiResponse<{ items: RequestHistoryItem[] }>> {
+    const params = new URLSearchParams()
+    params.set('branch', this.branch)
+    if (options.page) params.set('page', options.page.toString())
+    if (options.perPage) params.set('per_page', options.perPage.toString())
+    if (options.apiId) params.set('api_id', options.apiId.toString())
+    if (options.queryId) params.set('query_id', options.queryId.toString())
+    if (options.includeOutput) params.set('include_output', 'true')
+
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/request_history?${params.toString()}`
+    )
+  }
+
+  /**
+   * Search request history with filters
+   * @param filter Search filters
+   * @param options Additional options
+   */
+  async searchRequestHistory(
+    filter: {
+      'created_at|>|'?: number   // Timestamp in ms (after)
+      'created_at|<|'?: number   // Timestamp in ms (before)
+      'duration|>|'?: number     // Duration in seconds
+      'duration|<|'?: number     // Duration in seconds
+      'status'?: number          // Exact status code
+      'status|>|'?: number       // Status greater than
+      'status|<|'?: number       // Status less than
+    },
+    options: {
+      apiId?: number
+      includeOutput?: boolean
+      page?: number
+      perPage?: number
+      queryId?: number
+      sort?: { [key: string]: 'asc' | 'desc' }
+    } = {}
+  ): Promise<ApiResponse<{ items: RequestHistoryItem[] }>> {
+    const params = new URLSearchParams()
+    params.set('branch', this.branch)
+    if (options.page) params.set('page', options.page.toString())
+    if (options.perPage) params.set('per_page', options.perPage.toString())
+    if (options.apiId) params.set('api_id', options.apiId.toString())
+    if (options.queryId) params.set('query_id', options.queryId.toString())
+    if (options.includeOutput) params.set('include_output', 'true')
+
+    const body: { filter?: typeof filter; sort?: typeof options.sort } = {}
+    if (Object.keys(filter).length > 0) body.filter = filter
+    if (options.sort) body.sort = options.sort
+
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/request_history/search?${params.toString()}`,
+      body
+    )
+  }
+
+  /**
+   * Get function request history
+   */
+  async getFunctionHistory(
+    functionId: number,
+    options: { includeOutput?: boolean; page?: number; perPage?: number } = {}
+  ): Promise<ApiResponse<{ items: RequestHistoryItem[] }>> {
+    const params = new URLSearchParams()
+    params.set('branch', this.branch)
+    if (options.page) params.set('page', options.page.toString())
+    if (options.perPage) params.set('per_page', options.perPage.toString())
+    if (options.includeOutput) params.set('include_output', 'true')
+
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/function/${functionId}/request_history?${params.toString()}`
+    )
+  }
+
+  /**
+   * Get task request history
+   */
+  async getTaskHistory(
+    taskId: number,
+    options: { includeOutput?: boolean; page?: number; perPage?: number } = {}
+  ): Promise<ApiResponse<{ items: RequestHistoryItem[] }>> {
+    const params = new URLSearchParams()
+    params.set('branch', this.branch)
+    if (options.page) params.set('page', options.page.toString())
+    if (options.perPage) params.set('per_page', options.perPage.toString())
+    if (options.includeOutput) params.set('include_output', 'true')
+
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/task/${taskId}/request_history?${params.toString()}`
+    )
+  }
+
+  /**
+   * Get middleware request history
+   */
+  async getMiddlewareHistory(
+    middlewareId: number,
+    options: { includeOutput?: boolean; page?: number; perPage?: number } = {}
+  ): Promise<ApiResponse<{ items: RequestHistoryItem[] }>> {
+    const params = new URLSearchParams()
+    params.set('branch', this.branch)
+    if (options.page) params.set('page', options.page.toString())
+    if (options.perPage) params.set('per_page', options.perPage.toString())
+    if (options.includeOutput) params.set('include_output', 'true')
+
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/middleware/${middlewareId}/request_history?${params.toString()}`
+    )
+  }
+
+  /**
+   * Get trigger request history
+   */
+  async getTriggerHistory(
+    triggerId: number,
+    options: { includeOutput?: boolean; page?: number; perPage?: number } = {}
+  ): Promise<ApiResponse<{ items: RequestHistoryItem[] }>> {
+    const params = new URLSearchParams()
+    params.set('branch', this.branch)
+    if (options.page) params.set('page', options.page.toString())
+    if (options.perPage) params.set('per_page', options.perPage.toString())
+    if (options.includeOutput) params.set('include_output', 'true')
+
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table/trigger/${triggerId}/request_history?${params.toString()}`
     )
   }
 

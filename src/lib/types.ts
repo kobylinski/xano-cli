@@ -237,6 +237,26 @@ export interface XanoDataSource {
   label: string
 }
 
+// Request history item from Xano API
+export interface RequestHistoryItem {
+  api_id?: number           // API group ID
+  branch?: string           // Branch name
+  created_at: number | string  // Timestamp (ms or ISO string)
+  duration: number          // Duration in seconds
+  id: number | string       // Request ID
+  input?: unknown           // Request input
+  input_size?: number       // Input size in bytes
+  output?: unknown          // Response output
+  output_size?: number      // Output size in bytes
+  query_id?: number         // Endpoint ID
+  request_headers?: string[] // Request headers
+  response_headers?: string[] // Response headers
+  status: number            // HTTP status code
+  uri?: string              // Full request URI
+  verb?: string             // HTTP method
+  workspace_id?: number     // Workspace ID
+}
+
 // Status types for CLI output
 export type FileStatus = 'conflict' | 'deleted' | 'modified' | 'new' | 'remote_only' | 'unchanged'
 
