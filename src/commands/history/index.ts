@@ -1,33 +1,43 @@
 import { Args, Command, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
-import * as path from 'node:path'
+import path from 'node:path'
 
-import type { RequestHistoryItem, XanoObject } from '../../lib/types.js'
+import type { RequestHistoryItem, XanoObject, XanoObjectType } from '../../lib/types.js'
 
 import { createApiClientFromProfile, getDefaultProfileName } from '../../lib/api.js'
 import { loadObjects } from '../../lib/objects.js'
 import { findProjectRoot, loadLocalConfig } from '../../lib/project.js'
 
 // Retention periods in hours
-const RETENTION = {
+// Keys use snake_case to match Xano API object types
+/* eslint-disable camelcase */
+const RETENTION: Record<string, number> = {
   api_endpoint: 24,
   function: 24,
   middleware: 24,
   table_trigger: 168, // 7 days
   task: 168, // 7 days
-} as const
+}
+/* eslint-enable camelcase */
 
-type HistoryObjectType = keyof typeof RETENTION
+// Types that support request history
+const HISTORY_TYPES: Set<XanoObjectType> = new Set([
+  'api_endpoint',
+  'function',
+  'middleware',
+  'table_trigger',
+  'task',
+])
 
 /**
  * Parse human-readable duration to milliseconds
  * Supports: 30m, 1h, 2h, 1d, 7d, etc.
  */
-function parseDuration(input: string): { ms: number; hours: number } | null {
+function parseDuration(input: string): null | { hours: number; ms: number; } {
   const match = input.match(/^(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)$/i)
   if (!match) return null
 
-  const value = parseFloat(match[1])
+  const value = Number.parseFloat(match[1])
   const unit = match[2].toLowerCase()
 
   let hours: number
@@ -71,6 +81,7 @@ function parseTimestamp(timestamp: number | string): number {
   if (typeof timestamp === 'number') {
     return timestamp
   }
+
   // Parse string format: "2026-01-13 09:30:55+0000"
   const date = new Date(timestamp.replace(' ', 'T').replace('+0000', 'Z'))
   return date.getTime()
@@ -97,14 +108,14 @@ function formatTime(timestamp: number | string): string {
  * Get status color for terminal output
  */
 function getStatusColor(status: number): string {
-  if (status >= 200 && status < 300) return '\x1b[32m' // Green
-  if (status >= 300 && status < 400) return '\x1b[33m' // Yellow
-  if (status >= 400 && status < 500) return '\x1b[31m' // Red
-  if (status >= 500) return '\x1b[91m' // Bright red
-  return '\x1b[0m' // Default
+  if (status >= 200 && status < 300) return '\u001B[32m' // Green
+  if (status >= 300 && status < 400) return '\u001B[33m' // Yellow
+  if (status >= 400 && status < 500) return '\u001B[31m' // Red
+  if (status >= 500) return '\u001B[91m' // Bright red
+  return '\u001B[0m' // Default
 }
 
-const RESET = '\x1b[0m'
+const RESET = '\u001B[0m'
 
 export default class History extends Command {
   static args = {
@@ -113,10 +124,8 @@ export default class History extends Command {
       required: false,
     }),
   }
-
-  static description = 'View request history for the workspace or specific files'
-
-  static examples = [
+static description = 'View request history for the workspace or specific files'
+static examples = [
     '<%= config.bin %> history                              # All workspace history',
     '<%= config.bin %> history --last 1h                    # All history in last hour',
     '<%= config.bin %> history app/apis/auth/login_POST.xs  # Specific endpoint',
@@ -124,8 +133,7 @@ export default class History extends Command {
     '<%= config.bin %> history --status error               # All errors',
     '<%= config.bin %> history --slow                       # All slow requests',
   ]
-
-  static flags = {
+static flags = {
     json: Flags.boolean({
       default: false,
       description: 'Output as JSON',
@@ -210,6 +218,7 @@ export default class History extends Command {
       if (isDirectory) {
         return objFullPath.startsWith(filePath)
       }
+
       return objFullPath === filePath || obj.path === args.file
     })
 
@@ -218,8 +227,7 @@ export default class History extends Command {
     }
 
     // Filter to only types that have history
-    const historyTypes: HistoryObjectType[] = ['api_endpoint', 'function', 'task', 'middleware', 'table_trigger']
-    matchingObjects = matchingObjects.filter((obj: XanoObject) => historyTypes.includes(obj.type as HistoryObjectType))
+    matchingObjects = matchingObjects.filter((obj: XanoObject) => HISTORY_TYPES.has(obj.type))
 
     if (matchingObjects.length === 0) {
       // Get the type of the original objects to give a helpful message
@@ -241,17 +249,18 @@ export default class History extends Command {
     }
 
     // Parse time filter
-    let timeFilter: { ms: number; hours: number } | undefined
+    let timeFilter: undefined | { hours: number; ms: number; }
     if (flags.last) {
       const parsed = parseDuration(flags.last)
       if (!parsed) {
         this.error(`Invalid time format: ${flags.last}\nUse formats like: 30m, 1h, 2h, 1d, 7d`)
       }
+
       timeFilter = parsed
     }
 
     // Check retention warnings
-    const objectType = matchingObjects[0].type as HistoryObjectType
+    const objectType = matchingObjects[0].type
     const retentionHours = RETENTION[objectType] || 24
     if (timeFilter && timeFilter.hours > retentionHours) {
       const retentionDays = retentionHours / 24
@@ -260,97 +269,129 @@ export default class History extends Command {
     }
 
     // Parse status filter
-    let statusFilter: { exact?: number; min?: number; max?: number } | undefined
+    let statusFilter: undefined | { exact?: number; max?: number; min?: number; }
     if (flags.status) {
       const status = flags.status.toLowerCase()
-      if (status === 'error' || status === 'errors') {
-        statusFilter = { min: 400 }
-      } else if (status === 'success') {
-        statusFilter = { max: 399, min: 200 }
-      } else if (status === '4xx') {
-        statusFilter = { max: 499, min: 400 }
-      } else if (status === '5xx') {
-        statusFilter = { max: 599, min: 500 }
-      } else if (status === '2xx') {
+      switch (status) {
+      case '2xx': {
         statusFilter = { max: 299, min: 200 }
-      } else if (status === '3xx') {
+      
+      break;
+      }
+ 
+      case '3xx': {
         statusFilter = { max: 399, min: 300 }
-      } else {
-        const code = parseInt(status, 10)
-        if (isNaN(code)) {
+      
+      break;
+      }
+
+      case '4xx': {
+        statusFilter = { max: 499, min: 400 }
+      
+      break;
+      }
+
+      case '5xx': {
+        statusFilter = { max: 599, min: 500 }
+      
+      break;
+      }
+
+      case 'error':
+      case 'errors': {
+        statusFilter = { min: 400 }
+      
+      break;
+      }
+
+      case 'success': {
+        statusFilter = { max: 399, min: 200 }
+      
+      break;
+      }
+
+      default: {
+        const code = Number.parseInt(status, 10)
+        if (Number.isNaN(code)) {
           this.error(`Invalid status filter: ${flags.status}\nUse: 200, 4xx, 5xx, error, success`)
         }
+
         statusFilter = { exact: code }
+      }
       }
     }
 
     // Parse slow filter
     let slowThreshold: number | undefined
     if (flags.slow !== undefined) {
-      slowThreshold = flags.slow === '' ? 1 : parseFloat(flags.slow)
-      if (isNaN(slowThreshold)) {
+      slowThreshold = flags.slow === '' ? 1 : Number.parseFloat(flags.slow)
+      if (Number.isNaN(slowThreshold)) {
         this.error(`Invalid slow threshold: ${flags.slow}\nUse a number in seconds (e.g., --slow 2)`)
       }
     }
 
-    // Fetch history for each matching object
-    const allItems: RequestHistoryItem[] = []
-    const errors: { path: string; error: string; type: string }[] = []
-    let successCount = 0
-
-    for (const obj of matchingObjects) {
-      const type = obj.type as HistoryObjectType
-      let response
+    // Fetch history for each matching object in parallel
+    const fetchHistoryForObject = async (obj: XanoObject) => {
+      const { type } = obj
 
       try {
+        let response
         switch (type) {
-          case 'api_endpoint':
-            // Use browse endpoint for API endpoints - server-side filters unreliable
+          case 'api_endpoint': {
             response = await api.browseRequestHistory({
-              queryId: obj.id,
               includeOutput: flags.output,
-              perPage: Math.min(flags.limit * 2, 500), // Fetch extra for client-side filtering
+              perPage: Math.min(flags.limit * 2, 500),
+              queryId: obj.id,
             })
             break
+          }
 
-          case 'function':
+          case 'function': {
             response = await api.getFunctionHistory(obj.id, {
               includeOutput: flags.output,
               perPage: Math.min(flags.limit, 500),
             })
             break
+          }
 
-          case 'task':
-            response = await api.getTaskHistory(obj.id, {
-              includeOutput: flags.output,
-              perPage: Math.min(flags.limit, 500),
-            })
-            break
-
-          case 'middleware':
+          case 'middleware': {
             response = await api.getMiddlewareHistory(obj.id, {
               includeOutput: flags.output,
               perPage: Math.min(flags.limit, 500),
             })
             break
+          }
 
-          case 'table_trigger':
+          case 'table_trigger': {
             response = await api.getTriggerHistory(obj.id, {
               includeOutput: flags.output,
               perPage: Math.min(flags.limit, 500),
             })
             break
+          }
+
+          case 'task': {
+            response = await api.getTaskHistory(obj.id, {
+              includeOutput: flags.output,
+              perPage: Math.min(flags.limit, 500),
+            })
+            break
+          }
+
+          default: {
+            return { error: `Unsupported type: ${type}`, items: [], path: obj.path, success: false, type }
+          }
         }
 
         if (response?.ok && response.data?.items) {
-          let items = response.data.items
-          successCount++
+          let { items } = response.data
 
           // Apply client-side filters (server-side filters are unreliable)
           if (timeFilter) {
             const cutoff = Date.now() - timeFilter.ms
             items = items.filter(item => parseTimestamp(item.created_at) >= cutoff)
           }
+
           if (statusFilter) {
             items = items.filter(item => {
               if (statusFilter.exact !== undefined) return item.status === statusFilter.exact
@@ -359,16 +400,33 @@ export default class History extends Command {
               return true
             })
           }
+
           if (slowThreshold) {
             items = items.filter(item => item.duration > slowThreshold)
           }
 
-          allItems.push(...items)
-        } else if (!response?.ok) {
-          errors.push({ path: obj.path, error: response?.error || 'Unknown error', type })
+          return { items, path: obj.path, success: true, type }
         }
+
+        return { error: response?.error || 'Unknown error', items: [], path: obj.path, success: false, type }
       } catch (error) {
-        errors.push({ path: obj.path, error: error instanceof Error ? error.message : 'Unknown error', type })
+        return { error: error instanceof Error ? error.message : 'Unknown error', items: [], path: obj.path, success: false, type }
+      }
+    }
+
+    // Fetch all history in parallel
+    const results = await Promise.all(matchingObjects.map(obj => fetchHistoryForObject(obj)))
+
+    const allItems: RequestHistoryItem[] = []
+    const errors: { error: string; path: string; type: string }[] = []
+    let successCount = 0
+
+    for (const result of results) {
+      if (result.success) {
+        successCount++
+        allItems.push(...result.items)
+      } else if (result.error) {
+        errors.push({ error: result.error, path: result.path, type: result.type })
       }
     }
 
@@ -384,10 +442,10 @@ export default class History extends Command {
         )
       } else if (successCount === 0) {
         // Directory with all failures - aggregate by error type
-        const errorsByType = errors.reduce((acc, e) => {
-          acc[e.type] = (acc[e.type] || 0) + 1
-          return acc
-        }, {} as Record<string, number>)
+        const errorsByType: Record<string, number> = {}
+        for (const e of errors) {
+          errorsByType[e.type] = (errorsByType[e.type] || 0) + 1
+        }
 
         const summary = Object.entries(errorsByType)
           .map(([type, count]) => `${type}: ${count} failed`)
@@ -449,11 +507,13 @@ export default class History extends Command {
         if (item.input) {
           this.log(`  Input: ${JSON.stringify(item.input)}`)
         }
+
         if (item.output) {
           const outputStr = JSON.stringify(item.output)
           const truncated = outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr
           this.log(`  Output: ${truncated}`)
         }
+
         this.log('')
       }
     }
@@ -476,12 +536,13 @@ export default class History extends Command {
     config: { branch: string; workspaceName: string }
   ): Promise<void> {
     // Parse time filter
-    let timeFilter: { ms: number; hours: number } | undefined
+    let timeFilter: undefined | { hours: number; ms: number; }
     if (flags.last) {
       const parsed = parseDuration(flags.last)
       if (!parsed) {
         this.error(`Invalid time format: ${flags.last}\nUse formats like: 30m, 1h, 2h, 1d, 7d`)
       }
+
       timeFilter = parsed
 
       // Warn about retention (24h for API endpoints)
@@ -491,35 +552,63 @@ export default class History extends Command {
     }
 
     // Parse status filter
-    let statusFilter: { exact?: number; min?: number; max?: number } | undefined
+    let statusFilter: undefined | { exact?: number; max?: number; min?: number; }
     if (flags.status) {
       const status = flags.status.toLowerCase()
-      if (status === 'error' || status === 'errors') {
-        statusFilter = { min: 400 }
-      } else if (status === 'success') {
-        statusFilter = { max: 399, min: 200 }
-      } else if (status === '4xx') {
-        statusFilter = { max: 499, min: 400 }
-      } else if (status === '5xx') {
-        statusFilter = { max: 599, min: 500 }
-      } else if (status === '2xx') {
+      switch (status) {
+      case '2xx': {
         statusFilter = { max: 299, min: 200 }
-      } else if (status === '3xx') {
+      
+      break;
+      }
+ 
+      case '3xx': {
         statusFilter = { max: 399, min: 300 }
-      } else {
-        const code = parseInt(status, 10)
-        if (isNaN(code)) {
+      
+      break;
+      }
+
+      case '4xx': {
+        statusFilter = { max: 499, min: 400 }
+      
+      break;
+      }
+
+      case '5xx': {
+        statusFilter = { max: 599, min: 500 }
+      
+      break;
+      }
+
+      case 'error':
+      case 'errors': {
+        statusFilter = { min: 400 }
+      
+      break;
+      }
+
+      case 'success': {
+        statusFilter = { max: 399, min: 200 }
+      
+      break;
+      }
+
+      default: {
+        const code = Number.parseInt(status, 10)
+        if (Number.isNaN(code)) {
           this.error(`Invalid status filter: ${flags.status}\nUse: 200, 4xx, 5xx, error, success`)
         }
+
         statusFilter = { exact: code }
+      }
       }
     }
 
     // Parse slow filter
     let slowThreshold: number | undefined
     if (flags.slow !== undefined) {
-      slowThreshold = flags.slow === '' ? 1 : parseFloat(flags.slow)
-      if (isNaN(slowThreshold)) {
+      slowThreshold = flags.slow === '' ? 1 : Number.parseFloat(flags.slow)
+      if (Number.isNaN(slowThreshold)) {
         this.error(`Invalid slow threshold: ${flags.slow}\nUse a number in seconds (e.g., --slow 2)`)
       }
     }
@@ -541,6 +630,7 @@ export default class History extends Command {
       const cutoff = Date.now() - timeFilter.ms
       items = items.filter(item => parseTimestamp(item.created_at) >= cutoff)
     }
+
     if (statusFilter) {
       items = items.filter(item => {
         if (statusFilter.exact !== undefined) return item.status === statusFilter.exact
@@ -549,6 +639,7 @@ export default class History extends Command {
         return true
       })
     }
+
     if (slowThreshold) {
       items = items.filter(item => item.duration > slowThreshold)
     }
@@ -594,11 +685,13 @@ export default class History extends Command {
         if (item.input) {
           this.log(`  Input: ${JSON.stringify(item.input)}`)
         }
+
         if (item.output) {
           const outputStr = JSON.stringify(item.output)
           const truncated = outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr
           this.log(`  Output: ${truncated}`)
         }
+
         this.log('')
       }
     }

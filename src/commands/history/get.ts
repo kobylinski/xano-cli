@@ -22,6 +22,7 @@ function parseTimestamp(timestamp: number | string): number {
   if (typeof timestamp === 'number') {
     return timestamp
   }
+
   const date = new Date(timestamp.replace(' ', 'T').replace('+0000', 'Z'))
   return date.getTime()
 }
@@ -47,16 +48,16 @@ function formatTime(timestamp: number | string): string {
  * Get status color for terminal output
  */
 function getStatusColor(status: number): string {
-  if (status >= 200 && status < 300) return '\x1b[32m' // Green
-  if (status >= 300 && status < 400) return '\x1b[33m' // Yellow
-  if (status >= 400 && status < 500) return '\x1b[31m' // Red
-  if (status >= 500) return '\x1b[91m' // Bright red
-  return '\x1b[0m'
+  if (status >= 200 && status < 300) return '\u001B[32m' // Green
+  if (status >= 300 && status < 400) return '\u001B[33m' // Yellow
+  if (status >= 400 && status < 500) return '\u001B[31m' // Red
+  if (status >= 500) return '\u001B[91m' // Bright red
+  return '\u001B[0m'
 }
 
-const RESET = '\x1b[0m'
-const DIM = '\x1b[2m'
-const BOLD = '\x1b[1m'
+const RESET = '\u001B[0m'
+const DIM = '\u001B[2m'
+const BOLD = '\u001B[1m'
 
 export default class HistoryGet extends Command {
   static args = {
@@ -88,8 +89,8 @@ export default class HistoryGet extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(HistoryGet)
 
-    const requestId = parseInt(args.id, 10)
-    if (isNaN(requestId)) {
+    const requestId = Number.parseInt(args.id, 10)
+    if (Number.isNaN(requestId)) {
       this.error(`Invalid request ID: ${args.id}`)
     }
 
@@ -176,7 +177,7 @@ export default class HistoryGet extends Command {
       const outputStr = JSON.stringify(item.output, null, 2)
       // Truncate if too long
       if (outputStr.length > 2000) {
-        this.log(outputStr.substring(0, 2000) + '\n... (truncated, use --json for full output)')
+        this.log(outputStr.slice(0, 2000) + '\n... (truncated, use --json for full output)')
       } else {
         this.log(outputStr)
       }
