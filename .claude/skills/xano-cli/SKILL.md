@@ -30,6 +30,35 @@ project/
 └── workflow_tests/         # Workflow tests
 ```
 
+## Path Resolution (Important for Agents)
+
+**All file paths are resolved from the current working directory (cwd), not the project root.**
+
+This means when you're in a subdirectory:
+- `.` refers to the current directory, not the project root
+- Relative paths are resolved from where you are
+
+```bash
+# From project root
+xano pull tables/               # Pulls all tables
+xano status .                   # Status of entire project
+
+# From within tables/ directory
+cd tables
+xano pull .                     # Pulls only tables (current dir)
+xano status .                   # Status of only tables
+xano push users.xs              # Pushes tables/users.xs
+xano data:list users.xs         # Lists records from tables/users.xs
+xano data:columns accounts.xs   # Shows schema of tables/accounts.xs
+
+# From within apis/auth/ directory
+cd apis/auth
+xano push .                     # Pushes only auth API endpoints
+xano pull login_POST.xs         # Pulls apis/auth/login_POST.xs
+```
+
+**This applies to all commands:** `pull`, `push`, `status`, `lint`, `history`, `data:list`, `data:columns`
+
 ## Essential Commands
 
 ### Initialize a Project
@@ -181,10 +210,17 @@ xano branch
 # List all branches
 xano branch list
 
-# Switch branch
+# Safe switch (blocks if local changes exist)
 xano branch v2
-xano branch live
+
+# Force switch (skip sync check - may lose local changes)
+xano branch v2 --force
+
+# Switch and auto-sync new branch files
+xano branch v2 --sync
 ```
+
+**Safe branch switching:** By default, `xano branch <name>` checks if local files are in sync with remote before allowing the switch. If modifications, local-only, or remote-only files are detected, the switch is blocked with a summary of changes and resolution options.
 
 ### Lint
 
@@ -369,11 +405,16 @@ xano push data/addons/
 ### Branch Switching
 
 ```bash
-# Switch to different Xano branch
+# Safe switch (checks sync status first)
 xano branch live
 
-# Pull files from new branch (auto-syncs metadata)
-xano pull --sync
+# If blocked due to local changes:
+xano push                    # Push changes first, or
+xano pull --force            # Discard local changes, or
+xano branch live --force     # Force switch
+
+# Switch and auto-sync in one command
+xano branch live --sync
 ```
 
 ### Clean Slate
@@ -417,11 +458,60 @@ xano push --profile production functions/my_function.xs
 
 Work directly with table records (CRUD operations). Password fields are automatically hashed by Xano.
 
-```bash
-# List records from a table
-xano data:list users
-xano data:list users --page 2 --per-page 50
+### Listing and Searching Records
 
+```bash
+# List records from a table (by name, ID, or file path)
+xano data:list users
+xano data:list 271
+xano data:list tables/users.xs
+
+# Filter records (server-side filtering)
+xano data:list users --filter "status=active"
+xano data:list users --filter "age>18" --filter "age<65"
+xano data:list orders --filter "price>100"
+xano data:list products --filter "id in 1,2,3"
+xano data:list users --filter "role not in admin,superuser"
+
+# Sort records
+xano data:list users --sort "created_at:desc"
+xano data:list users --sort "name:asc" --sort "id:desc"
+
+# Limit displayed columns
+xano data:list users --columns "id,email,name"
+
+# Combine filters, sort, columns, and pagination
+xano data:list users --filter "status=active" --sort "created_at:desc" --columns "id,email" --per-page 50
+
+# Pagination
+xano data:list users --page 2 --per-page 50
+```
+
+**Filter operators:**
+| Operator | Example | Description |
+|----------|---------|-------------|
+| `=` | `status=active` | Exact match |
+| `!=` | `status!=deleted` | Not equal |
+| `>` | `age>18` | Greater than |
+| `>=` | `price>=100` | Greater or equal |
+| `<` | `count<10` | Less than |
+| `<=` | `score<=100` | Less or equal |
+| `in` | `id in 1,2,3` | In array |
+| `not in` | `role not in admin,super` | Not in array |
+
+### Viewing Table Schema
+
+```bash
+# Show column definitions (by name, ID, or file path)
+xano data:columns users
+xano data:columns 271
+xano data:columns tables/users.xs
+xano data:columns users --json
+```
+
+### Single Record Operations
+
+```bash
 # Get single record by primary key
 xano data:get users 1
 xano data:get users 1 --json
@@ -569,21 +659,25 @@ rm .xano/token.txt
 
 ## Tips
 
-1. **Use `xano status` frequently** to see what's changed
+1. **Paths resolve from current directory** - When in a subdirectory, `.` means that directory, not project root. Use `xano pull .` to pull only current directory.
 
-2. **Push small, focused changes** rather than large batches
+2. **Use `xano status` frequently** to see what's changed
 
-3. **Keep .xano/ in .gitignore** - it contains local state
+3. **Push small, focused changes** rather than large batches
 
-4. **Commit xano.json to git** - it defines the project
+4. **Keep .xano/ in .gitignore** - it contains local state
 
-5. **Use data commands for testing** - quickly create/delete test records
+5. **Commit xano.json to git** - it defines the project
 
-6. **Use api:call for integration testing** - test your API endpoints directly
+6. **Use data commands for testing** - quickly create/delete test records, filter with `--filter`, check schema with `data:columns`
 
-7. **Use --sync flag** when metadata might be stale or after branch switch
+7. **Use api:call for integration testing** - test your API endpoints directly
 
-8. **Use `xano status`** to preview what would change before pull/push
+8. **Use --sync flag** when metadata might be stale or after branch switch
+
+9. **Use `xano status`** to preview what would change before pull/push
+
+10. **Use file paths for data commands** - `xano data:list users.xs` works when in the tables directory
 
 ## Naming Modes
 

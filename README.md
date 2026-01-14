@@ -48,6 +48,21 @@ project/
 └── tests/                  # Workflow tests
 ```
 
+## Path Resolution
+
+All file paths are resolved from the current working directory. When in a subdirectory:
+
+```bash
+# From project root
+xano pull tables/           # Pull all tables
+
+# From within tables/ directory
+cd tables
+xano pull .                 # Pull only tables (current dir)
+xano push users.xs          # Push tables/users.xs
+xano data:list users.xs     # List records from tables/users.xs
+```
+
 ## Core Commands
 
 ### Pull & Push
@@ -111,16 +126,40 @@ xano lint --staged
 ```bash
 xano branch              # Show current
 xano branch list         # List all
-xano branch v2           # Switch branch
+xano branch v2           # Safe switch (checks sync first)
+xano branch v2 --force   # Force switch (skip sync check)
+xano branch v2 --sync    # Switch and sync new branch files
 ```
+
+**Safe switch:** By default, branch switch is blocked if local changes exist. The CLI compares local files against remote state and shows any modifications, local-only files, or remote-only files. Options to resolve:
+- `xano push` - push local changes first
+- `xano pull --force` - discard local changes
+- `xano branch <name> --force` - force switch (may lose changes)
 
 ## Data Commands
 
 Work directly with table records. Password fields are automatically hashed.
 
 ```bash
-# List/get records
+# List records (supports table name, ID, or file path)
 xano data:list users
+xano data:list 271
+xano data:list tables/users.xs
+
+# Filter and sort (server-side)
+xano data:list users --filter "status=active"
+xano data:list users --filter "age>18" --filter "age<65"
+xano data:list products --filter "id in 1,2,3"
+xano data:list users --sort "created_at:desc"
+
+# Limit displayed columns
+xano data:list users --columns "id,email,name"
+
+# View table schema
+xano data:columns users
+xano data:columns tables/users.xs
+
+# Get single record
 xano data:get users 1
 
 # Create/update/delete
@@ -134,6 +173,8 @@ xano data:bulk users --file records.json
 # Use specific data source (environment)
 xano data:list users --datasource test
 ```
+
+**Filter operators:** `=`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not in`
 
 ### Data Source Management
 

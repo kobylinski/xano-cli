@@ -3,7 +3,9 @@
     "allow": [
       "Bash",
       "WebSearch",
-      "WebFetch(domain:docs.xano.com)"
+      "WebFetch(domain:docs.xano.com)",
+      "WebFetch(domain:community.xano.com)",
+      "WebFetch(domain:app.xano.com)"
     ],
     "deny": [],
     "ask": [
