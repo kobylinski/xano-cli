@@ -1118,6 +1118,16 @@ export class XanoApi {
     )
   }
 
+  async updateApiGroup(id: number, xanoscript: string): Promise<ApiResponse<XanoApiGroup>> {
+    return apiRequest(
+      this.profile,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${id}?${this.branchParam}`,
+      xanoscript,
+      'text/x-xanoscript'
+    )
+  }
+
   async updateFunction(id: number, xanoscript: string): Promise<ApiResponse<XanoApiFunction>> {
     return apiRequest(
       this.profile,
@@ -1164,6 +1174,10 @@ export class XanoApi {
         }
 
         return this.updateApiEndpoint(options.apigroup_id, id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
+      }
+
+      case 'api_group': {
+        return this.updateApiGroup(id, xanoscript) as Promise<ApiResponse<{ id: number; name?: string }>>
       }
 
       case 'function': {
