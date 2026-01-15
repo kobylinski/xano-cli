@@ -157,23 +157,32 @@ xano push functions/ --sync --clean
 
 ### Check Status
 
+The status command performs three-way comparison: local files vs synced state (objects.json) vs remote Xano.
+
 ```bash
-# Show status (always fetches from Xano)
+# Show status (compares local, synced, and remote)
 xano status
 
-# Check specific files or directories
+# Check specific files or directories (smart fetching - only fetches needed objects)
 xano status functions/my_function.xs
 xano status functions/
 xano status functions/ apis/
+
+# Show extended info (record counts for tables)
+xano status --extended
 
 # Output as JSON
 xano status --json
 ```
 
 Status indicators:
-- `M` - Modified (local differs from Xano)
+- `M` - Modified locally (local differs from synced)
+- `M↓` - Modified remotely (remote differs from synced, pull to update)
+- `M!` - Conflict (both local and remote changed independently)
 - `A` - New (local only, not on Xano)
-- `R` - Remote only (on Xano, not local)
+- `D` - Deleted locally (was synced, now deleted locally)
+- `D↑` - Deleted remotely (was synced, now deleted on Xano)
+- `R` - Remote only (on Xano, not pulled locally)
 
 ### List Remote Objects
 
@@ -526,12 +535,58 @@ xano data:update users 1 --data '{"name":"Updated Name"}'
 # Delete a record
 xano data:delete users 1 --force
 
+# Truncate table (delete all records)
+xano data:truncate users --force
+
 # Bulk insert multiple records
 xano data:bulk users --file records.json
 xano data:bulk users --data '[{"email":"a@example.com"},{"email":"b@example.com"}]'
 
 # Bulk insert with custom primary keys (e.g., UUIDs)
 xano data:bulk users --file records.json --allow-id
+```
+
+### Export & Import
+
+Export and import table data to/from JSON or CSV files.
+
+```bash
+# Export single table
+xano data:export users                      # Output to stdout (JSON)
+xano data:export users users.json           # Output to file
+xano data:export users backup/users.csv     # Auto-creates directory, CSV format
+
+# Export with filters and sorting
+xano data:export users --filter "status=active" --sort "created_at:desc"
+xano data:export users --all --format csv   # All records (paginated), CSV format
+xano data:export users --columns "id,email,name"  # Specific columns only
+
+# Batch export (all tables to directory)
+xano data:export backup --all               # All tables to backup/
+xano data:export --all                      # All tables to export/
+
+# Batch export with filters
+xano data:export backup --tags "Users,Auth" # Only tables with these tags
+xano data:export backup --tables "users,roles,permissions"  # Specific tables
+
+# Import data
+xano data:import users.json                 # Auto-detects table from filename
+xano data:import users records.json         # Explicit table name
+xano data:import users --data '[{"email":"a@test.com"}]'
+
+# Import modes
+xano data:import users data.json --mode insert   # Only insert new records
+xano data:import users data.json --mode update   # Only update existing records
+xano data:import users data.json --mode upsert   # Insert or update (default)
+
+# Bulk import with chunking (for large datasets)
+xano data:import users data.json --mode insert --chunk-size 100
+
+# Batch import (all JSON/CSV files from directory)
+xano data:import backup/                    # Import matching table names
+
+# Dry run (preview without executing)
+xano data:import users data.json --dry-run
 ```
 
 ### Using Data Sources (Environments)
@@ -543,6 +598,8 @@ All data commands support the `--datasource` flag to target specific environment
 xano data:list users --datasource test
 xano data:create users --data '{"email":"test@test.local"}' --datasource test
 xano data:delete users 1 --force --datasource test
+xano data:export users backup/users.json --datasource test
+xano data:import users data.json --datasource test
 
 # Manage data sources
 xano datasource:list
@@ -554,6 +611,31 @@ This is useful for:
 - Setting up test fixtures without affecting live data
 - Running integration tests against isolated data
 - Comparing data between environments
+- Backing up/restoring test data
+
+## Request History
+
+View API request history for debugging and analysis.
+
+```bash
+# List recent requests
+xano history
+
+# Filter requests
+xano history --endpoint /auth/login         # By endpoint path
+xano history --status 500                   # By HTTP status code
+xano history --method POST                  # By HTTP method
+xano history --per-page 50                  # Pagination
+
+# View specific request details
+xano history:get <request-id>
+xano history:get <request-id> --json        # JSON output
+```
+
+Useful for:
+- Debugging failed API calls
+- Analyzing request/response patterns
+- Auditing API usage
 
 ## Live API Calls
 
@@ -661,23 +743,31 @@ rm .xano/token.txt
 
 1. **Paths resolve from current directory** - When in a subdirectory, `.` means that directory, not project root. Use `xano pull .` to pull only current directory.
 
-2. **Use `xano status` frequently** to see what's changed
+2. **Use `xano status` frequently** to see what's changed - it performs three-way comparison and shows conflicts
 
-3. **Push small, focused changes** rather than large batches
+3. **Use `xano status --extended`** to see table record counts alongside file status
 
-4. **Keep .xano/ in .gitignore** - it contains local state
+4. **Push small, focused changes** rather than large batches
 
-5. **Commit xano.json to git** - it defines the project
+5. **Keep .xano/ in .gitignore** - it contains local state
 
-6. **Use data commands for testing** - quickly create/delete test records, filter with `--filter`, check schema with `data:columns`
+6. **Commit xano.json to git** - it defines the project
 
-7. **Use api:call for integration testing** - test your API endpoints directly
+7. **Use data commands for testing** - quickly create/delete test records, filter with `--filter`, check schema with `data:columns`
 
-8. **Use --sync flag** when metadata might be stale or after branch switch
+8. **Use api:call for integration testing** - test your API endpoints directly
 
-9. **Use `xano status`** to preview what would change before pull/push
+9. **Use --sync flag** when metadata might be stale or after branch switch
 
 10. **Use file paths for data commands** - `xano data:list users.xs` works when in the tables directory
+
+11. **Backup data with export** - `xano data:export backup --all` exports all tables to JSON files
+
+12. **Use tags for selective export** - `xano data:export backup --tags "Public"` exports only tagged tables
+
+13. **Debug with history** - `xano history --status 500` shows failed requests for troubleshooting
+
+14. **Use dry-run for import** - `xano data:import data.json --dry-run` previews changes without executing
 
 ## Naming Modes
 

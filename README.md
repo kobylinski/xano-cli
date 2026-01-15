@@ -94,8 +94,18 @@ xano push --clean
 ### Status & List
 
 ```bash
-# Show file status
+# Show file status (three-way comparison: local vs synced vs remote)
 xano status
+
+# Check specific files or directories
+xano status app/functions/my_function.xs
+xano status app/functions/
+
+# Show extended info (record counts for tables)
+xano status --extended
+
+# Output as JSON
+xano status --json
 
 # List remote objects
 xano list
@@ -105,7 +115,11 @@ xano list app/apis/auth
 
 Status indicators:
 - `M` - Modified locally
+- `M↓` - Modified remotely (pull to update)
+- `M!` - Conflict (both local and remote changed)
 - `A` - New (local only)
+- `D` - Deleted locally
+- `D↑` - Deleted remotely
 - `R` - Remote only (not pulled)
 
 ### Lint
@@ -169,6 +183,10 @@ xano data:delete users 1 --force
 
 # Bulk insert
 xano data:bulk users --file records.json
+xano data:bulk users --file records.json --chunk-size 100
+
+# Truncate table (delete all records)
+xano data:truncate users --force
 
 # Use specific data source (environment)
 xano data:list users --datasource test
@@ -176,12 +194,70 @@ xano data:list users --datasource test
 
 **Filter operators:** `=`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not in`
 
+### Export & Import
+
+```bash
+# Export single table
+xano data:export users                      # Output to stdout
+xano data:export users users.json           # Output to file
+xano data:export users backup/users.csv     # Auto-creates directory
+
+# Export with filters
+xano data:export users --filter "status=active" --sort "created_at:desc"
+xano data:export users --all --format csv   # All records, CSV format
+
+# Batch export (all tables)
+xano data:export backup --all               # All tables to backup/
+xano data:export --all                      # All tables to export/
+
+# Batch export with filters
+xano data:export backup --tags "Users,Auth" # Tables with specific tags
+xano data:export backup --tables "users,roles,permissions"
+
+# Import data
+xano data:import users.json                 # Auto-detects table from filename
+xano data:import users records.json         # Explicit table name
+xano data:import users --data '[{"email":"a@test.com"}]'
+
+# Import modes
+xano data:import users data.json --mode insert   # Only insert new
+xano data:import users data.json --mode update   # Only update existing
+xano data:import users data.json --mode upsert   # Insert or update (default)
+
+# Bulk import with chunking
+xano data:import users data.json --mode insert --chunk-size 100
+
+# Batch import (directory)
+xano data:import backup/                    # Import all JSON/CSV files
+
+# Dry run (preview without executing)
+xano data:import users data.json --dry-run
+```
+
 ### Data Source Management
 
 ```bash
 xano datasource:list
 xano datasource:create staging
 xano datasource:delete staging --force
+```
+
+## Request History
+
+View API request history for debugging.
+
+```bash
+# List recent requests
+xano history
+
+# Filter by endpoint or status
+xano history --endpoint /auth/login
+xano history --status 500
+xano history --method POST
+
+# View specific request details
+xano history:get <request-id>
+xano history:get <request-id> --json
 ```
 
 ## API Commands
