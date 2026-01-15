@@ -546,6 +546,36 @@ xano data:bulk users --data '[{"email":"a@example.com"},{"email":"b@example.com"
 xano data:bulk users --file records.json --allow-id
 ```
 
+### Bulk Update & Delete
+
+Update or delete multiple records using filters or ID lists.
+
+```bash
+# Bulk update by filter (updates all matching records)
+xano data:update users --filter "status=pending" --data '{"status":"active"}' --force
+xano data:update users --filter "role=guest" --filter "created_at<2024-01-01" --data '{"role":"archived"}' --force
+
+# Bulk update by ID list
+xano data:update users --ids "1,2,3,4,5" --data '{"verified":true}' --force
+
+# Bulk delete by filter
+xano data:delete users --filter "status=deleted" --force
+xano data:delete users --filter "last_login<2024-01-01" --force
+
+# Bulk delete by ID list
+xano data:delete users --ids "1,2,3,4,5" --force
+
+# Preview changes without executing (dry-run)
+xano data:update users --filter "role=guest" --data '{"role":"user"}' --dry-run
+xano data:delete users --filter "status=inactive" --dry-run
+```
+
+**Notes:**
+- Filters use the same syntax as `data:list` (`field=value`, `field>value`, `field in a,b,c`)
+- Multiple `--filter` flags are combined with AND logic
+- Progress is displayed every 100 records for bulk operations
+- Use `--dry-run` to preview what would be affected before executing
+
 ### Export & Import
 
 Export and import table data to/from JSON or CSV files.

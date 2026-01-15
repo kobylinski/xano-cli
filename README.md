@@ -176,10 +176,26 @@ xano data:columns tables/users.xs
 # Get single record
 xano data:get users 1
 
-# Create/update/delete
+# Create record
 xano data:create users --data '{"email":"test@example.com"}'
+
+# Update single record
 xano data:update users 1 --data '{"name":"Updated"}'
+
+# Bulk update by filter
+xano data:update users --filter "status=pending" --data '{"status":"active"}' --force
+xano data:update users --ids "1,2,3" --data '{"verified":true}' --force
+
+# Delete single record
 xano data:delete users 1 --force
+
+# Bulk delete by filter
+xano data:delete users --filter "status=deleted" --force
+xano data:delete users --ids "1,2,3" --force
+
+# Preview changes (dry-run)
+xano data:update users --filter "role=guest" --data '{"role":"user"}' --dry-run
+xano data:delete users --filter "last_login<2024-01-01" --dry-run
 
 # Bulk insert
 xano data:bulk users --file records.json

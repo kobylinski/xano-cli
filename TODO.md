@@ -7,7 +7,7 @@ Features from the Xano Metadata API not yet implemented in the CLI.
 
 ## Workspace Management
 
-- [ ] **Delete branch** - DELETE workspace branch (cannot delete default or live)
+- [~] ~~**Delete branch**~~ - Not implementing (branch creation not available via API)
 - [ ] Export workspace archive - Export complete workspace data/config
 - [ ] Export database schema - Export schemas and branch config as file
 - [ ] Import database schema - Import into new branch with optional deployment
@@ -16,9 +16,9 @@ Features from the Xano Metadata API not yet implemented in the CLI.
 
 ## API Groups & Endpoints
 
-- [x] **Create API group** - POST new API group (implemented Jan 2026)
-- [ ] Update API group - Modify name, description, docs, tags
-- [ ] Delete API group - DELETE group and all endpoints
+- [x] **Create API group** - POST new API group ✓
+- [x] **Update API group** - Modify via XanoScript push ✓
+- [x] **Delete API group** - DELETE group and all endpoints ✓
 - [ ] Get OpenAPI spec - GET Swagger JSON for group or endpoint
 - [ ] Update API group security - Configure access permissions
 - [ ] Update endpoint security - Configure endpoint access controls
@@ -32,24 +32,28 @@ Features from the Xano Metadata API not yet implemented in the CLI.
 - [ ] Get indexes - Retrieve all table indexes
 - [ ] Replace indexes - Replace all indexes with new config
 - [ ] Delete index - Remove specific index
-- [ ] **Truncate table** - Delete all records, optionally reset PK
+- [x] **Truncate table** - `data:truncate` command (deletes records iteratively) ✓
 
-## Table Content (Bulk Operations)
+## Table Content (Data Operations)
 
-- [ ] **Bulk update** - Update multiple records in single operation
-- [ ] **Update by criteria** - Update all records matching search
-- [ ] **Bulk delete by IDs** - Delete multiple records by ID array
-- [ ] **Delete by criteria** - Delete all records matching search
+- [x] **List/search records** - `data:list` with filters, sort, pagination ✓
+- [x] **Export data** - `data:export` to JSON/CSV, batch export with --tags/--tables ✓
+- [x] **Import data** - `data:import` with upsert/insert/update modes, chunking ✓
+- [x] **Bulk insert** - `data:bulk` command ✓
+- [x] **Bulk update** - `data:update --filter/--ids` with iterative API calls ✓
+- [x] **Update by criteria** - `data:update --filter` ✓
+- [x] **Bulk delete by IDs** - `data:delete --ids` ✓
+- [x] **Delete by criteria** - `data:delete --filter` ✓
 
 ## Functions
 
 - [ ] Update function security - Configure access controls
-- [ ] Search function history - Advanced filters and sorting
+- [x] Function history - `history` command supports function runs ✓
 
 ## Tasks
 
 - [ ] Update task security - Configure access controls
-- [ ] Search task history - Advanced filters and sorting
+- [x] Task history - `history` command supports task runs ✓
 
 ## Real-time
 
@@ -62,20 +66,38 @@ Features from the Xano Metadata API not yet implemented in the CLI.
 - [ ] Search audit logs (all workspaces) - Complex filtering/sorting
 - [ ] Workspace audit logs - Browse with pagination
 - [ ] Search workspace audit logs - Advanced filters
-- [ ] **Search API history** - Advanced filters (currently list only)
-- [ ] Middleware history - Browse and search
+- [x] **API request history** - `xano history` with filters, `history:get` for details ✓
+- [x] **Middleware history** - Supported via history command ✓
 - [ ] Tool history - Browse and search
-- [ ] Trigger history - Browse and search
+- [x] **Trigger history** - Supported via history command ✓
 
 ---
 
-## Priority Features
+## Implementation Summary
 
-High-value features to implement first:
+### ✓ Completed Features
 
-1. ~~**Branch deletion**~~ - Waiting for branch creation API
-2. ~~**Create API group**~~ - ✓ Done (Jan 2026)
-3. **Bulk data operations** - bulk update, delete by criteria
-4. **Truncate table** - Reset table data
-5. **Search history** - Filter and search request history
-6. **File management** - Static hosting file operations
+| Feature | Command | Notes |
+|---------|---------|-------|
+| Create API group | `push` | Auto-creates from XanoScript |
+| Update API group | `push` | Updates via XanoScript |
+| Delete API group | `push --clean` | Deletes when file removed |
+| Truncate table | `data:truncate` | Iterative deletion |
+| Data export | `data:export` | JSON/CSV, batch with --tags/--tables |
+| Data import | `data:import` | upsert/insert/update modes |
+| Bulk insert | `data:bulk` | With chunking support |
+| Bulk update | `data:update --filter/--ids` | Filter or ID-based bulk update |
+| Bulk delete | `data:delete --filter/--ids` | Filter or ID-based bulk delete |
+| Request history | `history` | Browse and filter |
+| History details | `history:get` | View full request/response |
+
+### Priority Features Remaining
+
+1. **File management** - Static hosting file upload/list/delete
+2. **OpenAPI spec** - Export Swagger documentation
+3. **Schema operations** - Column rename/delete, index management
+4. **Security config** - API group and endpoint access controls
+
+### Not Implementing
+
+- **Branch deletion** - Limited branch management via API (no creation), implementing only deletion has no practical value
