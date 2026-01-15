@@ -957,7 +957,7 @@ export class XanoApi {
     page = 1,
     perPage = 100,
     datasource?: string
-  ): Promise<ApiResponse<{ curPage: number; items: Record<string, unknown>[]; nextPage: null | number; prevPage: null | number }>> {
+  ): Promise<ApiResponse<{ curPage: number; items: Record<string, unknown>[]; itemsReceived: number; itemsTotal: number; nextPage: null | number; offset: number; pageTotal: number; prevPage: null | number }>> {
     return apiRequest(
       this.profile,
       'GET',

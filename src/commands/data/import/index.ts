@@ -45,6 +45,10 @@ export default class DataImport extends Command {
       default: false,
       description: 'Allow setting custom ID values in records',
     }),
+    'chunk-size': Flags.integer({
+      default: 500,
+      description: 'Number of records per bulk insert chunk (for insert mode)',
+    }),
     data: Flags.string({
       char: 'd',
       description: 'Inline JSON data (array of objects)',
@@ -137,7 +141,7 @@ export default class DataImport extends Command {
     dirPath: string,
     projectRoot: string,
     mode: ImportMode,
-    flags: { 'allow-id': boolean; datasource?: string; 'dry-run': boolean }
+    flags: { 'allow-id': boolean; 'chunk-size': number; datasource?: string; 'dry-run': boolean }
   ): Promise<void> {
     const inputDir = dirPath.replace(/\/$/, '')
     const resolvedDir = isAbsolute(inputDir) ? inputDir : resolve(inputDir)
@@ -216,7 +220,7 @@ export default class DataImport extends Command {
     tableName: string,
     records: Record<string, unknown>[],
     mode: ImportMode,
-    flags: { 'allow-id': boolean; datasource?: string; 'dry-run': boolean }
+    flags: { 'allow-id': boolean; 'chunk-size': number; datasource?: string; 'dry-run': boolean }
   ): Promise<void> {
     if (records.length === 0) {
       this.log('No records to import.')
@@ -247,7 +251,7 @@ export default class DataImport extends Command {
     tableName: string,
     records: Record<string, unknown>[],
     mode: ImportMode,
-    flags: { 'allow-id': boolean; datasource?: string },
+    flags: { 'allow-id': boolean; 'chunk-size': number; datasource?: string },
     verbose: boolean
   ): Promise<{ inserted: number; skipped: number; updated: number }> {
     // Resolve table ID
@@ -260,23 +264,39 @@ export default class DataImport extends Command {
     let updated = 0
     let skipped = 0
 
-    // For insert-only mode, use bulk insert
+    // For insert-only mode, use bulk insert with chunking
     if (mode === 'insert') {
-      // Filter out records that have an ID (they might exist)
-      // For true insert-only, we could either skip records with IDs or insert anyway
-      // Let's use bulk insert and let Xano handle duplicates
-      const response = await api.bulkCreateTableContent(
-        tableId,
-        records,
-        flags.datasource,
-        flags['allow-id']
-      )
+      const chunkSize = flags['chunk-size']
+      const totalChunks = Math.ceil(records.length / chunkSize)
 
-      if (!response.ok) {
-        throw new Error(response.error || 'Bulk insert failed')
+      if (verbose && totalChunks > 1) {
+        this.log(`Inserting ${records.length} records in ${totalChunks} chunks (${chunkSize} per chunk)...`)
       }
 
-      inserted = records.length
+      /* eslint-disable no-await-in-loop -- Chunked bulk insert requires sequential requests */
+      for (let i = 0; i < records.length; i += chunkSize) {
+        const chunk = records.slice(i, i + chunkSize)
+        const chunkNum = Math.floor(i / chunkSize) + 1
+
+        const response = await api.bulkCreateTableContent(
+          tableId,
+          chunk,
+          flags.datasource,
+          flags['allow-id']
+        )
+
+        if (!response.ok) {
+          throw new Error(response.error || `Bulk insert failed at chunk ${chunkNum}`)
+        }
+
+        inserted += chunk.length
+
+        if (verbose && totalChunks > 1) {
+          this.log(`  Chunk ${chunkNum}/${totalChunks}: ${chunk.length} records inserted`)
+        }
+      }
+      /* eslint-enable no-await-in-loop */
+
       if (verbose) {
         this.log(`Inserted ${inserted} records into ${tableName}`)
       }

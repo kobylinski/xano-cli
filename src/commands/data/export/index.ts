@@ -1,6 +1,6 @@
 import { Args, Command, Flags } from '@oclif/core'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, extname, isAbsolute, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, extname, isAbsolute, resolve } from 'node:path'
 import Papa from 'papaparse'
 
 import {
@@ -101,16 +101,18 @@ function parseSort(sort: string): null | { direction: 'asc' | 'desc'; field: str
 }
 
 export default class DataExport extends Command {
+  /* eslint-disable perfectionist/sort-objects -- positional arg order matters in oclif */
   static args = {
+    table: Args.string({
+      description: 'Table name, ID, or file path (e.g., tables/users.xs)',
+      required: false,
+    }),
     file: Args.string({
       description: 'Output file path (.json or .csv) or directory for batch export',
       required: false,
     }),
-    table: Args.string({
-      description: 'Table name, ID, or file path (optional if FILE maps to table)',
-      required: false,
-    }),
   }
+  /* eslint-enable perfectionist/sort-objects */
   static description = 'Export table data to JSON or CSV file'
   static examples = [
     '<%= config.bin %> data:export users',
@@ -118,9 +120,12 @@ export default class DataExport extends Command {
     '<%= config.bin %> data:export users export/users.csv',
     '<%= config.bin %> data:export tables/users.xs backup/users.json',
     '<%= config.bin %> data:export users.json',
-    '<%= config.bin %> data:export export/',
     '<%= config.bin %> data:export users --filter "status=active" --sort "created_at:desc"',
     '<%= config.bin %> data:export users --all --format csv',
+    '<%= config.bin %> data:export backup --all',
+    '<%= config.bin %> data:export --all',
+    '<%= config.bin %> data:export backup --tags "Users,Authorization"',
+    '<%= config.bin %> data:export backup --tables "users,roles,permissions"',
   ]
   static flags = {
     all: Flags.boolean({
@@ -152,6 +157,13 @@ export default class DataExport extends Command {
       description: 'Sort by field (field:asc or field:desc)',
       multiple: true,
     }),
+    tables: Flags.string({
+      char: 't',
+      description: 'Comma-separated list of table names to export (batch mode)',
+    }),
+    tags: Flags.string({
+      description: 'Comma-separated list of tags to filter tables (batch mode)',
+    }),
   }
 
   async run(): Promise<void> {
@@ -179,8 +191,9 @@ export default class DataExport extends Command {
     const api = new XanoApi(profile, config.workspaceId, config.branch)
 
     // Handle directory export (batch)
-    if (args.file?.endsWith('/') || (args.table?.endsWith('/') && !args.file)) {
-      await this.exportDirectory(api, args.table || args.file || '', projectRoot, flags)
+    if (this.isBatchExport(args, flags)) {
+      const dirPath = args.table || args.file || 'export'
+      await this.exportDirectory(api, dirPath, projectRoot, flags)
       return
     }
 
@@ -209,6 +222,11 @@ export default class DataExport extends Command {
 
     // Write to file or stdout
     if (outputFile) {
+      const outputDir = dirname(outputFile)
+      if (outputDir && !existsSync(outputDir)) {
+        mkdirSync(outputDir, { recursive: true })
+      }
+
       writeFileSync(outputFile, output, 'utf8')
       this.log(`Exported ${filteredRecords.length} records to ${outputFile}`)
     } else {
@@ -233,32 +251,69 @@ export default class DataExport extends Command {
     api: XanoApi,
     dirPath: string,
     projectRoot: string,
-    flags: { all: boolean; columns?: string; datasource?: string; filter?: string[]; format?: string; sort?: string[] }
+    flags: { all: boolean; columns?: string; datasource?: string; filter?: string[]; format?: string; sort?: string[]; tables?: string; tags?: string }
   ): Promise<void> {
-    // Get all tables from objects.json
-    const objects = loadObjects(projectRoot)
-    const tables = objects.filter(o => o.type === 'table')
+    // Get tables - from API if filtering by tags, otherwise from objects.json
+    let tablesToExport: { id: number; name: string }[] = []
 
-    if (tables.length === 0) {
-      this.error('No tables found. Run "xano pull --sync" to sync tables first.')
+    if (flags.tags || flags.tables) {
+      // Fetch from API to get tag information
+      const response = await api.listTables(1, 1000)
+      if (!response.ok || !response.data?.items) {
+        this.error('Failed to fetch tables from API')
+      }
+
+      let apiTables = response.data.items
+
+      // Filter by tags
+      if (flags.tags) {
+        const tagFilter = new Set(flags.tags.split(',').map(t => t.trim().toLowerCase()))
+        apiTables = apiTables.filter(t => {
+          const tableTags = t.tag || []
+          return tableTags.some(tag => tagFilter.has(tag.toLowerCase()))
+        })
+      }
+
+      // Filter by table names
+      if (flags.tables) {
+        const nameFilter = new Set(flags.tables.split(',').map(n => n.trim().toLowerCase()))
+        apiTables = apiTables.filter(t => nameFilter.has(t.name.toLowerCase()))
+      }
+
+      tablesToExport = apiTables.map(t => ({ id: t.id, name: t.name }))
+    } else {
+      // Use objects.json
+      const objects = loadObjects(projectRoot)
+      const tables = objects.filter(o => o.type === 'table')
+
+      if (tables.length === 0) {
+        this.error('No tables found. Run "xano pull --sync" to sync tables first.')
+      }
+
+      tablesToExport = tables.map(t => ({
+        id: t.id,
+        name: basename(t.path, '.xs'),
+      }))
+    }
+
+    if (tablesToExport.length === 0) {
+      this.error('No tables match the specified filters')
     }
 
     const outputDir = dirPath.replace(/\/$/, '') || 'export'
     const format = (flags.format as 'csv' | 'json') || 'json'
 
     // Create output directory if needed
-    const { mkdirSync } = await import('node:fs')
     mkdirSync(outputDir, { recursive: true })
 
-    this.log(`Exporting ${tables.length} tables to ${outputDir}/...`)
+    this.log(`Exporting ${tablesToExport.length} tables to ${outputDir}/...`)
 
     let successCount = 0
     let errorCount = 0
 
     /* eslint-disable no-await-in-loop -- Sequential table export for progress logging */
-    for (const table of tables) {
-      const tableName = basename(table.path, '.xs')
-      const outputFile = `${outputDir}/${tableName}.${format}`
+    for (const table of tablesToExport) {
+      const outputFile = `${outputDir}/${table.name}.${format}`
 
       try {
         const records = await this.fetchRecords(api, table.id, flags)
@@ -269,11 +324,11 @@ export default class DataExport extends Command {
           : JSON.stringify(filteredRecords, null, 2)
 
         writeFileSync(outputFile, output, 'utf8')
-        this.log(`  ✓ ${tableName}: ${filteredRecords.length} records`)
+        this.log(`  ✓ ${table.name}: ${filteredRecords.length} records`)
         successCount++
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        this.log(`  ✗ ${tableName}: ${message}`)
+        this.log(`  ✗ ${table.name}: ${message}`)
         errorCount++
       }
     }
@@ -345,6 +400,49 @@ export default class DataExport extends Command {
 
       return filtered
     })
+  }
+
+  private isBatchExport(
+    args: { file?: string; table?: string },
+    flags: { all: boolean; tables?: string; tags?: string }
+  ): boolean {
+    const path = args.table || args.file
+
+    // --tags or --tables flags always trigger batch mode
+    if (flags.tags || flags.tables) {
+      return true
+    }
+
+    // Explicit directory syntax (trailing slash)
+    if (path?.endsWith('/')) {
+      return true
+    }
+
+    // Existing directory
+    if (path && existsSync(path)) {
+      try {
+        if (statSync(path).isDirectory()) {
+          return true
+        }
+      } catch {
+        // Not a directory
+      }
+    }
+
+    // With --all flag and no file extension, treat as directory
+    if (flags.all && path) {
+      const ext = extname(path).toLowerCase()
+      if (ext !== '.json' && ext !== '.csv' && ext !== '.xs') {
+        return true
+      }
+    }
+
+    // No arguments at all with --all flag
+    if (flags.all && !path) {
+      return true
+    }
+
+    return false
   }
 
   private resolveArgs(

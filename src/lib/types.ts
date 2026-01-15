@@ -169,6 +169,7 @@ export interface XanoApiTable {
   guid: string
   id: number
   name: string
+  tag?: string[]
   updated_at: number
   xanoscript?: string
 }
@@ -260,7 +261,18 @@ export interface RequestHistoryItem {
 // Status types for CLI output
 export type FileStatus = 'conflict' | 'deleted' | 'modified' | 'new' | 'remote_only' | 'unchanged'
 
+// Detail explains the nature of the change
+export type StatusDetail = 'both' | 'local' | 'remote'
+
+// Extended info for specific types (tables, etc.)
+export interface StatusExtendedInfo {
+  recordCount?: number  // for tables
+  // Future: add other type-specific info
+}
+
 export interface StatusEntry {
+  detail?: StatusDetail        // explains local/remote/both change
+  extendedInfo?: StatusExtendedInfo
   id?: number
   message?: string
   path: string
