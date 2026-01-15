@@ -49,7 +49,7 @@ xano pull .                     # Pulls only tables (current dir)
 xano status .                   # Status of only tables
 xano push users.xs              # Pushes tables/users.xs
 xano data:list users.xs         # Lists records from tables/users.xs
-xano data:columns accounts.xs   # Shows schema of tables/accounts.xs
+xano schema describe columns accounts.xs   # Shows schema of tables/accounts.xs
 
 # From within apis/auth/ directory
 cd apis/auth
@@ -57,7 +57,7 @@ xano push .                     # Pushes only auth API endpoints
 xano pull login_POST.xs         # Pulls apis/auth/login_POST.xs
 ```
 
-**This applies to all commands:** `pull`, `push`, `status`, `lint`, `history`, `data:list`, `data:columns`
+**This applies to all commands:** `pull`, `push`, `status`, `lint`, `history`, `data:list`, `schema describe columns`
 
 ## Essential Commands
 
@@ -512,10 +512,14 @@ xano data:list users --page 2 --per-page 50
 
 ```bash
 # Show column definitions (by name, ID, or file path)
-xano data:columns users
-xano data:columns 271
-xano data:columns tables/users.xs
-xano data:columns users --json
+xano schema describe columns users
+xano schema describe columns 271
+xano schema describe columns tables/users.xs
+xano schema describe columns users --json
+
+# Show table indexes
+xano schema describe indexes users
+xano schema describe indexes users --json
 ```
 
 ### Single Record Operations
@@ -642,6 +646,127 @@ This is useful for:
 - Running integration tests against isolated data
 - Comparing data between environments
 - Backing up/restoring test data
+
+## Schema Operations
+
+Granular schema manipulation with detailed error reporting. Uses SQL-like command structure. These commands provide better error messages than pushing entire XanoScript files when schema changes fail.
+
+### Viewing Schema
+
+```bash
+# View table columns (from API, not local file)
+xano schema describe columns users
+xano schema describe columns tables/users.xs
+xano schema describe columns users --json
+
+# View table indexes
+xano schema describe indexes users
+xano schema describe indexes users --json
+```
+
+### Adding Columns
+
+```bash
+# Add a new column
+xano schema add column users bio --type text
+xano schema add column users age --type int --default 0
+xano schema add column users notes --type text --nullable
+
+# Add enum column with values
+xano schema add column users status --type enum --values "active,inactive,pending"
+
+# Add column with description
+xano schema add column users metadata --type json --description "User metadata"
+
+# Add sensitive column (marked as sensitive in schema)
+xano schema add column users ssn --type text --sensitive
+
+# Add column at specific position
+xano schema add column users email --type email --after name
+xano schema add column users phone --type text --before notes
+```
+
+**Supported column types:** `text`, `int`, `bool`, `timestamp`, `json`, `enum`, `decimal`, `date`, `email`, `password`, `uuid`, `image`, `attachment`, `audio`, `video`, `vector`, `object`, `geo_point`, `geo_polygon`, `geo_linestring`, `geo_multipoint`, `geo_multilinestring`, `geo_multipolygon`
+
+### Moving Columns
+
+```bash
+# Move column after another column
+xano schema move column users email --after name
+
+# Move column before another column
+xano schema move column users created_at --before updated_at
+
+# Move column to first position (after id)
+xano schema move column users status --first
+
+# Move column to last position
+xano schema move column users notes --last
+```
+
+### Adding Indexes
+
+```bash
+# Add btree index (default)
+xano schema add index users --type btree --fields email
+
+# Add unique constraint
+xano schema add index users --type unique --fields "email,username"
+
+# Add fulltext index for text search
+xano schema add index users --type fulltext --fields bio
+
+# Add GIN index for JSON columns
+xano schema add index users --type gin --fields metadata
+```
+
+**Supported index types:** `btree`, `unique`, `fulltext`, `gin`, `gist`, `hash`
+
+### Renaming Columns
+
+```bash
+# Rename a column (atomic operation with clear error reporting)
+xano schema rename column users old_name new_name
+
+# Skip auto-sync of XanoScript after rename
+xano schema rename column users email user_email --no-sync
+```
+
+If the rename fails (e.g., column has dependencies), the error message will explain why:
+```
+Error: Cannot rename column 'email'
+  - Column has unique index that must be dropped first
+  - Referenced by foreign key in 'orders.user_email'
+```
+
+### Dropping Columns
+
+```bash
+# Drop a column (requires --force)
+xano schema drop column users old_field --force
+
+# Preview deletion without executing
+xano schema drop column users temp_column --dry-run
+
+# Skip auto-sync after deletion
+xano schema drop column users unused_field --force --no-sync
+```
+
+**Important:** Dropping a column permanently removes all data in that column. The `--dry-run` flag shows what would be deleted before executing.
+
+### Dropping Indexes
+
+```bash
+# Drop an index by number (get index numbers from 'describe indexes')
+xano schema drop index users 2 --force
+
+# Preview deletion
+xano schema drop index users 1 --dry-run
+```
+
+### Auto-Sync Behavior
+
+After schema changes (rename, add column, drop column, add index, drop index), the local XanoScript file is automatically synced from Xano to reflect the changes. Use `--no-sync` to skip this behavior if you want to manage files manually.
 
 ## Request History
 
@@ -783,7 +908,7 @@ rm .xano/token.txt
 
 6. **Commit xano.json to git** - it defines the project
 
-7. **Use data commands for testing** - quickly create/delete test records, filter with `--filter`, check schema with `data:columns`
+7. **Use data commands for testing** - quickly create/delete test records, filter with `--filter`, check schema with `schema describe columns`
 
 8. **Use api:call for integration testing** - test your API endpoints directly
 

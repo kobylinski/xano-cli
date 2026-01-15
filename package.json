@@ -41,7 +41,7 @@
     "node": ">=18.0.0"
   },
   "files": [
-    "./.claude",
+    "./.claude/skills",
     "./bin",
     "./dist",
     "./oclif.manifest.json"

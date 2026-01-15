@@ -8,30 +8,31 @@ Features from the Xano Metadata API not yet implemented in the CLI.
 ## Workspace Management
 
 - [~] ~~**Delete branch**~~ - Not implementing (branch creation not available via API)
-- [ ] Export workspace archive - Export complete workspace data/config
-- [ ] Export database schema - Export schemas and branch config as file
-- [ ] Import database schema - Import into new branch with optional deployment
-- [ ] Replace workspace - Replace content with imported archive
-- [ ] **File management** - Upload, list, delete workspace files
+- [~] ~~Export workspace archive~~ - Out of scope
+- [~] ~~Export database schema~~ - Out of scope
+- [~] ~~Import database schema~~ - Out of scope
+- [~] ~~Replace workspace~~ - Out of scope
+- [~] ~~**File management**~~ - Out of scope for CLI tool
 
 ## API Groups & Endpoints
 
 - [x] **Create API group** - POST new API group ✓
 - [x] **Update API group** - Modify via XanoScript push ✓
 - [x] **Delete API group** - DELETE group and all endpoints ✓
-- [ ] Get OpenAPI spec - GET Swagger JSON for group or endpoint
-- [ ] Update API group security - Configure access permissions
-- [ ] Update endpoint security - Configure endpoint access controls
+- [~] ~~Get OpenAPI spec~~ - Out of scope for CLI tool
+- [ ] **Update API group security** - Configure access permissions
+- [ ] **Update endpoint security** - Configure endpoint access controls
 
 ## Tables & Schema
 
-- [ ] Get table schema via API - GET complete schema definition
-- [ ] Replace table schema - PUT entire schema definition
-- [ ] Rename column - Rename column in schema
-- [ ] Delete column - Remove column from schema
-- [ ] Get indexes - Retrieve all table indexes
-- [ ] Replace indexes - Replace all indexes with new config
-- [ ] Delete index - Remove specific index
+- [x] **Get table schema via API** - `schema:columns` command ✓
+- [x] **Replace table schema** - Used internally by schema:add/delete ✓
+- [x] **Rename column** - `schema:rename` command ✓
+- [x] **Delete column** - `schema:delete` command ✓
+- [x] **Add column** - `schema:add` command ✓
+- [x] **Get indexes** - `schema:indexes` command ✓
+- [x] **Add index** - `schema add index` command ✓
+- [x] **Delete index** - `schema drop index` command ✓
 - [x] **Truncate table** - `data:truncate` command (deletes records iteratively) ✓
 
 ## Table Content (Data Operations)
@@ -57,18 +58,18 @@ Features from the Xano Metadata API not yet implemented in the CLI.
 
 ## Real-time
 
-- [ ] Get real-time metrics - Connection details and operational metrics
-- [ ] Update real-time settings - Configure connection settings
+- [?] Get real-time metrics - To consider
+- [?] Update real-time settings - To consider
 
 ## Audit & History
 
-- [ ] Browse audit logs (all workspaces) - Cross-workspace audit
-- [ ] Search audit logs (all workspaces) - Complex filtering/sorting
-- [ ] Workspace audit logs - Browse with pagination
-- [ ] Search workspace audit logs - Advanced filters
+- [?] Browse audit logs (all workspaces) - To evaluate usefulness
+- [?] Search audit logs (all workspaces) - To evaluate usefulness
+- [?] Workspace audit logs - To evaluate usefulness
+- [?] Search workspace audit logs - To evaluate usefulness
 - [x] **API request history** - `xano history` with filters, `history:get` for details ✓
 - [x] **Middleware history** - Supported via history command ✓
-- [ ] Tool history - Browse and search
+- [?] Tool history - To consider
 - [x] **Trigger history** - Supported via history command ✓
 
 ---
@@ -90,14 +91,28 @@ Features from the Xano Metadata API not yet implemented in the CLI.
 | Bulk delete | `data:delete --filter/--ids` | Filter or ID-based bulk delete |
 | Request history | `history` | Browse and filter |
 | History details | `history:get` | View full request/response |
+| View schema | `schema describe columns` | Column definitions from API |
+| View indexes | `schema describe indexes` | Table index list |
+| Rename column | `schema rename column` | Atomic rename with sync |
+| Add column | `schema add column` | Add column with type validation, --after/--before positioning |
+| Move column | `schema move column` | Move column to new position --after/--before/--first/--last |
+| Drop column | `schema drop column` | Remove column with confirmation |
+| Add index | `schema add index` | Add btree, unique, fulltext, gin, gist, hash indexes |
+| Drop index | `schema drop index` | Remove index by number |
 
-### Priority Features Remaining
+### Priority Features - Next Sprint
 
-1. **File management** - Static hosting file upload/list/delete
-2. **OpenAPI spec** - Export Swagger documentation
-3. **Schema operations** - Column rename/delete, index management
-4. **Security config** - API group and endpoint access controls
+1. **Security config** - API group and endpoint access controls
+
+### To Consider Later
+
+- **Real-time** - Metrics and settings
+- **Tool history** - Browse and search
+- **Audit logs** - Cross-workspace and workspace audit (needs evaluation of usefulness)
 
 ### Not Implementing
 
 - **Branch deletion** - Limited branch management via API (no creation), implementing only deletion has no practical value
+- **File management** - Static hosting file operations (out of scope for CLI tool)
+- **OpenAPI spec** - Swagger export (out of scope for CLI tool)
+- **Workspace archive** - Export/import/replace operations (out of scope)

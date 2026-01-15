@@ -169,7 +169,7 @@ xano data:list users --sort "created_at:desc"
 # Limit displayed columns
 xano data:list users --columns "id,email,name"
 
-# View table schema
+# View table schema (see also: schema describe columns)
 xano data:columns users
 xano data:columns tables/users.xs
 
@@ -257,6 +257,59 @@ xano datasource:list
 xano datasource:create staging
 xano datasource:delete staging --force
 ```
+
+## Schema Commands
+
+Granular schema operations with detailed error reporting. Uses SQL-like command structure.
+
+```bash
+# View table columns
+xano schema describe columns users
+xano schema describe columns tables/users.xs
+xano schema describe columns users --json
+
+# View table indexes
+xano schema describe indexes users
+xano schema describe indexes users --json
+
+# Add column
+xano schema add column users bio --type text
+xano schema add column users age --type int --default 0
+xano schema add column users status --type enum --values "active,inactive"
+xano schema add column users notes --type text --nullable
+
+# Add column at specific position
+xano schema add column users email --type email --after name
+xano schema add column users phone --type text --before notes
+
+# Move column to different position
+xano schema move column users email --after name
+xano schema move column users status --first
+xano schema move column users notes --last
+
+# Add index
+xano schema add index users --type btree --fields email
+xano schema add index users --type unique --fields "email,username"
+xano schema add index users --type fulltext --fields bio
+
+# Rename column (with auto-sync of XanoScript)
+xano schema rename column users old_name new_name
+xano schema rename column users email user_email --no-sync
+
+# Drop column
+xano schema drop column users old_column --force
+xano schema drop column users temp_field --dry-run
+
+# Drop index (use index number from 'describe indexes')
+xano schema drop index users 2 --force
+xano schema drop index users 1 --dry-run
+```
+
+**Supported column types:** `text`, `int`, `bool`, `timestamp`, `json`, `enum`, `decimal`, `date`, `email`, `password`, `uuid`, `image`, `attachment`, `audio`, `video`, `vector`, `object`, `geo_point`, etc.
+
+**Supported index types:** `btree`, `unique`, `fulltext`, `gin`, `gist`, `hash`
+
+After schema changes, the local XanoScript file is automatically synced (use `--no-sync` to skip).
 
 ## Request History
 

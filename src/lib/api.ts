@@ -24,6 +24,8 @@ import type {
   XanoDataSource,
   XanoObjectType,
   XanoProfile,
+  XanoTableIndex,
+  XanoTableSchema,
 } from './types.js'
 
 const CREDENTIALS_PATH = join(homedir(), '.xano', 'credentials.yaml')
@@ -167,6 +169,24 @@ export class XanoApi {
   // ========== Branches ==========
 
   /**
+   * Add a single index to a table
+   */
+  async addTableIndex(tableId: number, index: XanoTableIndex): Promise<ApiResponse<XanoTableIndex>> {
+    // Xano API expects fields and type at top level
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/index?${this.branchParam}`,
+      {
+        fields: index.fields,
+        type: index.type,
+      }
+    )
+  }
+
+  // ========== Functions ==========
+
+  /**
    * Browse request history for the workspace
    * @param options Filter options
    */
@@ -192,8 +212,6 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/request_history?${params.toString()}`
     )
   }
-
-  // ========== Functions ==========
 
   /**
    * Bulk insert multiple records
@@ -311,6 +329,8 @@ export class XanoApi {
     )
   }
 
+  // ========== API Groups ==========
+
   async createDataSource(label: string, color: string): Promise<ApiResponse<XanoDataSource>> {
     return apiRequest<XanoDataSource>(
       this.profile,
@@ -319,8 +339,6 @@ export class XanoApi {
       { color, label }
     )
   }
-
-  // ========== API Groups ==========
 
   async createFunction(xanoscript: string): Promise<ApiResponse<XanoApiFunction>> {
     return apiRequest(
@@ -332,6 +350,8 @@ export class XanoApi {
     )
   }
 
+  // ========== API Endpoints ==========
+
   async createMiddleware(xanoscript: string): Promise<ApiResponse<XanoApiMiddleware>> {
     return apiRequest(
       this.profile,
@@ -341,8 +361,6 @@ export class XanoApi {
       'text/x-xanoscript'
     )
   }
-
-  // ========== API Endpoints ==========
 
   /**
    * Create object by type
@@ -450,6 +468,8 @@ export class XanoApi {
     )
   }
 
+  // ========== Tables ==========
+
   async deleteAddon(id: number): Promise<ApiResponse<void>> {
     return apiRequest(
       this.profile,
@@ -457,8 +477,6 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/addon/${id}?${this.branchParam}`
     )
   }
-
-  // ========== Tables ==========
 
   async deleteApiEndpoint(apiGroupId: number, id: number): Promise<ApiResponse<void>> {
     return apiRequest(
@@ -499,6 +517,8 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/middleware/${id}?${this.branchParam}`
     )
   }
+
+  // ========== Tasks ==========
 
   /**
    * Delete object by type and ID
@@ -558,8 +578,6 @@ export class XanoApi {
     }
   }
 
-  // ========== Tasks ==========
-
   async deleteTable(id: number): Promise<ApiResponse<void>> {
     return apiRequest(
       this.profile,
@@ -579,6 +597,17 @@ export class XanoApi {
       undefined,
       'application/json',
       this.datasourceHeaders(datasource)
+    )
+  }
+
+  /**
+   * Delete a specific index by ID
+   */
+  async deleteTableIndex(tableId: number, indexId: number): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'DELETE',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/index/${indexId}?${this.branchParam}`
     )
   }
 
@@ -652,6 +681,8 @@ export class XanoApi {
     )
   }
 
+  // ========== Table Trigger CRUD ==========
+
   /**
    * Get detailed info about an API group including canonical ID
    */
@@ -670,8 +701,6 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/function/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
-
-  // ========== Table Trigger CRUD ==========
 
   /**
    * Get function request history
@@ -700,6 +729,8 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/middleware/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
+
+  // ========== Addon CRUD ==========
 
   /**
    * Get middleware request history
@@ -768,8 +799,6 @@ export class XanoApi {
     }
   }
 
-  // ========== Addon CRUD ==========
-
   async getTable(id: number): Promise<ApiResponse<XanoApiTable>> {
     return apiRequest(
       this.profile,
@@ -792,6 +821,30 @@ export class XanoApi {
     )
   }
 
+  // ========== Middleware CRUD ==========
+
+  /**
+   * Get table indexes
+   */
+  async getTableIndexes(tableId: number): Promise<ApiResponse<XanoTableIndex[]>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/index?${this.branchParam}`
+    )
+  }
+
+  /**
+   * Get table schema definition
+   */
+  async getTableSchema(tableId: number): Promise<ApiResponse<XanoTableSchema[]>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/schema?${this.branchParam}`
+    )
+  }
+
   async getTableTrigger(id: number): Promise<ApiResponse<XanoApiTableTrigger>> {
     return apiRequest(
       this.profile,
@@ -807,8 +860,6 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/task/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
-
-  // ========== Middleware CRUD ==========
 
   /**
    * Get task request history
@@ -857,6 +908,8 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/workflow_test/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
+
+  // ========== Generic object operations ==========
 
   /**
    * List addons
@@ -923,8 +976,6 @@ export class XanoApi {
     )
   }
 
-  // ========== Generic object operations ==========
-
   async listDataSources(): Promise<ApiResponse<XanoDataSource[]>> {
     return apiRequest<XanoDataSource[]>(
       this.profile,
@@ -932,6 +983,8 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/datasource`
     )
   }
+
+  // ========== Table Content (Data) ==========
 
   async listFunctions(page = 1, perPage = 100): Promise<ApiResponse<{ items: XanoApiFunction[] }>> {
     return apiRequest(
@@ -976,8 +1029,6 @@ export class XanoApi {
     )
   }
 
-  // ========== Table Content (Data) ==========
-
   /**
    * List all table triggers in the workspace
    */
@@ -1004,6 +1055,44 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/workflow_test?${this.branchParam}&page=${page}&per_page=${perPage}&include_xanoscript=true`
     )
   }
+
+  /**
+   * Rename a column in a table's schema
+   */
+  async renameColumn(tableId: number, oldName: string, newName: string): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'POST',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/schema/rename?${this.branchParam}`,
+      { new_name: newName, old_name: oldName } // eslint-disable-line camelcase
+    )
+  }
+
+  /**
+   * Replace all table indexes
+   */
+  async replaceTableIndexes(tableId: number, indexes: XanoTableIndex[]): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/index?${this.branchParam}`,
+      { index: indexes }
+    )
+  }
+
+  /**
+   * Replace entire table schema
+   */
+  async replaceTableSchema(tableId: number, schema: XanoTableSchema[]): Promise<ApiResponse<void>> {
+    return apiRequest(
+      this.profile,
+      'PUT',
+      `/api:meta/workspace/${this.workspaceId}/table/${tableId}/schema?${this.branchParam}`,
+      { schema }
+    )
+  }
+
+  // ========== Request History ==========
 
   /**
    * Search request history with filters
@@ -1108,6 +1197,8 @@ export class XanoApi {
     )
   }
 
+  // ========== Schema Operations ==========
+
   async updateApiEndpoint(apiGroupId: number, id: number, xanoscript: string): Promise<ApiResponse<XanoApiEndpoint>> {
     return apiRequest(
       this.profile,
@@ -1137,8 +1228,6 @@ export class XanoApi {
       'text/x-xanoscript'
     )
   }
-
-  // ========== Request History ==========
 
   async updateMiddleware(id: number, xanoscript: string): Promise<ApiResponse<XanoApiMiddleware>> {
     return apiRequest(

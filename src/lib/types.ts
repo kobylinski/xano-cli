@@ -258,6 +258,68 @@ export interface RequestHistoryItem {
   workspace_id?: number     // Workspace ID
 }
 
+// Table schema column definition (from Xano API)
+export interface XanoTableSchema {
+  access?: 'internal' | 'private' | 'public'
+  children?: XanoTableSchema[]
+  default?: string
+  description?: string
+  format?: '' | 'html' | 'markdown' | 'plaintext' | 'xml' | 'yaml'
+  name: string
+  nullable: boolean
+  required: boolean
+  sensitive?: boolean
+  style?: 'list' | 'single'
+  tableref_id?: null | number
+  type: XanoColumnType
+  validators?: { lower?: boolean; trim?: boolean }
+  values?: Array<{ label?: string; value: string }>
+  vector?: { size: number }
+}
+
+// Column types supported by Xano
+export type XanoColumnType =
+  | 'attachment'
+  | 'audio'
+  | 'bool'
+  | 'date'
+  | 'decimal'
+  | 'email'
+  | 'enum'
+  | 'geo_linestring'
+  | 'geo_multilinestring'
+  | 'geo_multipoint'
+  | 'geo_multipolygon'
+  | 'geo_point'
+  | 'geo_polygon'
+  | 'image'
+  | 'int'
+  | 'json'
+  | 'object'
+  | 'password'
+  | 'text'
+  | 'timestamp'
+  | 'uuid'
+  | 'vector'
+  | 'video'
+
+// Table index definition
+export interface XanoTableIndex {
+  fields: Array<{ name: string; op?: string }>
+  id?: string
+  type: XanoIndexType
+}
+
+// Index types supported by Xano
+export type XanoIndexType =
+  | 'btree'
+  | 'fulltext'
+  | 'gin'
+  | 'gist'
+  | 'hash'
+  | 'primary'
+  | 'unique'
+
 // Status types for CLI output
 export type FileStatus = 'conflict' | 'deleted' | 'modified' | 'new' | 'remote_only' | 'unchanged'
 
