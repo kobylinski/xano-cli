@@ -121,7 +121,7 @@ private customResolver?: PathResolver
       this.naming = config.naming
     }
 
-    const profile = getProfile(flags.profile)
+    const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
       this.error('No profile found. Run "xano profile:wizard" to create one.')
     }

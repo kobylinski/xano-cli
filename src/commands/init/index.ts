@@ -578,7 +578,7 @@ static flags = {
         return
       }
 
-      // Profile selected, show success
+      // Profile selected, show success (no project config yet during init)
       const profile = getProfile(flags.profile)
       if (!profile) {
         this.error(`Profile "${flags.profile}" not found.`)
@@ -811,6 +811,7 @@ static flags = {
       const newProjectConfig: XanoProjectConfig = {
         instance,
         paths: getDefaultPaths(),
+        profile: profileName,
         workspace: workspaceName,
         workspaceId,
       }

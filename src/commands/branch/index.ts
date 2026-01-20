@@ -75,7 +75,7 @@ export default class Branch extends Command {
       this.error('Failed to load .xano/config.json')
     }
 
-    const profile = getProfile(flags.profile)
+    const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
       this.error('No profile found. Run "xano profile:wizard" to create one.')
     }

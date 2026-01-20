@@ -388,6 +388,7 @@ The `xano.json` file is created by `xano init` and should be committed to versio
   "instance": "a1b2-c3d4-e5f6",
   "workspace": "My Project",
   "workspaceId": 123,
+  "profile": "myprofile",
   "naming": "default",
   "paths": {
     "functions": "app/functions",
@@ -407,8 +408,11 @@ The `xano.json` file is created by `xano init` and should be committed to versio
 | `instance` | Your Xano instance identifier (from workspace URL) |
 | `workspace` | Workspace name (for reference) |
 | `workspaceId` | Numeric workspace ID |
+| `profile` | Profile name from `~/.xano/credentials.yaml` (optional) |
 | `naming` | Naming mode for file paths (see below) |
 | `paths` | Local directory mappings for each object type |
+
+**Profile priority:** `--profile` flag > `XANO_PROFILE` env > `profile` in xano.json > `default` in credentials.yaml
 
 ### Naming Modes
 

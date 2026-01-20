@@ -159,6 +159,7 @@ export function createLocalConfig(
     instanceName: projectConfig.instance,
     ...(projectConfig.naming && { naming: projectConfig.naming }),
     paths: { ...projectConfig.paths },
+    ...(projectConfig.profile && { profile: projectConfig.profile }),
     workspaceId: projectConfig.workspaceId,
     workspaceName: projectConfig.workspace,
   }

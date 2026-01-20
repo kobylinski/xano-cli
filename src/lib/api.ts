@@ -48,12 +48,13 @@ export function loadCredentials(): null | XanoCredentials {
 
 /**
  * Get profile by name or default
+ * Priority: flagProfile (--profile/XANO_PROFILE) > projectProfile (xano.json) > credentials.default > 'default'
  */
-export function getProfile(profileName?: string): null | XanoProfile {
+export function getProfile(flagProfile?: string, projectProfile?: string): null | XanoProfile {
   const credentials = loadCredentials()
   if (!credentials) return null
 
-  const name = profileName || credentials.default || 'default'
+  const name = flagProfile || projectProfile || credentials.default || 'default'
   return credentials.profiles[name] || null
 }
 

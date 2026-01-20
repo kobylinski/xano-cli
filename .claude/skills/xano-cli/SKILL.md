@@ -948,6 +948,7 @@ Example configuration:
 {
   "instance": "a1b2-c3d4-e5f6",
   "workspaceId": 123,
+  "profile": "myprofile",
   "naming": "default",
   "paths": {
     "functions": "app/functions",
@@ -957,6 +958,8 @@ Example configuration:
 }
 ```
 
+**Profile priority:** `--profile` flag > `XANO_PROFILE` env > `profile` in xano.json > `default` in credentials.yaml
+
 ## Custom Configuration (xano.js)
 
 For advanced setups with custom path resolution, create `xano.js` instead of `xano.json`:
@@ -965,6 +968,7 @@ For advanced setups with custom path resolution, create `xano.js` instead of `xa
 module.exports = {
   instance: "a1b2-c3d4-e5f6",
   workspaceId: 123,
+  profile: "myprofile",
   naming: "default",
   paths: {
     functions: "app/functions",
