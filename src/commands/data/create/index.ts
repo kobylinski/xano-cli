@@ -5,6 +5,7 @@ import {
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
+import { checkDatasourcePermission } from '../../../lib/datasource.js'
 import {
   findProjectRoot,
   isInitialized,
@@ -72,7 +73,18 @@ export default class DataCreate extends Command {
 
     const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
-      this.error('No profile found. Run "xano profile:wizard" to create one.')
+      this.error('No profile found. Run "xano init" first.')
+    }
+
+    // Check datasource permission for write operation
+    try {
+      checkDatasourcePermission(flags.datasource, 'write', config.datasources)
+    } catch (error) {
+      if (error instanceof Error) {
+        this.error(error.message)
+      }
+
+      throw error
     }
 
     // Parse data

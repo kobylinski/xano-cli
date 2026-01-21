@@ -8,6 +8,15 @@
 // - vscode_id: VSCode with ID prefix: 123_my_function.xs, 456_users_GET.xs
 export type NamingMode = 'default' | 'vscode' | 'vscode_id' | 'vscode_name'
 
+// Datasource access levels for safety configuration
+// - locked: no access to datasource at all
+// - read-only: only read operations allowed (default for unlisted datasources)
+// - read-write: full access to read and write operations
+export type DatasourceAccessLevel = 'locked' | 'read-only' | 'read-write'
+
+// Datasource permissions map (datasource label -> access level)
+export type DatasourcePermissions = Record<string, DatasourceAccessLevel>
+
 // Context passed to custom resolver functions (sanitize, resolvePath)
 export interface ResolverContext {
   default: string         // Default result for current naming mode
@@ -56,6 +65,7 @@ export interface XanoPaths {
 
 // xano.json - versioned project config
 export interface XanoProjectConfig {
+  datasources?: DatasourcePermissions  // Datasource access permissions (default: read-only)
   instance: string
   naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths
@@ -92,6 +102,7 @@ export interface XanoDynamicConfig extends XanoProjectConfig {
 // .xano/config.json - VSCode compatible local config
 export interface XanoLocalConfig {
   branch: string
+  datasources?: DatasourcePermissions  // Datasource access permissions (default: read-only)
   instanceName: string
   naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths

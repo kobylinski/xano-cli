@@ -156,6 +156,7 @@ export function createLocalConfig(
 ): XanoLocalConfig {
   return {
     branch,
+    ...(projectConfig.datasources && { datasources: projectConfig.datasources }),
     instanceName: projectConfig.instance,
     ...(projectConfig.naming && { naming: projectConfig.naming }),
     paths: { ...projectConfig.paths },
