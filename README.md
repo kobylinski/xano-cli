@@ -13,10 +13,7 @@ npm install -g @deligopl/xano-cli
 ## Quick Start
 
 ```bash
-# Create profile (one-time setup)
-xano profile:wizard
-
-# Initialize project in current directory
+# Initialize project (creates profile if needed)
 xano init
 
 # Pull all files from Xano
@@ -357,7 +354,7 @@ xano api:call /users --token-file .xano/token.txt
 ## Profile Management
 
 ```bash
-xano profile:wizard          # Interactive setup
+xano init                    # Interactive setup (recommended)
 xano profile:list            # List profiles
 xano profile:set-default x   # Set default
 ```

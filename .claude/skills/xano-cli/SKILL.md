@@ -453,8 +453,8 @@ xano push functions/conflicted.xs
 Profiles store Xano credentials for different instances:
 
 ```bash
-# Interactive profile setup
-xano profile:wizard
+# Interactive profile setup (recommended)
+xano init
 
 # List profiles
 xano profile:list
@@ -1144,7 +1144,7 @@ xano init --agent --token="your-xano-token" --workspace=123 --branch=main
 Run `xano init` to initialize the project.
 
 ### "No profile found"
-Run `xano profile:wizard` to create credentials.
+Run `xano init` to create credentials interactively, or use `xano init --token=<token>` for non-interactive setup.
 
 ### Push fails with validation error
 Check the XanoScript syntax. Run `xano lint <file>` to validate.

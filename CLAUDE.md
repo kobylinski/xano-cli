@@ -84,7 +84,7 @@ xano-cli/
    ```bash
    xano profile:list
    ```
-   If no profiles exist, user must run `xano profile:wizard` first.
+   If no profiles exist, user must run `xano init` first.
 
 3. **For any tests involving live API calls**, user must explicitly choose the profile and workspace:
    ```bash
@@ -129,7 +129,7 @@ import { getProfile, XanoApi } from '../lib/api.js'
 
 const profile = getProfile(flags.profile)
 if (!profile) {
-  this.error('No profile found. Run "xano profile:wizard".')
+  this.error('No profile found. Run "xano init" first.')
 }
 
 const api = new XanoApi(profile, workspaceId, branch)
