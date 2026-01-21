@@ -195,6 +195,53 @@ describe('lib/project', () => {
       expect(localConfig.branch).to.equal('dev')
       expect(localConfig.paths).to.deep.equal(projectConfig.paths)
     })
+
+    it('preserves datasources configuration', () => {
+      const projectConfig: XanoProjectConfig = {
+        datasources: {
+          live: 'locked',
+          staging: 'read-only',
+          test: 'read-write',
+        },
+        instance: 'a1b2-c3d4-e5f6',
+        paths: {
+          apis: 'apis',
+          functions: 'functions',
+          tables: 'tables',
+          tasks: 'tasks',
+          workflowTests: 'workflow_tests',
+        },
+        workspace: 'Test Workspace',
+        workspaceId: 123,
+      }
+
+      const localConfig = createLocalConfig(projectConfig, 'main')
+
+      expect(localConfig.datasources).to.deep.equal({
+        live: 'locked',
+        staging: 'read-only',
+        test: 'read-write',
+      })
+    })
+
+    it('handles missing datasources configuration', () => {
+      const projectConfig: XanoProjectConfig = {
+        instance: 'a1b2-c3d4-e5f6',
+        paths: {
+          apis: 'apis',
+          functions: 'functions',
+          tables: 'tables',
+          tasks: 'tasks',
+          workflowTests: 'workflow_tests',
+        },
+        workspace: 'Test Workspace',
+        workspaceId: 123,
+      }
+
+      const localConfig = createLocalConfig(projectConfig, 'main')
+
+      expect(localConfig.datasources).to.be.undefined
+    })
   })
 
   describe('ensureXanoDir', () => {
