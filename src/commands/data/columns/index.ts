@@ -225,7 +225,7 @@ export default class DataColumns extends Command {
       // Table name or ID provided - fetch from API
       const profile = getProfile(flags.profile, config.profile)
       if (!profile) {
-        this.error('No profile found. Run "xano profile:wizard" to create one.')
+        this.error('No profile found. Run "xano init" first.')
       }
 
       const api = new XanoApi(profile, config.workspaceId, config.branch)

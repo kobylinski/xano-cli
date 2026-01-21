@@ -117,7 +117,7 @@ private customResolver?: PathResolver
 
     const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
-      this.error('No profile found. Run "xano profile:wizard" to create one.')
+      this.error('No profile found. Run "xano init" first.')
     }
 
     // Warn if multiple profiles exist but none specified in project config

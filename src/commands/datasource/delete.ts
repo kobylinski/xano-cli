@@ -54,7 +54,7 @@ export default class DataSourceDelete extends Command {
 
     const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
-      this.error('No profile found. Run "xano profile:wizard" to create one.')
+      this.error('No profile found. Run "xano init" first.')
     }
 
     if (!flags.force) {

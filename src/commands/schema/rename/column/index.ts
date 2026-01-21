@@ -80,7 +80,7 @@ export default class SchemaRenameColumn extends Command {
 
     const profile = getProfile(flags.profile, localConfig.profile)
     if (!profile) {
-      this.error('No profile found. Run "xano profile:wizard" to create one.')
+      this.error('No profile found. Run "xano init" first.')
     }
 
     const api = new XanoApi(profile, localConfig.workspaceId, localConfig.branch)

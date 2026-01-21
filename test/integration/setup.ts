@@ -38,7 +38,7 @@ export function getTestProfile(): XanoProfile {
     const available = listProfileNames()
     throw new Error(
       `No profile found. Available profiles: ${available.join(', ') || 'none'}. ` +
-      'Run "xano profile:wizard" to create one.'
+      'Run "xano init" to create one.'
     )
   }
 

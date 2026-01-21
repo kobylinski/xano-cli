@@ -106,7 +106,7 @@ static flags = {
     // Get profile
     const profileName = flags.profile || getDefaultProfileName()
     if (!profileName) {
-      this.error('No profile found. Run "xano profile:wizard" first.')
+      this.error('No profile found. Run "xano init" first.')
     }
 
     // Create API client
