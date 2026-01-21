@@ -25,20 +25,26 @@ export default class Branch extends BaseCommand {
       required: false,
     }),
   }
-  static description = 'Show or switch Xano branch (safe switch by default)'
-  static examples = [
+static description = 'Show or switch Xano branch (safe switch by default)'
+static examples = [
     '<%= config.bin %> branch',
     '<%= config.bin %> branch list',
+    '<%= config.bin %> branch list --json',
+    '<%= config.bin %> branch list --profile myprofile --workspace 123 --json',
     '<%= config.bin %> branch v2',
     '<%= config.bin %> branch v2 --force',
     '<%= config.bin %> branch v2 --sync',
   ]
-  static flags = {
+static flags = {
     ...BaseCommand.baseFlags,
     force: Flags.boolean({
       char: 'f',
       default: false,
       description: 'Force switch even if local changes exist',
+    }),
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON (takes precedence over --agent)',
     }),
     list: Flags.boolean({
       char: 'l',
@@ -53,20 +59,55 @@ export default class Branch extends BaseCommand {
       default: false,
       description: 'Sync (pull --sync) after switching branch',
     }),
+    workspace: Flags.integer({
+      char: 'w',
+      description: 'Workspace ID (for standalone branch listing without project)',
+    }),
   }
 private agentMode = false
+private jsonMode = false
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(Branch)
 
-    this.agentMode = isAgentMode(flags.agent)
+    // --json takes precedence over --agent
+    this.jsonMode = flags.json
+    this.agentMode = !flags.json && isAgentMode(flags.agent)
 
+    // Standalone mode: list branches with --profile and --workspace (no project needed)
+    const isListMode = args.branch === 'list' || flags.list
+    if (isListMode && flags.workspace) {
+      const profile = getProfile(flags.profile)
+      if (!profile) {
+        if (this.jsonMode) {
+          this.log(JSON.stringify({ error: 'No profile found', success: false }, null, 2))
+          this.exit(1)
+        }
+
+        this.error('No profile found. Run "xano init" first.')
+      }
+
+      await this.listBranchesStandalone(profile, flags.workspace)
+      return
+    }
+
+    // Project-based mode
     const projectRoot = findProjectRoot()
     if (!projectRoot) {
+      if (this.jsonMode) {
+        this.log(JSON.stringify({ error: 'Not in a xano project', success: false }, null, 2))
+        this.exit(1)
+      }
+
       this.error('Not in a xano project. Run "xano init" first.')
     }
 
     if (!isInitialized(projectRoot)) {
+      if (this.jsonMode) {
+        this.log(JSON.stringify({ error: 'Project not initialized', success: false }, null, 2))
+        this.exit(1)
+      }
+
       this.error('Project not initialized. Run "xano init" first.')
     }
 
@@ -77,11 +118,16 @@ private agentMode = false
 
     const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
-      this.error('No profile found. Run "xano profile:wizard" to create one.')
+      if (this.jsonMode) {
+        this.log(JSON.stringify({ error: 'No profile found', success: false }, null, 2))
+        this.exit(1)
+      }
+
+      this.error('No profile found. Run "xano init" first.')
     }
 
     // Determine action
-    if (args.branch === 'list' || flags.list) {
+    if (isListMode) {
       await this.listBranches(config, profile)
       return
     }
@@ -94,7 +140,13 @@ private agentMode = false
     }
 
     // Default: show current branch
-    if (this.agentMode) {
+    if (this.jsonMode) {
+      this.log(JSON.stringify({
+        branch: config.branch,
+        workspace: config.workspaceName,
+        workspaceId: config.workspaceId,
+      }, null, 2))
+    } else if (this.agentMode) {
       this.log('AGENT_BRANCH_CURRENT:')
       this.log(`branch=${config.branch}`)
       this.log(`workspace=${config.workspaceName}`)
@@ -207,14 +259,33 @@ private agentMode = false
     const response = await api.listBranches()
 
     if (!response.ok || !response.data) {
+      if (this.jsonMode) {
+        this.log(JSON.stringify({ error: response.error, success: false }, null, 2))
+        this.exit(1)
+      }
+
       this.error(`Failed to fetch branches: ${response.error}`)
     }
 
     // Filter out backup branches by default
     const branches = response.data.filter((b) => !b.backup)
+    const liveBranch = branches.find(b => b.live)
 
+    // JSON output (takes precedence)
+    if (this.jsonMode) {
+      this.log(JSON.stringify({
+        branches: branches.map(b => ({
+          isLive: b.live || false,
+          name: b.label,
+        })),
+        current: config.branch,
+        live: liveBranch?.label || null,
+      }, null, 2))
+      return
+    }
+
+    // Agent mode output
     if (this.agentMode) {
-      const liveBranch = branches.find(b => b.live)
       this.log('AGENT_BRANCH_LIST:')
       this.log(`current=${config.branch}`)
       this.log(`live=${liveBranch?.label || ''}`)
@@ -229,23 +300,88 @@ private agentMode = false
       }
 
       this.log('AGENT_SUGGEST: Use "xano branch <name>" to switch branches')
-    } else {
-      this.log(`Branches for ${config.workspaceName}:\n`)
+      return
+    }
 
-      for (const branch of branches) {
-        let displayLabel = branch.label
-        const markers: string[] = []
+    // Human-readable output
+    this.log(`Branches for ${config.workspaceName}:\n`)
 
-        if (branch.label === config.branch) markers.push('current')
-        if (branch.live) markers.push('live')
+    for (const branch of branches) {
+      let displayLabel = branch.label
+      const markers: string[] = []
 
-        if (markers.length > 0) {
-          displayLabel += ` (${markers.join(', ')})`
-        }
+      if (branch.label === config.branch) markers.push('current')
+      if (branch.live) markers.push('live')
 
-        const prefix = branch.label === config.branch ? '* ' : '  '
-        this.log(`${prefix}${displayLabel}`)
+      if (markers.length > 0) {
+        displayLabel += ` (${markers.join(', ')})`
       }
+
+      const prefix = branch.label === config.branch ? '* ' : '  '
+      this.log(`${prefix}${displayLabel}`)
+    }
+  }
+
+  private async listBranchesStandalone(
+    profile: ReturnType<typeof getProfile>,
+    workspaceId: number
+  ): Promise<void> {
+    if (!profile) return
+
+    const api = new XanoApi(profile, workspaceId, '')
+    const response = await api.listBranches()
+
+    if (!response.ok || !response.data) {
+      if (this.jsonMode) {
+        this.log(JSON.stringify({ error: response.error, success: false }, null, 2))
+        this.exit(1)
+      }
+
+      this.error(`Failed to fetch branches: ${response.error}`)
+    }
+
+    // Filter out backup branches by default
+    const branches = response.data.filter((b) => !b.backup)
+    const liveBranch = branches.find(b => b.live)
+
+    // JSON output (takes precedence)
+    if (this.jsonMode) {
+      this.log(JSON.stringify({
+        branches: branches.map(b => ({
+          isLive: b.live || false,
+          name: b.label,
+        })),
+        live: liveBranch?.label || null,
+      }, null, 2))
+      return
+    }
+
+    // Agent mode output
+    if (this.agentMode) {
+      this.log('AGENT_BRANCH_LIST:')
+      this.log(`live=${liveBranch?.label || ''}`)
+      this.log('AGENT_BRANCHES:')
+      for (const branch of branches) {
+        const markers: string[] = []
+        if (branch.live) markers.push('live')
+        const suffix = markers.length > 0 ? ` (${markers.join(', ')})` : ''
+        this.log(`- ${branch.label}${suffix}`)
+      }
+
+      return
+    }
+
+    // Human-readable output
+    this.log('Available branches:\n')
+
+    for (const branch of branches) {
+      let displayLabel = branch.label
+      if (branch.live) {
+        displayLabel += ' (live)'
+      }
+
+      const prefix = branch.live ? '* ' : '  '
+      this.log(`${prefix}${displayLabel}`)
     }
   }
 

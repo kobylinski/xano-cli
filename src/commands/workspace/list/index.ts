@@ -74,6 +74,10 @@ Available workspaces:
   ]
 static override flags = {
     ...BaseCommand.baseFlags,
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON',
+    }),
     output: Flags.string({
       char: 'o',
       default: 'summary',
@@ -144,9 +148,10 @@ static override flags = {
         this.error('Unexpected API response format')
       }
 
-      // Output results
-      if (flags.output === 'json') {
-        this.log(JSON.stringify(workspaces, null, 2))
+      // Output results (--json flag takes precedence over -o)
+      const useJson = flags.json || flags.output === 'json'
+      if (useJson) {
+        this.log(JSON.stringify({ workspaces }, null, 2))
       } else if (workspaces.length === 0) {
         this.log('No workspaces found')
       } else {

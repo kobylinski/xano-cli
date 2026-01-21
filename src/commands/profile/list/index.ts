@@ -23,38 +23,9 @@ interface CredentialsFile {
 export default class ProfileList extends Command {
   static description = 'List all available profile configurations'
 static examples = [
-    `$ xano profile:list
-Available profiles:
-  - default
-  - production
-  - staging
-  - development
-`,
-    `$ xano profile:list --details
-Available profiles:
-
-Profile: default
-  Account Origin: https://account.xano.com
-  Instance Origin: https://instance.xano.com
-  Access Token: ***...***
-  Workspace: my-workspace
-  Branch: main
-
-Profile: production
-  Account Origin: https://account.xano.com
-  Instance Origin: https://prod-instance.xano.com
-  Access Token: ***...***
-`,
-    `$ xano profile:list -d
-Available profiles:
-
-Profile: default
-  Account Origin: https://account.xano.com
-  Instance Origin: https://instance.xano.com
-  Access Token: ***...***
-  Workspace: my-workspace
-  Branch: main
-`,
+    '<%= config.bin %> profile:list',
+    '<%= config.bin %> profile:list --details',
+    '<%= config.bin %> profile:list --json',
   ]
 static override flags = {
     details: Flags.boolean({
@@ -62,6 +33,10 @@ static override flags = {
       default: false,
       description: 'Show detailed information for each profile',
       required: false,
+    }),
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON',
     }),
   }
 
@@ -73,8 +48,13 @@ static override flags = {
 
     // Check if credentials file exists
     if (!existsSync(credentialsPath)) {
+      if (flags.json) {
+        this.log(JSON.stringify({ default: null, profiles: [] }, null, 2))
+        return
+      }
+
       this.log(`No profiles found. The credentials file does not exist at ${credentialsPath}`)
-      this.log(`Create a profile using 'xano profile:create'`)
+      this.log(`Create a profile using 'xano init'`)
       return
     }
 
@@ -97,8 +77,29 @@ static override flags = {
     const profileNames = Object.keys(credentials.profiles)
 
     if (profileNames.length === 0) {
+      if (flags.json) {
+        this.log(JSON.stringify({ default: null, profiles: [] }, null, 2))
+        return
+      }
+
       this.log('No profiles found in credentials file.')
-      this.log(`Create a profile using 'xano profile:create'`)
+      this.log(`Create a profile using 'xano init'`)
+      return
+    }
+
+    // JSON output
+    if (flags.json) {
+      const profilesArray = profileNames.sort().map(name => {
+        const profile = credentials.profiles[name]
+        return {
+          instance: profile.instance_origin,
+          name,
+        }
+      })
+      this.log(JSON.stringify({
+        default: credentials.default || null,
+        profiles: profilesArray,
+      }, null, 2))
       return
     }
 

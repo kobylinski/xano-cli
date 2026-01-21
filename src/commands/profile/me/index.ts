@@ -54,6 +54,10 @@ User Information:
   ]
 static override flags = {
     ...BaseCommand.baseFlags,
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON',
+    }),
     output: Flags.string({
       char: 'o',
       default: 'summary',
@@ -113,8 +117,9 @@ static override flags = {
 
       const data = await response.json() as UserInfo
 
-      // Output results
-      if (flags.output === 'json') {
+      // Output results (--json flag takes precedence over -o)
+      const useJson = flags.json || flags.output === 'json'
+      if (useJson) {
         this.log(JSON.stringify(data, null, 2))
       } else {
         // summary format

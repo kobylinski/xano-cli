@@ -27,13 +27,11 @@ export default class ProfileCreate extends Command {
       required: true,
     }),
   }
-static description = '[DEPRECATED] Create a profile - use "xano init" instead'
+static description = 'Create a new profile configuration'
 static examples = [
-    '<%= config.bin %> init              # Recommended: interactive setup',
-    '<%= config.bin %> init profile      # Recommended: profile management',
-    '',
-    '# Legacy usage (still works):',
-    '<%= config.bin %> profile:create production -i https://instance.xano.com -t token123',
+    '<%= config.bin %> profile:create myprofile -i https://x8abc123.xano.io -t <token>',
+    '<%= config.bin %> profile:create myprofile -i https://x8abc123.xano.io -t <token> --default',
+    '<%= config.bin %> profile:create myprofile -i https://x8abc123.xano.io -t <token> --json',
   ]
 static override flags = {
     access_token: Flags.string({ // eslint-disable-line camelcase
@@ -61,18 +59,18 @@ static override flags = {
       description: 'Instance origin URL',
       required: true,
     }),
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON',
+    }),
     workspace: Flags.string({
       char: 'w',
       description: 'Default workspace ID',
       required: false,
     }),
   }
-static hidden = true
 
   async run(): Promise<void> {
-    this.warn('profile:create is deprecated. Use "xano init" for interactive setup.')
-    this.log('')
-
     const { args, flags } = await this.parse(ProfileCreate)
 
     const configDir = join(homedir(), '.xano')
@@ -110,8 +108,9 @@ static hidden = true
       ...(flags.branch && { branch: flags.branch }),
     }
 
-    // Set default if flag is provided
-    if (flags.default) {
+    // Set default if flag is provided or if this is the first profile
+    const setAsDefault = flags.default || Object.keys(credentials.profiles).length === 1
+    if (setAsDefault) {
       credentials.default = args.name
     }
 
@@ -124,13 +123,27 @@ static hidden = true
 
     writeFileSync(credentialsPath, yamlContent, 'utf8')
 
+    // Output
+    if (flags.json) {
+      this.log(JSON.stringify({
+        isDefault: setAsDefault,
+        profile: {
+          instance: flags.instance_origin,
+          name: args.name,
+        },
+        success: true,
+        updated: profileExists,
+      }, null, 2))
+      return
+    }
+
     if (profileExists) {
       this.log(`Profile '${args.name}' updated successfully.`)
     } else {
       this.log(`Profile '${args.name}' created successfully.`)
     }
 
-    if (flags.default) {
+    if (setAsDefault) {
       this.log(`Default profile set to '${args.name}'`)
     }
   }
