@@ -13,6 +13,11 @@ interface CredentialsFile {
 
 export default abstract class BaseCommand extends Command {
   static baseFlags = {
+    agent: Flags.boolean({
+      default: false,
+      description: 'Agent mode (non-interactive, machine-readable output)',
+      hidden: true,
+    }),
     profile: Flags.string({
       char: 'p',
       description: 'Profile to use for this command',

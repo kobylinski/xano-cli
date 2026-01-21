@@ -59,6 +59,30 @@ export function getProfile(flagProfile?: string, projectProfile?: string): null 
 }
 
 /**
+ * Check if a warning should be shown about missing profile in project config
+ * Returns warning message if:
+ * - Multiple profiles exist in credentials.yaml
+ * - No profile specified via flag, env, or project config
+ */
+export function getProfileWarning(flagProfile?: string, projectProfile?: string): null | string {
+  // If profile explicitly specified, no warning needed
+  if (flagProfile || projectProfile) return null
+
+  const credentials = loadCredentials()
+  if (!credentials) return null
+
+  const profileNames = Object.keys(credentials.profiles)
+
+  // Single profile or no profiles - no ambiguity
+  if (profileNames.length <= 1) return null
+
+  const usedProfile = credentials.default || 'default'
+
+  return `Multiple profiles found but no profile specified in xano.json.\n` +
+    `Using '${usedProfile}' profile. Consider adding "profile": "${usedProfile}" to xano.json.`
+}
+
+/**
  * Get default profile name
  */
 export function getDefaultProfileName(): null | string {

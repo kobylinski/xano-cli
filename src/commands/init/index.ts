@@ -1,4 +1,4 @@
-import { Args, Command, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -7,6 +7,7 @@ import { join } from 'node:path'
 
 import type { XanoProfile, XanoProjectConfig } from '../../lib/types.js'
 
+import BaseCommand from '../../base-command.js'
 import {
   getDefaultProfileName,
   getProfile,
@@ -71,7 +72,7 @@ interface CredentialsFile {
 
 const CREATE_NEW_PROFILE = '[CREATE_NEW]'
 
-export default class Init extends Command {
+export default class Init extends BaseCommand {
   static args = {
     profileArg: Args.string({
       description: 'Profile name (for "project" subcommand)',
@@ -93,6 +94,8 @@ static examples = [
     '<%= config.bin %> init --agent --profile=X --workspace=123 --branch=v1',
   ]
 static flags = {
+    ...BaseCommand.baseFlags,
+    // Override agent to not be hidden (it's a documented feature for init)
     agent: Flags.boolean({
       default: false,
       description: 'Agent mode: output structured data instead of interactive prompts',
@@ -107,6 +110,7 @@ static flags = {
       default: false,
       description: 'Force reinitialize',
     }),
+    // Override profile with different description
     profile: Flags.string({
       char: 'p',
       description: 'Profile to use or create',

@@ -16,6 +16,7 @@ import type {
 
 import {
   getProfile,
+  getProfileWarning,
   XanoApi,
 } from '../../lib/api.js'
 import { loadConfig } from '../../lib/config.js'
@@ -121,6 +122,12 @@ private customResolver?: PathResolver
     const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
       this.error('No profile found. Run "xano profile:wizard" to create one.')
+    }
+
+    // Warn if multiple profiles exist but none specified in project config
+    const profileWarning = getProfileWarning(flags.profile, config.profile)
+    if (profileWarning) {
+      this.warn(profileWarning)
     }
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
