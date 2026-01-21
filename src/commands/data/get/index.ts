@@ -1,15 +1,24 @@
 import { Args, Command, Flags } from '@oclif/core'
 
+import { isAgentMode } from '../../../base-command.js'
 import {
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
-import { checkDatasourcePermission } from '../../../lib/datasource.js'
+import {
+  checkDatasourcePermission,
+  formatAgentDatasourceBlockedMessage,
+  resolveEffectiveDatasource,
+} from '../../../lib/datasource.js'
 import {
   findProjectRoot,
   isInitialized,
   loadLocalConfig,
 } from '../../../lib/project.js'
+import {
+  formatTableNotFoundError,
+  resolveTableFromLocal,
+} from '../../../lib/resolver.js'
 
 export default class DataGet extends Command {
   static args = {
@@ -41,6 +50,10 @@ export default class DataGet extends Command {
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
+    remote: Flags.boolean({
+      default: false,
+      description: 'Force remote API lookup instead of local cache',
+    }),
   }
 
   async run(): Promise<void> {
@@ -65,9 +78,21 @@ export default class DataGet extends Command {
       this.error('No profile found. Run "xano init" first.')
     }
 
+    // Resolve effective datasource (handles agent protection)
+    const agentMode = isAgentMode()
+    const { blocked, datasource } = resolveEffectiveDatasource(
+      flags.datasource,
+      config.defaultDatasource,
+      agentMode
+    )
+
+    if (blocked && flags.datasource) {
+      this.warn(formatAgentDatasourceBlockedMessage(flags.datasource, datasource))
+    }
+
     // Check datasource permission for read operation
     try {
-      checkDatasourcePermission(flags.datasource, 'read', config.datasources)
+      checkDatasourcePermission(datasource, 'read', config.datasources)
     } catch (error) {
       if (error instanceof Error) {
         this.error(error.message)
@@ -78,13 +103,25 @@ export default class DataGet extends Command {
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
 
-    // Resolve table name to ID if needed
-    const tableId = await this.resolveTableId(api, args.table)
-    if (!tableId) {
-      this.error(`Table not found: ${args.table}`)
+    // Resolve table name to ID (local-first, unless --remote flag is set)
+    let tableId: null | number = null
+
+    if (!flags.remote) {
+      const localResult = resolveTableFromLocal(projectRoot, args.table)
+      if (localResult) {
+        tableId = localResult.id
+      }
     }
 
-    const response = await api.getTableContent(tableId, args.pk, flags.datasource)
+    if (tableId === null && flags.remote) {
+      tableId = await this.resolveTableIdRemote(api, args.table)
+    }
+
+    if (!tableId) {
+      this.error(formatTableNotFoundError(args.table, isAgentMode()))
+    }
+
+    const response = await api.getTableContent(tableId, args.pk, datasource)
 
     if (!response.ok) {
       this.error(`Failed to get record: ${response.error}`)
@@ -116,7 +153,7 @@ export default class DataGet extends Command {
     }
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
+  private async resolveTableIdRemote(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

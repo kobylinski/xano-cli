@@ -3,13 +3,109 @@
  * Resolves user input to XanoObjectTypes based on paths config
  */
 
-import { isAbsolute, relative } from 'node:path'
+import { basename , isAbsolute, relative } from 'node:path'
 
 import type {
   TypeResolver,
   XanoObjectType,
   XanoPaths,
 } from './types.js'
+
+import { findObjectsByType, loadObjects } from './objects.js'
+
+/**
+ * Result of local table resolution
+ */
+export interface LocalTableResult {
+  id: number
+  name: string
+}
+
+/**
+ * Options for table resolution
+ */
+export interface ResolveTableOptions {
+  /** Agent mode - provide structured output for AI agents */
+  agentMode?: boolean
+  /** Use remote API instead of local objects.json */
+  remote?: boolean
+}
+
+/**
+ * Extract table name from objects.json path
+ * Path format: "tables/orders.xs" → "orders"
+ */
+function extractTableNameFromPath(path: string): string {
+  const filename = basename(path, '.xs')
+  // Handle VSCode ID prefix format: "123_orders.xs" → "orders"
+  const idPrefixMatch = filename.match(/^\d+_(.+)$/)
+  return idPrefixMatch ? idPrefixMatch[1] : filename
+}
+
+/**
+ * Resolve table name to ID using local objects.json
+ * Returns null if not found locally
+ */
+export function resolveTableFromLocal(
+  projectRoot: string,
+  tableRef: string
+): LocalTableResult | null {
+  // If it's already a number, return it directly
+  const numId = Number.parseInt(tableRef, 10)
+  if (!Number.isNaN(numId)) {
+    return { id: numId, name: tableRef }
+  }
+
+  // Load objects.json and find table by name
+  const objects = loadObjects(projectRoot)
+  const tables = findObjectsByType(objects, 'table')
+
+  const lowerRef = tableRef.toLowerCase()
+
+  for (const table of tables) {
+    const tableName = extractTableNameFromPath(table.path)
+    if (tableName.toLowerCase() === lowerRef) {
+      return { id: table.id, name: tableName }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Get all tables from local objects.json
+ * Useful for suggestions when table not found
+ */
+export function getLocalTables(projectRoot: string): LocalTableResult[] {
+  const objects = loadObjects(projectRoot)
+  const tables = findObjectsByType(objects, 'table')
+
+  return tables.map(table => ({
+    id: table.id,
+    name: extractTableNameFromPath(table.path),
+  }))
+}
+
+/**
+ * Format error message when table not found locally
+ */
+export function formatTableNotFoundError(
+  tableRef: string,
+  agentMode?: boolean
+): string {
+  if (agentMode) {
+    return [
+      `AGENT_ERROR: table_not_found`,
+      `AGENT_TABLE: ${tableRef}`,
+      `AGENT_MESSAGE: Table "${tableRef}" not found in local cache (.xano/objects.json).`,
+      `AGENT_ACTION: Run "xano pull --sync" to refresh local metadata from Xano.`,
+      `AGENT_ALTERNATIVE: Use --remote flag to query Xano directly: xano data:list ${tableRef} --remote`,
+    ].join('\n')
+  }
+
+  return `Table "${tableRef}" not found in local cache.\n` +
+    `Run "xano pull --sync" to refresh metadata from Xano, or use --remote flag to query directly.`
+}
 
 /**
  * Map paths config key to XanoObjectType(s)

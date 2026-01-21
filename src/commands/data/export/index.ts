@@ -3,11 +3,16 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { basename, dirname, extname, isAbsolute, resolve } from 'node:path'
 import Papa from 'papaparse'
 
+import { isAgentMode } from '../../../base-command.js'
 import {
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
-import { checkDatasourcePermission } from '../../../lib/datasource.js'
+import {
+  checkDatasourcePermission,
+  formatAgentDatasourceBlockedMessage,
+  resolveEffectiveDatasource,
+} from '../../../lib/datasource.js'
 import { detectType, extractName } from '../../../lib/detector.js'
 import { loadObjects } from '../../../lib/objects.js'
 import {
@@ -15,6 +20,10 @@ import {
   isInitialized,
   loadLocalConfig,
 } from '../../../lib/project.js'
+import {
+  formatTableNotFoundError,
+  resolveTableFromLocal,
+} from '../../../lib/resolver.js'
 
 // Supported filter operators
 type Operator = '!=' | '<' | '<=' | '=' | '>' | '>=' | 'in' | 'not in'
@@ -154,6 +163,10 @@ export default class DataExport extends Command {
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
+    remote: Flags.boolean({
+      default: false,
+      description: 'Force remote API lookup instead of local cache',
+    }),
     sort: Flags.string({
       description: 'Sort by field (field:asc or field:desc)',
       multiple: true,
@@ -189,9 +202,21 @@ export default class DataExport extends Command {
       this.error('No profile found. Run "xano init" first.')
     }
 
+    // Resolve effective datasource (handles agent protection)
+    const agentMode = isAgentMode()
+    const { blocked, datasource } = resolveEffectiveDatasource(
+      flags.datasource,
+      config.defaultDatasource,
+      agentMode
+    )
+
+    if (blocked && flags.datasource) {
+      this.warn(formatAgentDatasourceBlockedMessage(flags.datasource, datasource))
+    }
+
     // Check datasource permission for read operation
     try {
-      checkDatasourcePermission(flags.datasource, 'read', config.datasources)
+      checkDatasourcePermission(datasource, 'read', config.datasources)
     } catch (error) {
       if (error instanceof Error) {
         this.error(error.message)
@@ -205,24 +230,36 @@ export default class DataExport extends Command {
     // Handle directory export (batch)
     if (this.isBatchExport(args, flags)) {
       const dirPath = args.table || args.file || 'export'
-      await this.exportDirectory(api, dirPath, projectRoot, flags)
+      await this.exportDirectory(api, dirPath, projectRoot, { ...flags, datasource })
       return
     }
 
     // Determine table and output file
     const { outputFile, tableName } = this.resolveArgs(args, projectRoot)
 
-    // Resolve table ID
-    const tableId = await this.resolveTableId(api, tableName)
+    // Resolve table ID (local-first, unless --remote flag is set)
+    let tableId: null | number = null
+
+    if (!flags.remote) {
+      const localResult = resolveTableFromLocal(projectRoot, tableName)
+      if (localResult) {
+        tableId = localResult.id
+      }
+    }
+
+    if (tableId === null && flags.remote) {
+      tableId = await this.resolveTableIdRemote(api, tableName)
+    }
+
     if (!tableId) {
-      this.error(`Table not found: ${tableName}`)
+      this.error(formatTableNotFoundError(tableName, isAgentMode()))
     }
 
     // Determine format
     const format = this.determineFormat(outputFile, flags.format)
 
     // Fetch records
-    const records = await this.fetchRecords(api, tableId, flags)
+    const records = await this.fetchRecords(api, tableId, { ...flags, datasource })
 
     // Filter columns if specified
     const filteredRecords = this.filterColumns(records, flags.columns)
@@ -492,7 +529,7 @@ export default class DataExport extends Command {
     }
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
+  private async resolveTableIdRemote(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

@@ -3,17 +3,26 @@ import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import * as readline from 'node:readline'
 
+import { isAgentMode } from '../../../base-command.js'
 import {
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
-import { checkDatasourcePermission } from '../../../lib/datasource.js'
+import {
+  checkDatasourcePermission,
+  formatAgentDatasourceBlockedMessage,
+  resolveEffectiveDatasource,
+} from '../../../lib/datasource.js'
 import { detectType, extractName } from '../../../lib/detector.js'
 import {
   findProjectRoot,
   isInitialized,
   loadLocalConfig,
 } from '../../../lib/project.js'
+import {
+  formatTableNotFoundError,
+  resolveTableFromLocal,
+} from '../../../lib/resolver.js'
 
 export default class DataTruncate extends Command {
   static args = {
@@ -43,6 +52,10 @@ export default class DataTruncate extends Command {
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
+    remote: Flags.boolean({
+      default: false,
+      description: 'Force remote API lookup instead of local cache',
+    }),
   }
 
   async run(): Promise<void> {
@@ -67,9 +80,21 @@ export default class DataTruncate extends Command {
       this.error('No profile found. Run "xano init" first.')
     }
 
+    // Resolve effective datasource (handles agent protection)
+    const agentMode = isAgentMode()
+    const { blocked, datasource } = resolveEffectiveDatasource(
+      flags.datasource,
+      config.defaultDatasource,
+      agentMode
+    )
+
+    if (blocked && flags.datasource) {
+      this.warn(formatAgentDatasourceBlockedMessage(flags.datasource, datasource))
+    }
+
     // Check datasource permission for write operation
     try {
-      checkDatasourcePermission(flags.datasource, 'write', config.datasources)
+      checkDatasourcePermission(datasource, 'write', config.datasources)
     } catch (error) {
       if (error instanceof Error) {
         this.error(error.message)
@@ -82,13 +107,27 @@ export default class DataTruncate extends Command {
 
     // Resolve table
     const tableName = this.resolveTableName(args.table, projectRoot)
-    const tableId = await this.resolveTableId(api, tableName)
+
+    // Resolve table name to ID (local-first, unless --remote flag is set)
+    let tableId: null | number = null
+
+    if (!flags.remote) {
+      const localResult = resolveTableFromLocal(projectRoot, tableName)
+      if (localResult) {
+        tableId = localResult.id
+      }
+    }
+
+    if (tableId === null && flags.remote) {
+      tableId = await this.resolveTableIdRemote(api, tableName)
+    }
+
     if (!tableId) {
-      this.error(`Table not found: ${tableName}`)
+      this.error(formatTableNotFoundError(tableName, isAgentMode()))
     }
 
     // Get record count first
-    const countResponse = await api.listTableContent(tableId, 1, 1, flags.datasource)
+    const countResponse = await api.listTableContent(tableId, 1, 1, datasource)
     if (!countResponse.ok) {
       this.error(`Failed to access table: ${countResponse.error}`)
     }
@@ -122,7 +161,7 @@ export default class DataTruncate extends Command {
     // Delete records in batches
     while (deleted + failed < totalRecords) {
       // Fetch a batch of records (always page 1 since we're deleting)
-      const response = await api.listTableContent(tableId, page, perPage, flags.datasource)
+      const response = await api.listTableContent(tableId, page, perPage, datasource)
       if (!response.ok || !response.data?.items) {
         break
       }
@@ -140,7 +179,7 @@ export default class DataTruncate extends Command {
           continue
         }
 
-        const deleteResponse = await api.deleteTableContent(tableId, pk, flags.datasource)
+        const deleteResponse = await api.deleteTableContent(tableId, pk, datasource)
         if (deleteResponse.ok) {
           deleted++
         } else {
@@ -173,7 +212,7 @@ export default class DataTruncate extends Command {
     })
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
+  private async resolveTableIdRemote(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

@@ -2,16 +2,25 @@ import { Args, Command, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as readline from 'node:readline'
 
+import { isAgentMode } from '../../../base-command.js'
 import {
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
-import { checkDatasourcePermission } from '../../../lib/datasource.js'
+import {
+  checkDatasourcePermission,
+  formatAgentDatasourceBlockedMessage,
+  resolveEffectiveDatasource,
+} from '../../../lib/datasource.js'
 import {
   findProjectRoot,
   isInitialized,
   loadLocalConfig,
 } from '../../../lib/project.js'
+import {
+  formatTableNotFoundError,
+  resolveTableFromLocal,
+} from '../../../lib/resolver.js'
 
 // Supported filter operators
 type Operator = '!=' | '<' | '<=' | '=' | '>' | '>=' | 'in' | 'not in'
@@ -127,6 +136,10 @@ export default class DataUpdate extends Command {
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
+    remote: Flags.boolean({
+      default: false,
+      description: 'Force remote API lookup instead of local cache',
+    }),
   }
 
   async run(): Promise<void> {
@@ -155,9 +168,21 @@ export default class DataUpdate extends Command {
       this.error('No profile found. Run "xano init" first.')
     }
 
+    // Resolve effective datasource (handles agent protection)
+    const agentMode = isAgentMode()
+    const { blocked, datasource } = resolveEffectiveDatasource(
+      flags.datasource,
+      config.defaultDatasource,
+      agentMode
+    )
+
+    if (blocked && flags.datasource) {
+      this.warn(formatAgentDatasourceBlockedMessage(flags.datasource, datasource))
+    }
+
     // Check datasource permission for write operation
     try {
-      checkDatasourcePermission(flags.datasource, 'write', config.datasources)
+      checkDatasourcePermission(datasource, 'write', config.datasources)
     } catch (error) {
       if (error instanceof Error) {
         this.error(error.message)
@@ -182,23 +207,35 @@ export default class DataUpdate extends Command {
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
 
-    // Resolve table name to ID
-    const tableId = await this.resolveTableId(api, args.table)
+    // Resolve table name to ID (local-first, unless --remote flag is set)
+    let tableId: null | number = null
+
+    if (!flags.remote) {
+      const localResult = resolveTableFromLocal(projectRoot, args.table)
+      if (localResult) {
+        tableId = localResult.id
+      }
+    }
+
+    if (tableId === null && flags.remote) {
+      tableId = await this.resolveTableIdRemote(api, args.table)
+    }
+
     if (!tableId) {
-      this.error(`Table not found: ${args.table}`)
+      this.error(formatTableNotFoundError(args.table, isAgentMode()))
     }
 
     // Determine update mode
     const isBulkMode = flags.filter || flags.ids
 
     if (isBulkMode) {
-      await this.bulkUpdate(api, tableId, data, flags, args.table)
+      await this.bulkUpdate(api, tableId, data, { ...flags, datasource }, args.table)
     } else {
       if (!args.pk) {
         this.error('Primary key is required (or use --filter/--ids for bulk update)')
       }
 
-      await this.singleUpdate(api, tableId, args.pk, data, flags)
+      await this.singleUpdate(api, tableId, args.pk, data, { ...flags, datasource })
     }
   }
 
@@ -348,7 +385,7 @@ export default class DataUpdate extends Command {
     return allIds
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
+  private async resolveTableIdRemote(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

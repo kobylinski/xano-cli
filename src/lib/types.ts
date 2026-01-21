@@ -66,6 +66,7 @@ export interface XanoPaths {
 // xano.json - versioned project config
 export interface XanoProjectConfig {
   datasources?: DatasourcePermissions  // Datasource access permissions (default: read-only)
+  defaultDatasource?: string           // Default datasource for data commands (default: 'live')
   instance: string
   naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths
@@ -103,6 +104,7 @@ export interface XanoDynamicConfig extends XanoProjectConfig {
 export interface XanoLocalConfig {
   branch: string
   datasources?: DatasourcePermissions  // Datasource access permissions (default: read-only)
+  defaultDatasource?: string           // Default datasource for data commands (default: 'live')
   instanceName: string
   naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths

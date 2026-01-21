@@ -106,6 +106,61 @@ export function formatDatasourceName(datasource: string | undefined): string {
 }
 
 /**
+ * Resolve effective datasource based on flag, config default, and agent mode
+ *
+ * Priority:
+ * 1. In agent mode: ONLY use config default (flag override is blocked)
+ * 2. In human mode: flag > config default > undefined (Xano default)
+ *
+ * @param flagValue - Value from --datasource flag
+ * @param configDefault - Default from config.defaultDatasource
+ * @param agentMode - Whether running in agent mode
+ * @returns Object with resolved datasource and whether agent was blocked
+ */
+export function resolveEffectiveDatasource(
+  flagValue: string | undefined,
+  configDefault: string | undefined,
+  agentMode: boolean
+): { blocked: boolean; datasource: string | undefined } {
+  // Agent mode: block flag override, use config default only
+  if (agentMode) {
+    if (flagValue && flagValue !== configDefault) {
+      return {
+        blocked: true,
+        datasource: configDefault,
+      }
+    }
+
+    return {
+      blocked: false,
+      datasource: configDefault,
+    }
+  }
+
+  // Human mode: flag takes precedence, then config default
+  return {
+    blocked: false,
+    datasource: flagValue ?? configDefault,
+  }
+}
+
+/**
+ * Format agent blocked message for datasource override attempt
+ */
+export function formatAgentDatasourceBlockedMessage(
+  attemptedDatasource: string,
+  effectiveDatasource: string = 'live (Xano default)'
+): string {
+  return [
+    'AGENT_WARNING: datasource_override_blocked',
+    `AGENT_ATTEMPTED: ${attemptedDatasource}`,
+    `AGENT_EFFECTIVE: ${effectiveDatasource}`,
+    'AGENT_MESSAGE: Agents cannot override the --datasource flag. Using configured default.',
+    'AGENT_HINT: Ask the human to change the default datasource using: xano datasource:default <name>',
+  ].join('\n')
+}
+
+/**
  * Get human-readable description of access level
  */
 export function describeAccessLevel(level: DatasourceAccessLevel): string {

@@ -635,7 +635,7 @@ xano data:delete users 1 --force --datasource test
 xano data:export users backup/users.json --datasource test
 xano data:import users data.json --datasource test
 
-# Manage data sources
+# Manage data sources on Xano (remote)
 xano datasource:list
 xano datasource:create staging
 xano datasource:delete staging --force
@@ -646,6 +646,62 @@ This is useful for:
 - Running integration tests against isolated data
 - Comparing data between environments
 - Backing up/restoring test data
+
+### Datasource Configuration (Local)
+
+Configure default datasource and access permissions locally in `xano.json`:
+
+```bash
+# Set default datasource for all data commands
+xano datasource:default test          # Set "test" as default
+xano datasource:default               # Show current default
+xano datasource:default --clear       # Remove default (use Xano's "live")
+
+# Configure access permissions
+xano datasource:permission            # List all permissions
+xano datasource:permission live       # Show permission for "live"
+xano datasource:permission live locked              # Block all access
+xano datasource:permission live read-only           # Allow only reads
+xano datasource:permission test read-write          # Allow read and write
+xano datasource:permission live --clear             # Remove custom permission
+```
+
+**Access levels:**
+| Level | Read | Write |
+|-------|------|-------|
+| `locked` | No | No |
+| `read-only` | Yes | No |
+| `read-write` | Yes | Yes |
+
+Unconfigured datasources default to `read-only` for safety.
+
+### Agent Datasource Policy
+
+**Important for AI agents:** Datasource configuration is protected in agent mode to prevent accidental operations on wrong environments.
+
+**Blocked in agent mode:**
+- `xano datasource:default <name>` - Setting/clearing default datasource
+- `xano datasource:permission <name> <level>` - Setting/clearing permissions
+- `--datasource` flag override on data commands
+
+**Allowed in agent mode (read-only):**
+- `xano datasource:default` - View current default
+- `xano datasource:permission` - List all permissions
+- `xano datasource:permission <name>` - View specific permission
+
+When an agent attempts a blocked operation:
+```
+AGENT_ERROR: datasource_config_blocked
+AGENT_MESSAGE: Agents cannot modify datasource configuration.
+AGENT_ACTION: Ask the human to run this command manually.
+AGENT_COMMAND: xano datasource:default test
+```
+
+**Recommended workflow for agents:**
+1. Check current default: `xano datasource:default`
+2. If wrong datasource, ask user to run: `xano datasource:default <name>`
+3. Never rely on `--datasource` flag - it will be ignored
+4. Data operations will use the configured default automatically
 
 ## Schema Operations
 

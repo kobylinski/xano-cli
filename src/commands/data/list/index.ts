@@ -2,17 +2,26 @@ import { Args, Command, Flags } from '@oclif/core'
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 
+import { isAgentMode } from '../../../base-command.js'
 import {
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
-import { checkDatasourcePermission } from '../../../lib/datasource.js'
+import {
+  checkDatasourcePermission,
+  formatAgentDatasourceBlockedMessage,
+  resolveEffectiveDatasource,
+} from '../../../lib/datasource.js'
 import { detectType, extractName } from '../../../lib/detector.js'
 import {
   findProjectRoot,
   isInitialized,
   loadLocalConfig,
 } from '../../../lib/project.js'
+import {
+  formatTableNotFoundError,
+  resolveTableFromLocal,
+} from '../../../lib/resolver.js'
 
 // Supported filter operators
 type Operator = '!=' | '<' | '<=' | '=' | '>' | '>=' | 'in' | 'not in'
@@ -170,6 +179,10 @@ export default class DataList extends Command {
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
+    remote: Flags.boolean({
+      default: false,
+      description: 'Force remote API lookup instead of local cache',
+    }),
     sort: Flags.string({
       description: 'Sort by field (field:asc or field:desc)',
       multiple: true,
@@ -198,9 +211,21 @@ export default class DataList extends Command {
       this.error('No profile found. Run "xano init" first.')
     }
 
+    // Resolve effective datasource (handles agent protection)
+    const agentMode = isAgentMode()
+    const { blocked, datasource } = resolveEffectiveDatasource(
+      flags.datasource,
+      config.defaultDatasource,
+      agentMode
+    )
+
+    if (blocked && flags.datasource) {
+      this.warn(formatAgentDatasourceBlockedMessage(flags.datasource, datasource))
+    }
+
     // Check datasource permission for read operation
     try {
-      checkDatasourcePermission(flags.datasource, 'read', config.datasources)
+      checkDatasourcePermission(datasource, 'read', config.datasources)
     } catch (error) {
       if (error instanceof Error) {
         this.error(error.message)
@@ -214,10 +239,24 @@ export default class DataList extends Command {
     // Resolve table reference (name, ID, or file path) to table name
     const tableName = this.resolveTableName(args.table, projectRoot)
 
-    // Resolve table name to ID
-    const tableId = await this.resolveTableId(api, tableName)
+    // Resolve table name to ID (local-first, unless --remote flag is set)
+    let tableId: null | number = null
+
+    if (!flags.remote) {
+      // Try local resolution first (fast path)
+      const localResult = resolveTableFromLocal(projectRoot, tableName)
+      if (localResult) {
+        tableId = localResult.id
+      }
+    }
+
+    // Fall back to remote if not found locally or --remote flag is set
+    if (tableId === null && flags.remote) {
+      tableId = await this.resolveTableIdRemote(api, tableName)
+    }
+
     if (!tableId) {
-      this.error(`Table not found: ${tableName}`)
+      this.error(formatTableNotFoundError(tableName, isAgentMode()))
     }
 
     // Check if we need search (filters or sort provided)
@@ -226,8 +265,8 @@ export default class DataList extends Command {
 
     // Use search endpoint when filters/sort provided, otherwise browse endpoint
     const response = hasFilters || hasSort
-      ? await this.searchRecords(api, tableId, flags)
-      : await api.listTableContent(tableId, flags.page, flags['per-page'], flags.datasource)
+      ? await this.searchRecords(api, tableId, { ...flags, datasource })
+      : await api.listTableContent(tableId, flags.page, flags['per-page'], datasource)
 
     if (!response.ok) {
       this.error(`Failed to list records: ${response.error}`)
@@ -313,14 +352,14 @@ export default class DataList extends Command {
     }
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
+  private async resolveTableIdRemote(api: XanoApi, tableRef: string): Promise<null | number> {
     // If it's a number, use directly
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId
     }
 
-    // Otherwise, search by name
+    // Otherwise, search by name via API
     const response = await api.listTables(1, 1000)
     if (!response.ok || !response.data?.items) {
       return null

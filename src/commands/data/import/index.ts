@@ -3,11 +3,16 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import Papa from 'papaparse'
 
+import { isAgentMode } from '../../../base-command.js'
 import {
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
-import { checkDatasourcePermission } from '../../../lib/datasource.js'
+import {
+  checkDatasourcePermission,
+  formatAgentDatasourceBlockedMessage,
+  resolveEffectiveDatasource,
+} from '../../../lib/datasource.js'
 import { detectType, extractName } from '../../../lib/detector.js'
 import { loadObjects } from '../../../lib/objects.js'
 import {
@@ -15,6 +20,10 @@ import {
   isInitialized,
   loadLocalConfig,
 } from '../../../lib/project.js'
+import {
+  formatTableNotFoundError,
+  resolveTableFromLocal,
+} from '../../../lib/resolver.js'
 
 type ImportMode = 'insert' | 'update' | 'upsert'
 
@@ -72,6 +81,10 @@ export default class DataImport extends Command {
       description: 'Profile to use',
       env: 'XANO_PROFILE',
     }),
+    remote: Flags.boolean({
+      default: false,
+      description: 'Force remote API lookup instead of local cache',
+    }),
   }
 
   async run(): Promise<void> {
@@ -96,9 +109,21 @@ export default class DataImport extends Command {
       this.error('No profile found. Run "xano init" first.')
     }
 
+    // Resolve effective datasource (handles agent protection)
+    const agentMode = isAgentMode()
+    const { blocked, datasource } = resolveEffectiveDatasource(
+      flags.datasource,
+      config.defaultDatasource,
+      agentMode
+    )
+
+    if (blocked && flags.datasource) {
+      this.warn(formatAgentDatasourceBlockedMessage(flags.datasource, datasource))
+    }
+
     // Check datasource permission for write operation
     try {
-      checkDatasourcePermission(flags.datasource, 'write', config.datasources)
+      checkDatasourcePermission(datasource, 'write', config.datasources)
     } catch (error) {
       if (error instanceof Error) {
         this.error(error.message)
@@ -118,7 +143,7 @@ export default class DataImport extends Command {
 
       const tableName = this.resolveTableName(args.table || args.file!, projectRoot)
       const records = this.parseJsonData(flags.data)
-      await this.importRecords(api, tableName, records, mode, flags)
+      await this.importRecords(api, tableName, records, mode, { ...flags, datasource })
       return
     }
 
@@ -129,13 +154,13 @@ export default class DataImport extends Command {
     }
 
     if (inputPath.endsWith('/') || this.isDirectory(inputPath)) {
-      await this.importDirectory(api, inputPath, projectRoot, mode, flags)
+      await this.importDirectory(api, inputPath, projectRoot, mode, { ...flags, datasource })
       return
     }
 
     // Single file import
     const { records, tableName } = this.resolveFileImport(args, projectRoot)
-    await this.importRecords(api, tableName, records, mode, flags)
+    await this.importRecords(api, tableName, records, mode, { ...flags, datasource })
   }
 
   private async checkRecordExists(
@@ -263,13 +288,26 @@ export default class DataImport extends Command {
     tableName: string,
     records: Record<string, unknown>[],
     mode: ImportMode,
-    flags: { 'allow-id': boolean; 'chunk-size': number; datasource?: string },
+    flags: { 'allow-id': boolean; 'chunk-size': number; datasource?: string; remote?: boolean },
     verbose: boolean
   ): Promise<{ inserted: number; skipped: number; updated: number }> {
-    // Resolve table ID
-    const tableId = await this.resolveTableId(api, tableName)
+    // Resolve table ID (local-first, unless --remote flag is set)
+    const projectRoot = findProjectRoot()
+    let tableId: null | number = null
+
+    if (projectRoot && !flags.remote) {
+      const localResult = resolveTableFromLocal(projectRoot, tableName)
+      if (localResult) {
+        tableId = localResult.id
+      }
+    }
+
+    if (tableId === null && flags.remote) {
+      tableId = await this.resolveTableIdRemote(api, tableName)
+    }
+
     if (!tableId) {
-      throw new Error(`Table not found: ${tableName}`)
+      throw new Error(formatTableNotFoundError(tableName, isAgentMode()))
     }
 
     let inserted = 0
@@ -471,7 +509,7 @@ export default class DataImport extends Command {
     return { records, tableName }
   }
 
-  private async resolveTableId(api: XanoApi, tableRef: string): Promise<null | number> {
+  private async resolveTableIdRemote(api: XanoApi, tableRef: string): Promise<null | number> {
     const numId = Number.parseInt(tableRef, 10)
     if (!Number.isNaN(numId)) {
       return numId

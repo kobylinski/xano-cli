@@ -157,6 +157,7 @@ export function createLocalConfig(
   return {
     branch,
     ...(projectConfig.datasources && { datasources: projectConfig.datasources }),
+    ...(projectConfig.defaultDatasource && { defaultDatasource: projectConfig.defaultDatasource }),
     instanceName: projectConfig.instance,
     ...(projectConfig.naming && { naming: projectConfig.naming }),
     paths: { ...projectConfig.paths },
