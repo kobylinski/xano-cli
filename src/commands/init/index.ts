@@ -91,7 +91,7 @@ static examples = [
     '<%= config.bin %> init project                  # Project setup only (uses default profile)',
     '<%= config.bin %> init project MyProfile        # Project setup with specific profile',
     '<%= config.bin %> init --agent                  # Agent mode (non-interactive)',
-    '<%= config.bin %> init --agent --profile=X --workspace=123 --branch=v1',
+    '<%= config.bin %> init --json --profile=X --workspace=123 --branch=v1  # JSON output',
   ]
 static flags = {
     ...BaseCommand.baseFlags,
@@ -110,6 +110,10 @@ static flags = {
       default: false,
       description: 'Force reinitialize',
     }),
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON (takes precedence over --agent)',
+    }),
     // Override profile with different description
     profile: Flags.string({
       char: 'p',
@@ -124,9 +128,14 @@ static flags = {
       description: 'Workspace ID to use',
     }),
   }
+// Track output mode
+  private jsonMode = false
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(Init)
+
+    // --json takes precedence over --agent
+    this.jsonMode = flags.json
 
     // Handle subcommands
     if (args.subcommand === 'profile') {
@@ -146,6 +155,15 @@ static flags = {
   // ========== AGENT OUTPUT HELPERS ==========
 
   private agentComplete(result: Record<string, string>, nextCommand?: string): void {
+    if (this.jsonMode) {
+      this.log(JSON.stringify({
+        complete: true,
+        nextCommand,
+        result,
+      }, null, 2))
+      return
+    }
+
     console.log('AGENT_COMPLETE: true')
     console.log('AGENT_RESULT:')
     for (const [key, value] of Object.entries(result)) {
@@ -158,6 +176,18 @@ static flags = {
   }
 
   private agentInput(step: string, prompt: string, inputType: 'secret' | 'text', nextCommandTemplate: string): void {
+    if (this.jsonMode) {
+      this.log(JSON.stringify({
+        inputRequired: {
+          nextCommand: nextCommandTemplate,
+          prompt,
+          step,
+          type: inputType,
+        },
+      }, null, 2))
+      return
+    }
+
     console.log(`AGENT_STEP: ${step}`)
     console.log(`AGENT_PROMPT: ${prompt}`)
     console.log(`AGENT_INPUT: ${inputType}`)
@@ -171,6 +201,23 @@ static flags = {
     nextCommandTemplate: string,
     map?: Record<string, number | string>
   ): void {
+    if (this.jsonMode) {
+      this.log(JSON.stringify({
+        selectionRequired: {
+          map,
+          nextCommand: nextCommandTemplate,
+          options: options.map(o => ({
+            isDefault: o.isDefault || false,
+            label: o.name,
+            value: o.value,
+          })),
+          prompt,
+          step,
+        },
+      }, null, 2))
+      return
+    }
+
     console.log(`AGENT_STEP: ${step}`)
     console.log(`AGENT_PROMPT: ${prompt}`)
     console.log('AGENT_OPTIONS:')
@@ -463,7 +510,7 @@ static flags = {
 
     // Step 1: Ensure we have a profile
     if (profiles.length === 0 && !flags.profile && !flags.token) {
-      if (flags.agent) {
+      if (flags.agent || this.jsonMode) {
         this.agentInput('token', 'No profiles found. Enter your Xano access token', 'secret', 'xano init --agent --token=<user_input>')
         return
       }
@@ -472,7 +519,7 @@ static flags = {
       await this.createProfileInteractive()
     } else if (flags.profile === CREATE_NEW_PROFILE || flags.token) {
       // Creating new profile
-      if (flags.agent) {
+      if (flags.agent || this.jsonMode) {
         await this.createProfileAgentFlow(flags)
         return
       }
@@ -493,7 +540,7 @@ static flags = {
 
       if (updatedProfiles.length === 1) {
         profileName = updatedProfiles[0]
-      } else if (flags.agent) {
+      } else if (flags.agent || this.jsonMode) {
         const options = [
           { name: CREATE_NEW_PROFILE, value: CREATE_NEW_PROFILE },
           ...updatedProfiles.map(p => ({
@@ -536,7 +583,7 @@ static flags = {
     }
 
     // Step 3: Run project setup with the profile
-    if (!flags.agent) {
+    if (!flags.agent && !this.jsonMode) {
       this.log(`\nUsing profile: ${profileName}`)
     }
 
@@ -550,7 +597,7 @@ static flags = {
     const defaultProfile = getDefaultProfileName()
 
     // Agent mode: profile selection
-    if (flags.agent) {
+    if (flags.agent || this.jsonMode) {
       // If profile flag is CREATE_NEW, we need token
       if (flags.profile === CREATE_NEW_PROFILE) {
         if (!flags.token) {
@@ -637,7 +684,7 @@ static flags = {
     // Check if already initialized
     if (hasConfigJson && !flags.force) {
       const config = loadLocalConfig(projectRoot)
-      if (flags.agent) {
+      if (flags.agent || this.jsonMode) {
         this.agentComplete({
           branch: config?.branch || '',
           status: 'already_initialized',
@@ -656,7 +703,7 @@ static flags = {
     // Get profile
     const profileName = flags.profile || profileArg || getDefaultProfileName()
     if (!profileName) {
-      if (flags.agent) {
+      if (flags.agent || this.jsonMode) {
         this.agentPrompt(
           'profile',
           'No profile found. Create one first.',
@@ -704,7 +751,7 @@ static flags = {
           workspaceName = ws.name
         } else {
           // Workspace not found, fall through to selection
-          if (flags.agent) {
+          if (flags.agent || this.jsonMode) {
             const options = workspaces.map(w => ({ name: w.name, value: w.id.toString() }))
             const map: Record<string, number> = {}
             for (const w of workspaces) { map[w.name] = w.id }
@@ -736,7 +783,7 @@ static flags = {
       // Need to select workspace
       const workspaces = await this.fetchWorkspaces(profile.access_token, profile.instance_origin)
 
-      if (flags.agent) {
+      if (flags.agent || this.jsonMode) {
         const options = workspaces.map(w => ({ name: w.name, value: w.id.toString() }))
         const map: Record<string, number> = {}
         for (const w of workspaces) { map[w.name] = w.id }
@@ -775,7 +822,7 @@ static flags = {
       const branches = await this.fetchBranches(profile.access_token, profile.instance_origin, workspaceId.toString())
       const nonBackup = branches.filter(b => !b.backup)
 
-      if (flags.agent) {
+      if (flags.agent || this.jsonMode) {
         const options = nonBackup.map(b => ({
           isDefault: b.live,
           name: b.live ? `${b.label} (live)` : b.label,
@@ -827,15 +874,17 @@ static flags = {
     const localConfig = createLocalConfig(finalProjectConfig, branch)
     saveLocalConfig(projectRoot, localConfig)
 
-    if (flags.agent) {
+    if (flags.agent || this.jsonMode) {
       this.agentComplete({
         branch,
-        files_created: hasXanoJson ? '.xano/config.json' : 'xano.json,.xano/config.json', // eslint-disable-line camelcase
+        filesCreated: hasXanoJson ? '.xano/config.json' : 'xano.json,.xano/config.json',
         profile: profileName,
         workspace: workspaceName,
-        workspace_id: workspaceId.toString(), // eslint-disable-line camelcase
+        workspaceId: workspaceId.toString(),
       }, 'xano pull')
-      console.log('AGENT_SUGGEST: Consider installing the Claude Code skill with "xano skill --project" for AI-assisted development')
+      if (!this.jsonMode) {
+        console.log('AGENT_SUGGEST: Consider installing the Claude Code skill with "xano skill --project" for AI-assisted development')
+      }
     } else {
       this.log(`\nProject initialized!`)
       this.log(`  Profile: ${profileName}`)
