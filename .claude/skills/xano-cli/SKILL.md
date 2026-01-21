@@ -1060,10 +1060,83 @@ Same as `vscode` but with numeric ID prefixes:
 - Functions: `functions/{id}_{name}.xs`
 - Tables: `tables/{id}_{name}.xs`
 
+## Agent Mode
+
+The CLI supports an agent mode for AI assistants that provides structured, machine-readable output instead of human-friendly formatting.
+
+### Auto-Detection
+
+Agent mode is **automatically enabled** when the CLI detects it's running inside an AI coding assistant:
+
+| Environment Variable | Agent Detected |
+|---------------------|----------------|
+| `CLAUDECODE=1` | Claude Code CLI/extension |
+| `CURSOR_TRACE_ID` | Cursor IDE |
+| `GITHUB_COPILOT_TOKEN` | GitHub Copilot |
+| `AIDER_MODEL` | Aider AI assistant |
+| `OPENCODE=1` | OpenCode terminal agent |
+
+### Manual Control
+
+```bash
+# Force agent mode on
+xano pull --agent
+XANO_AGENT_MODE=1 xano pull
+
+# Force agent mode off (even if auto-detected)
+xano pull --agent=false
+```
+
+### Structured Output Format
+
+In agent mode, the CLI outputs structured data with `AGENT_*` prefixes:
+
+```
+AGENT_WARNING: profile_not_configured
+AGENT_MESSAGE: Multiple Xano profiles found but project has no profile configured.
+AGENT_ACTION: Remind the user to configure a profile in xano.json for this project.
+AGENT_CURRENT: production
+AGENT_PROFILES:
+- production (currently used) (default)
+- staging
+- development
+AGENT_SUGGEST: Ask user which profile to use, then run: xano init --profile=<selected_profile>
+```
+
+**Output prefixes:**
+| Prefix | Description |
+|--------|-------------|
+| `AGENT_STEP:` | Current step in multi-step process |
+| `AGENT_PROMPT:` | Question or choice for the agent |
+| `AGENT_OPTIONS:` | Available options (one per line with `-` prefix) |
+| `AGENT_INPUT:` | Expected input type (`text`, `secret`) |
+| `AGENT_NEXT:` | Suggested next command |
+| `AGENT_COMPLETE:` | Operation completed successfully |
+| `AGENT_RESULT:` | Key-value result data |
+| `AGENT_WARNING:` | Warning type identifier |
+| `AGENT_MESSAGE:` | Human-readable message for the agent to relay |
+| `AGENT_ACTION:` | Instruction for what the agent should do |
+| `AGENT_SUGGEST:` | Suggested action or command |
+
+### Agent Mode for `init` Command
+
+The `init` command has full agent mode support for non-interactive setup:
+
+```bash
+# Start initialization in agent mode
+xano init --agent
+
+# Provide credentials directly
+xano init --agent --token="your-xano-token" --workspace=123 --branch=main
+
+# The CLI will output AGENT_PROMPT for any missing information
+```
+
 ## Environment Variables
 
 - `XANO_PROFILE` - Default profile to use
 - `XANO_BRANCH` - Default branch
+- `XANO_AGENT_MODE` - Force agent mode (`1` or `true`)
 
 ## Troubleshooting
 

@@ -12,7 +12,7 @@ import type {
   XanoPaths,
 } from '../../lib/types.js'
 
-import BaseCommand from '../../base-command.js'
+import BaseCommand, { isAgentMode } from '../../base-command.js'
 import {
   getProfile,
   getProfileWarning,
@@ -121,9 +121,10 @@ private customResolver?: PathResolver
     }
 
     // Warn if multiple profiles exist but none specified in project config
-    const profileWarning = getProfileWarning(flags.profile, config.profile, flags.agent)
+    const agentMode = isAgentMode(flags.agent)
+    const profileWarning = getProfileWarning(flags.profile, config.profile, agentMode)
     if (profileWarning) {
-      if (flags.agent) {
+      if (agentMode) {
         this.log(profileWarning)
       } else {
         this.warn(profileWarning)

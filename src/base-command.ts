@@ -11,11 +11,71 @@ interface CredentialsFile {
   }
 }
 
+/**
+ * Detect if the CLI is being run by an AI agent based on environment variables.
+ * Returns the name of the detected agent or null if not detected.
+ *
+ * Detected agents:
+ * - XANO_AGENT_MODE=1 - Explicit agent mode (highest priority)
+ * - CLAUDECODE=1 - Claude Code CLI/extension
+ * - CURSOR_TRACE_ID - Cursor IDE with AI features
+ * - VSCODE_GIT_ASKPASS_NODE + TERM_PROGRAM=vscode - VS Code with Copilot
+ * - GITHUB_COPILOT_* - GitHub Copilot CLI
+ * - AIDER_* - Aider AI coding assistant
+ * - OPENCODE - OpenCode AI terminal agent
+ */
+export function detectAgentEnvironment(): null | string {
+  // Explicit agent mode (highest priority)
+  if (process.env.XANO_AGENT_MODE === '1' || process.env.XANO_AGENT_MODE === 'true') {
+    return 'xano-agent'
+  }
+
+  // Claude Code (CLI or extension)
+  if (process.env.CLAUDECODE === '1') {
+    return 'claude-code'
+  }
+
+  // Cursor IDE
+  if (process.env.CURSOR_TRACE_ID) {
+    return 'cursor'
+  }
+
+  // GitHub Copilot CLI
+  if (process.env.GITHUB_COPILOT_TOKEN || process.env.COPILOT_AGENT_ENABLED === '1') {
+    return 'github-copilot'
+  }
+
+  // Aider AI coding assistant
+  if (process.env.AIDER_MODEL || process.env.AIDER_CHAT_HISTORY_FILE) {
+    return 'aider'
+  }
+
+  // OpenCode AI terminal agent
+  if (process.env.OPENCODE === '1') {
+    return 'opencode'
+  }
+
+  return null
+}
+
+/**
+ * Check if agent mode is active (via flag, env var, or auto-detection)
+ */
+export function isAgentMode(flagValue?: boolean): boolean {
+  // Explicit flag always wins
+  if (flagValue === true) return true
+  if (flagValue === false && process.env.XANO_AGENT_MODE !== '1') return false
+
+  // Auto-detect from environment
+  return detectAgentEnvironment() !== null
+}
+
 export default abstract class BaseCommand extends Command {
   static baseFlags = {
     agent: Flags.boolean({
       default: false,
       description: 'Agent mode (non-interactive, machine-readable output)',
+      env: 'XANO_AGENT_MODE',
       hidden: true,
     }),
     profile: Flags.string({
