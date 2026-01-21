@@ -63,8 +63,10 @@ export function getProfile(flagProfile?: string, projectProfile?: string): null 
  * Returns warning message if:
  * - Multiple profiles exist in credentials.yaml
  * - No profile specified via flag, env, or project config
+ *
+ * In agent mode, returns structured output for AI agents
  */
-export function getProfileWarning(flagProfile?: string, projectProfile?: string): null | string {
+export function getProfileWarning(flagProfile?: string, projectProfile?: string, agentMode?: boolean): null | string {
   // If profile explicitly specified, no warning needed
   if (flagProfile || projectProfile) return null
 
@@ -77,6 +79,20 @@ export function getProfileWarning(flagProfile?: string, projectProfile?: string)
   if (profileNames.length <= 1) return null
 
   const usedProfile = credentials.default || 'default'
+
+  if (agentMode) {
+    // Structured output for AI agents
+    const lines = [
+      'AGENT_WARNING: profile_not_configured',
+      'AGENT_MESSAGE: Multiple Xano profiles found but project has no profile configured.',
+      'AGENT_ACTION: Remind the user to configure a profile in xano.json for this project.',
+      `AGENT_CURRENT: ${usedProfile}`,
+      'AGENT_PROFILES:',
+      ...profileNames.map(name => `- ${name}${name === usedProfile ? ' (currently used)' : ''}${name === credentials.default ? ' (default)' : ''}`),
+      'AGENT_SUGGEST: Ask user which profile to use, then run: xano init --profile=<selected_profile>',
+    ]
+    return lines.join('\n')
+  }
 
   return `Multiple profiles found but no profile specified in xano.json.\n` +
     `Using '${usedProfile}' profile. Consider adding "profile": "${usedProfile}" to xano.json.`

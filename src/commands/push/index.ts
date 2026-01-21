@@ -1,4 +1,4 @@
-import { Args, Command, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 
@@ -12,6 +12,7 @@ import type {
   XanoPaths,
 } from '../../lib/types.js'
 
+import BaseCommand from '../../base-command.js'
 import {
   getProfile,
   getProfileWarning,
@@ -45,7 +46,7 @@ import {
   hasObjectsJson,
 } from '../../lib/sync.js'
 
-export default class Push extends Command {
+export default class Push extends BaseCommand {
   static args = {
     paths: Args.string({
       description: 'Files or directories to push (space-separated)',
@@ -61,6 +62,7 @@ export default class Push extends Command {
     '<%= config.bin %> push --clean',
   ]
   static flags = {
+    ...BaseCommand.baseFlags,
     clean: Flags.boolean({
       default: false,
       description: 'Delete objects from Xano that do not exist locally',
@@ -69,11 +71,6 @@ export default class Push extends Command {
       char: 'f',
       default: false,
       description: 'Force push without confirmation',
-    }),
-    profile: Flags.string({
-      char: 'p',
-      description: 'Profile to use',
-      env: 'XANO_PROFILE',
     }),
     sync: Flags.boolean({
       default: false,
@@ -124,9 +121,13 @@ private customResolver?: PathResolver
     }
 
     // Warn if multiple profiles exist but none specified in project config
-    const profileWarning = getProfileWarning(flags.profile, config.profile)
+    const profileWarning = getProfileWarning(flags.profile, config.profile, flags.agent)
     if (profileWarning) {
-      this.warn(profileWarning)
+      if (flags.agent) {
+        this.log(profileWarning)
+      } else {
+        this.warn(profileWarning)
+      }
     }
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)

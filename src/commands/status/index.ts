@@ -1,4 +1,4 @@
-import { Args, Command, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 
@@ -14,6 +14,7 @@ import type {
   XanoPaths,
 } from '../../lib/types.js'
 
+import BaseCommand from '../../base-command.js'
 import {
   getProfile,
   getProfileWarning,
@@ -50,7 +51,7 @@ function extractXanoscript(xanoscript: string | undefined | { status?: string; v
   return xanoscript.value
 }
 
-export default class Status extends Command {
+export default class Status extends BaseCommand {
   static args = {
     paths: Args.string({
       description: 'Files or directories to check (space-separated)',
@@ -66,6 +67,7 @@ export default class Status extends Command {
     '<%= config.bin %> status --extended',
   ]
   static flags = {
+    ...BaseCommand.baseFlags,
     extended: Flags.boolean({
       char: 'e',
       default: false,
@@ -74,11 +76,6 @@ export default class Status extends Command {
     json: Flags.boolean({
       default: false,
       description: 'Output as JSON',
-    }),
-    profile: Flags.string({
-      char: 'p',
-      description: 'Profile to use',
-      env: 'XANO_PROFILE',
     }),
   }
   static strict = false // Allow multiple path arguments
@@ -125,9 +122,13 @@ private customResolver?: PathResolver
     }
 
     // Warn if multiple profiles exist but none specified in project config
-    const profileWarning = getProfileWarning(flags.profile, config.profile)
+    const profileWarning = getProfileWarning(flags.profile, config.profile, flags.agent)
     if (profileWarning) {
-      this.warn(profileWarning)
+      if (flags.agent) {
+        this.log(profileWarning)
+      } else {
+        this.warn(profileWarning)
+      }
     }
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
