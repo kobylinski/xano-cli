@@ -287,12 +287,14 @@ export class XanoApi {
     endpointPath: string,
     method: string = 'GET',
     body?: Record<string, unknown>,
-    headers?: Record<string, string>
+    headers?: Record<string, string>,
+    datasource?: string
   ): Promise<ApiResponse<unknown>> {
     const url = `${this.profile.instance_origin}/api:${canonical}:${this.branch}${endpointPath}`
 
     const requestHeaders: Record<string, string> = {
       accept: 'application/json',
+      ...this.datasourceHeaders(datasource),
       ...headers,
     }
 

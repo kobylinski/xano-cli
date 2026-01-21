@@ -1,11 +1,16 @@
-import { Args, Command, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+import BaseCommand, { isAgentMode } from '../../../base-command.js'
 import {
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
+import {
+  formatAgentDatasourceBlockedMessage,
+  resolveEffectiveDatasource,
+} from '../../../lib/datasource.js'
 import {
   findGroupByName,
   loadGroups,
@@ -69,7 +74,7 @@ function extractByPath(data: unknown, jsonPath: string): unknown {
   return current
 }
 
-export default class ApiCall extends Command {
+export default class ApiCall extends BaseCommand {
   static args = {
     groupOrPath: Args.string({
       description: 'API group name or endpoint path (e.g., "auth" or "/auth/login")',
@@ -89,6 +94,7 @@ export default class ApiCall extends Command {
     '<%= config.bin %> api:call auth /login -m POST',
   ]
   static flags = {
+    ...BaseCommand.baseFlags,
     body: Flags.string({
       char: 'b',
       description: 'Request body as JSON string',
@@ -97,6 +103,11 @@ export default class ApiCall extends Command {
     'body-file': Flags.string({
       description: 'Read request body from JSON file',
       exclusive: ['body'],
+    }),
+    datasource: Flags.string({
+      char: 'd',
+      description: 'Target datasource (e.g., "live", "test")',
+      env: 'XANO_DATASOURCE',
     }),
     extract: Flags.string({
       char: 'e',
@@ -115,10 +126,6 @@ export default class ApiCall extends Command {
       char: 'm',
       default: 'GET',
       description: 'HTTP method (GET, POST, PUT, DELETE, PATCH)',
-    }),
-    profile: Flags.string({
-      description: 'Profile to use',
-      env: 'XANO_PROFILE',
     }),
     raw: Flags.boolean({
       default: false,
@@ -159,6 +166,17 @@ export default class ApiCall extends Command {
     const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
       this.error('No profile found. Run "xano init" first.')
+    }
+
+    // Resolve effective datasource (respecting agent mode restrictions)
+    const agentMode = isAgentMode(flags.agent)
+    const { blocked, datasource } = resolveEffectiveDatasource(
+      flags.datasource,
+      config.defaultDatasource,
+      agentMode
+    )
+    if (blocked && flags.datasource) {
+      this.warn(formatAgentDatasourceBlockedMessage(flags.datasource, datasource))
     }
 
     // Resolve group and path from arguments
@@ -219,7 +237,8 @@ export default class ApiCall extends Command {
       endpointPath,
       method,
       body,
-      Object.keys(headers).length > 0 ? headers : undefined
+      Object.keys(headers).length > 0 ? headers : undefined,
+      datasource
     )
 
     // Handle error responses
