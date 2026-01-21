@@ -179,7 +179,11 @@ private customResolver?: PathResolver
       return
     }
 
-    this.displayResults(entries, config.workspaceName, config.branch, flags.extended)
+    if (agentMode) {
+      this.displayAgentResults(entries, config.workspaceName, config.branch)
+    } else {
+      this.displayResults(entries, config.workspaceName, config.branch, flags.extended)
+    }
   }
 
   /**
@@ -252,6 +256,101 @@ private customResolver?: PathResolver
       path: filePath,
       status,
       type: remoteObj?.type || syncedObj?.type,
+    }
+  }
+
+  /**
+   * Display results in agent-friendly structured format
+   */
+  private displayAgentResults(
+    entries: StatusEntry[],
+    workspaceName: string,
+    branch: string
+  ): void {
+    const modified = entries.filter((e) => e.status === 'modified')
+    const newEntries = entries.filter((e) => e.status === 'new')
+    const deleted = entries.filter((e) => e.status === 'deleted')
+    const remoteOnly = entries.filter((e) => e.status === 'remote_only')
+    const unchanged = entries.filter((e) => e.status === 'unchanged')
+
+    // Group modified by detail
+    const modifiedLocal = modified.filter(e => e.detail === 'local')
+    const modifiedRemote = modified.filter(e => e.detail === 'remote')
+    const modifiedBoth = modified.filter(e => e.detail === 'both')
+
+    const hasChanges = modified.length > 0 || newEntries.length > 0 || deleted.length > 0 || remoteOnly.length > 0
+
+    this.log('AGENT_STATUS:')
+    this.log(`workspace=${workspaceName}`)
+    this.log(`branch=${branch}`)
+    this.log(`total_files=${entries.length}`)
+    this.log(`in_sync=${unchanged.length}`)
+    this.log(`has_changes=${hasChanges}`)
+
+    // Summary counts
+    this.log('AGENT_STATUS_COUNTS:')
+    this.log(`modified_local=${modifiedLocal.length}`)
+    this.log(`modified_remote=${modifiedRemote.length}`)
+    this.log(`conflicts=${modifiedBoth.length}`)
+    this.log(`new_local=${newEntries.length}`)
+    this.log(`deleted=${deleted.length}`)
+    this.log(`remote_only=${remoteOnly.length}`)
+
+    // Conflicts are highest priority for agent attention
+    if (modifiedBoth.length > 0) {
+      this.log('AGENT_CONFLICTS:')
+      for (const entry of modifiedBoth) {
+        this.log(`- ${entry.path}`)
+      }
+
+      this.log('AGENT_WARNING: conflicts_detected')
+      this.log('AGENT_MESSAGE: Files have been modified both locally and remotely. Manual resolution required.')
+      this.log('AGENT_ACTION: Ask user how to resolve conflicts (keep local, pull remote, or merge manually)')
+    }
+
+    // Files needing push
+    if (modifiedLocal.length > 0 || newEntries.length > 0) {
+      this.log('AGENT_PUSH_NEEDED:')
+      for (const entry of [...modifiedLocal, ...newEntries].slice(0, 20)) {
+        const marker = entry.status === 'new' ? 'new' : 'modified'
+        this.log(`- ${entry.path} (${marker})`)
+      }
+
+      if (modifiedLocal.length + newEntries.length > 20) {
+        this.log(`- ... and ${modifiedLocal.length + newEntries.length - 20} more`)
+      }
+    }
+
+    // Files needing pull
+    if (modifiedRemote.length > 0 || remoteOnly.length > 0) {
+      this.log('AGENT_PULL_NEEDED:')
+      for (const entry of [...modifiedRemote, ...remoteOnly].slice(0, 20)) {
+        const marker = entry.status === 'remote_only' ? 'remote_only' : 'modified'
+        this.log(`- ${entry.path} (${marker})`)
+      }
+
+      if (modifiedRemote.length + remoteOnly.length > 20) {
+        this.log(`- ... and ${modifiedRemote.length + remoteOnly.length - 20} more`)
+      }
+    }
+
+    // Suggest actions
+    if (hasChanges) {
+      this.log('AGENT_SUGGEST:')
+      if (modifiedBoth.length > 0) {
+        this.log('- Resolve conflicts first before syncing')
+      }
+
+      if (modifiedLocal.length > 0 || newEntries.length > 0) {
+        this.log('- Run "xano push" to push local changes to Xano')
+      }
+
+      if (modifiedRemote.length > 0 || remoteOnly.length > 0) {
+        this.log('- Run "xano pull" to download remote changes')
+      }
+    } else {
+      this.log('AGENT_COMPLETE: all_in_sync')
+      this.log('AGENT_MESSAGE: All files are synchronized with Xano.')
     }
   }
 

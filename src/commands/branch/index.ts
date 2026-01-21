@@ -1,9 +1,10 @@
-import { Args, Command, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import type { XanoObjectsFile } from '../../lib/types.js'
 
+import BaseCommand, { isAgentMode } from '../../base-command.js'
 import {
   getProfile,
   XanoApi,
@@ -17,7 +18,7 @@ import {
 } from '../../lib/project.js'
 import { fetchAllObjects } from '../../lib/sync.js'
 
-export default class Branch extends Command {
+export default class Branch extends BaseCommand {
   static args = {
     branch: Args.string({
       description: 'Branch name to switch to, or "list" to list branches',
@@ -33,6 +34,7 @@ export default class Branch extends Command {
     '<%= config.bin %> branch v2 --sync',
   ]
   static flags = {
+    ...BaseCommand.baseFlags,
     force: Flags.boolean({
       char: 'f',
       default: false,
@@ -43,11 +45,6 @@ export default class Branch extends Command {
       default: false,
       description: 'List available branches',
     }),
-    profile: Flags.string({
-      char: 'p',
-      description: 'Profile to use',
-      env: 'XANO_PROFILE',
-    }),
     switch: Flags.string({
       char: 's',
       description: 'Switch to branch',
@@ -57,9 +54,12 @@ export default class Branch extends Command {
       description: 'Sync (pull --sync) after switching branch',
     }),
   }
+private agentMode = false
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(Branch)
+
+    this.agentMode = isAgentMode(flags.agent)
 
     const projectRoot = findProjectRoot()
     if (!projectRoot) {
@@ -94,13 +94,20 @@ export default class Branch extends Command {
     }
 
     // Default: show current branch
-    this.log(`Current branch: ${config.branch}`)
-    this.log('')
-    this.log('Usage:')
-    this.log('  xano branch list        List available branches')
-    this.log('  xano branch <name>      Switch to branch (safe)')
-    this.log('  xano branch <name> -f   Force switch (skip sync check)')
-    this.log('  xano branch <name> --sync   Switch and sync new branch')
+    if (this.agentMode) {
+      this.log('AGENT_BRANCH_CURRENT:')
+      this.log(`branch=${config.branch}`)
+      this.log(`workspace=${config.workspaceName}`)
+      this.log('AGENT_SUGGEST: Use "xano branch list" to see available branches or "xano branch <name>" to switch')
+    } else {
+      this.log(`Current branch: ${config.branch}`)
+      this.log('')
+      this.log('Usage:')
+      this.log('  xano branch list        List available branches')
+      this.log('  xano branch <name>      Switch to branch (safe)')
+      this.log('  xano branch <name> -f   Force switch (skip sync check)')
+      this.log('  xano branch <name> --sync   Switch and sync new branch')
+    }
   }
 
   private async checkSyncStatus(
@@ -117,7 +124,9 @@ export default class Branch extends Command {
       return { inSync: true, localOnly: [], modified: [], remoteOnly: [] }
     }
 
-    this.log(`Checking sync status for branch "${config.branch}"...`)
+    if (!this.agentMode) {
+      this.log(`Checking sync status for branch "${config.branch}"...`)
+    }
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
     const objects = loadObjects(projectRoot) || []
@@ -201,24 +210,42 @@ export default class Branch extends Command {
       this.error(`Failed to fetch branches: ${response.error}`)
     }
 
-    this.log(`Branches for ${config.workspaceName}:\n`)
-
     // Filter out backup branches by default
     const branches = response.data.filter((b) => !b.backup)
 
-    for (const branch of branches) {
-      let displayLabel = branch.label
-      const markers: string[] = []
-
-      if (branch.label === config.branch) markers.push('current')
-      if (branch.live) markers.push('live')
-
-      if (markers.length > 0) {
-        displayLabel += ` (${markers.join(', ')})`
+    if (this.agentMode) {
+      const liveBranch = branches.find(b => b.live)
+      this.log('AGENT_BRANCH_LIST:')
+      this.log(`current=${config.branch}`)
+      this.log(`live=${liveBranch?.label || ''}`)
+      this.log(`workspace=${config.workspaceName}`)
+      this.log('AGENT_BRANCHES:')
+      for (const branch of branches) {
+        const markers: string[] = []
+        if (branch.label === config.branch) markers.push('current')
+        if (branch.live) markers.push('live')
+        const suffix = markers.length > 0 ? ` (${markers.join(', ')})` : ''
+        this.log(`- ${branch.label}${suffix}`)
       }
 
-      const prefix = branch.label === config.branch ? '* ' : '  '
-      this.log(`${prefix}${displayLabel}`)
+      this.log('AGENT_SUGGEST: Use "xano branch <name>" to switch branches')
+    } else {
+      this.log(`Branches for ${config.workspaceName}:\n`)
+
+      for (const branch of branches) {
+        let displayLabel = branch.label
+        const markers: string[] = []
+
+        if (branch.label === config.branch) markers.push('current')
+        if (branch.live) markers.push('live')
+
+        if (markers.length > 0) {
+          displayLabel += ` (${markers.join(', ')})`
+        }
+
+        const prefix = branch.label === config.branch ? '* ' : '  '
+        this.log(`${prefix}${displayLabel}`)
+      }
     }
   }
 
@@ -243,12 +270,31 @@ export default class Branch extends Command {
     const branch = response.data.find((b) => b.label === branchName)
 
     if (!branch) {
+      if (this.agentMode) {
+        const availableBranches = response.data.filter((b) => !b.backup).map((b) => b.label)
+        this.log('AGENT_ERROR: branch_not_found')
+        this.log(`AGENT_MESSAGE: Branch "${branchName}" not found.`)
+        this.log('AGENT_BRANCHES:')
+        for (const b of availableBranches) {
+          this.log(`- ${b}`)
+        }
+
+        this.log('AGENT_ACTION: Ask user which branch they want to switch to from the list above.')
+        this.exit(1)
+      }
+
       const availableBranches = response.data.filter((b) => !b.backup).map((b) => `  ${b.label}`).join('\n')
       this.error(`Branch "${branchName}" not found.\n\nAvailable branches:\n${availableBranches}`)
     }
 
     if (config.branch === branchName) {
-      this.log(`Already on branch "${branchName}"`)
+      if (this.agentMode) {
+        this.log('AGENT_BRANCH_ALREADY_CURRENT:')
+        this.log(`branch=${branchName}`)
+      } else {
+        this.log(`Already on branch "${branchName}"`)
+      }
+
       return
     }
 
@@ -257,6 +303,43 @@ export default class Branch extends Command {
       const syncStatus = await this.checkSyncStatus(projectRoot, config, profile)
 
       if (!syncStatus.inSync) {
+        if (this.agentMode) {
+          this.log('AGENT_ERROR: local_changes_detected')
+          this.log('AGENT_MESSAGE: Cannot switch branch due to local changes.')
+          this.log(`target_branch=${branchName}`)
+          this.log(`current_branch=${config.branch}`)
+          this.log(`modified_count=${syncStatus.modified.length}`)
+          this.log(`local_only_count=${syncStatus.localOnly.length}`)
+          this.log(`remote_only_count=${syncStatus.remoteOnly.length}`)
+          if (syncStatus.modified.length > 0) {
+            this.log('AGENT_MODIFIED:')
+            for (const f of syncStatus.modified.slice(0, 10)) {
+              this.log(`- ${f}`)
+            }
+          }
+
+          if (syncStatus.localOnly.length > 0) {
+            this.log('AGENT_LOCAL_ONLY:')
+            for (const f of syncStatus.localOnly.slice(0, 10)) {
+              this.log(`- ${f}`)
+            }
+          }
+
+          if (syncStatus.remoteOnly.length > 0) {
+            this.log('AGENT_REMOTE_ONLY:')
+            for (const f of syncStatus.remoteOnly.slice(0, 10)) {
+              this.log(`- ${f}`)
+            }
+          }
+
+          this.log('AGENT_OPTIONS:')
+          this.log('- Run "xano push" to push local changes first')
+          this.log('- Run "xano pull --force" to discard local changes')
+          this.log(`- Run "xano branch ${branchName} --force" to force switch (may lose changes)`)
+          this.log('AGENT_ACTION: Ask user how to resolve the local changes before switching.')
+          this.exit(1)
+        }
+
         this.log('Cannot switch branch: local changes detected.\n')
 
         if (syncStatus.modified.length > 0) {
@@ -300,21 +383,35 @@ export default class Branch extends Command {
         this.error('Resolve changes before switching branch.')
       }
 
-      this.log(`Branch "${config.branch}" is in sync.`)
+      if (!this.agentMode) {
+        this.log(`Branch "${config.branch}" is in sync.`)
+      }
     }
 
     // Update config
     config.branch = branchName
     saveLocalConfig(projectRoot, config)
 
-    this.log(`Switched to branch "${branchName}"`)
+    if (this.agentMode) {
+      this.log('AGENT_BRANCH_SWITCHED:')
+      this.log(`from=${config.branch}`)
+      this.log(`to=${branchName}`)
+      this.log(`synced=${syncAfter}`)
+    } else {
+      this.log(`Switched to branch "${branchName}"`)
+    }
 
     if (syncAfter) {
-      this.log('')
-      this.log('Syncing new branch...')
+      if (!this.agentMode) {
+        this.log('')
+        this.log('Syncing new branch...')
+      }
+
       // Run sync by fetching and updating objects
       const newApi = new XanoApi(profile, config.workspaceId, branchName)
       await this.syncBranch(projectRoot, newApi, config)
+    } else if (this.agentMode) {
+      this.log('AGENT_SUGGEST: Run "xano pull --sync" to update local files for this branch')
     } else {
       this.log('')
       this.log('Run "xano pull --sync" to update local files for this branch.')
@@ -331,7 +428,9 @@ export default class Branch extends Command {
     const fetchResult = await fetchAllObjects(api)
     const allObjects = fetchResult.objects
 
-    this.log(`Fetched ${allObjects.length} objects from branch "${config.branch}"`)
+    if (!this.agentMode) {
+      this.log(`Fetched ${allObjects.length} objects from branch "${config.branch}"`)
+    }
 
     // Update objects.json with new branch data
     const { saveGroups, saveObjects } = await import('../../lib/objects.js')
@@ -376,6 +475,12 @@ export default class Branch extends Command {
     saveObjects(projectRoot, newObjects)
     saveGroups(projectRoot, fetchResult.apiGroups)
 
-    this.log(`Synced ${newObjects.length} files.`)
+    if (this.agentMode) {
+      this.log('AGENT_SYNC_COMPLETE:')
+      this.log(`files_synced=${newObjects.length}`)
+      this.log(`branch=${config.branch}`)
+    } else {
+      this.log(`Synced ${newObjects.length} files.`)
+    }
   }
 }

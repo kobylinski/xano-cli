@@ -1,4 +1,4 @@
-import { Args, Command, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
@@ -6,12 +6,13 @@ import { join, relative, resolve } from 'node:path'
 // @ts-expect-error - xanoscript-lint doesn't have TypeScript types
 import { XanoScriptValidator } from 'xanoscript-lint/lib/validator.js'
 
+import BaseCommand, { isAgentMode } from '../../base-command.js'
 import {
   findProjectRoot,
   loadLocalConfig,
 } from '../../lib/project.js'
 
-export default class Lint extends Command {
+export default class Lint extends BaseCommand {
   static args = {
     files: Args.string({
       description: 'Files or directories to lint',
@@ -26,6 +27,7 @@ static examples = [
     '<%= config.bin %> lint --staged',
   ]
 static flags = {
+    ...BaseCommand.baseFlags,
     fix: Flags.boolean({
       default: false,
       description: 'Attempt to fix issues (if supported)',
@@ -36,11 +38,13 @@ static flags = {
     }),
   }
 static strict = false // Allow multiple file arguments
+private agentMode = false
 
   async run(): Promise<void> {
     const { argv, flags } = await this.parse(Lint)
     const files = argv as string[]
 
+    this.agentMode = isAgentMode(flags.agent)
     const projectRoot = findProjectRoot() || process.cwd()
 
     // Determine which files to lint
@@ -56,15 +60,33 @@ static strict = false // Allow multiple file arguments
     }
 
     if (filesToLint.length === 0) {
-      this.log('No .xs files to lint.')
+      if (this.agentMode) {
+        this.log('AGENT_LINT_RESULT:')
+        this.log('files_checked=0')
+        this.log('AGENT_MESSAGE: No .xs files found to lint.')
+      } else {
+        this.log('No .xs files to lint.')
+      }
+
       return
     }
 
-    this.log(`Linting ${filesToLint.length} file(s)...\n`)
+    if (!this.agentMode) {
+      this.log(`Linting ${filesToLint.length} file(s)...\n`)
+    }
 
     // Use xanoscript-lint library for efficient batch validation
     let validator: InstanceType<typeof XanoScriptValidator> | null = null
     let hasErrors = false
+
+    // Collect all diagnostics for agent output
+    const allDiagnostics: Array<{
+      column: number
+      file: string
+      line: number
+      message: string
+      severity: 'error' | 'warning'
+    }> = []
 
     try {
       validator = new XanoScriptValidator()
@@ -81,33 +103,112 @@ static strict = false // Allow multiple file arguments
         const relativePath = filesToLint[i]
 
         if (result.error) {
-          this.log(`${relativePath}: error`)
-          this.log(`  ❌ ${result.error}`)
+          if (this.agentMode) {
+            allDiagnostics.push({
+              column: 1,
+              file: relativePath,
+              line: 1,
+              message: result.error,
+              severity: 'error',
+            })
+          } else {
+            this.log(`${relativePath}: error`)
+            this.log(`  ❌ ${result.error}`)
+          }
         } else if (result.errorCount > 0) {
-          this.log(`${relativePath}: errors`)
+          if (!this.agentMode) {
+            this.log(`${relativePath}: errors`)
+          }
+
           for (const diag of result.diagnostics) {
             if (diag.severity === 'error') {
-              this.log(`  ❌ Line ${diag.line}:${diag.column} - ${diag.message}`)
+              if (this.agentMode) {
+                allDiagnostics.push({
+                  column: diag.column,
+                  file: relativePath,
+                  line: diag.line,
+                  message: diag.message,
+                  severity: 'error',
+                })
+              } else {
+                this.log(`  ❌ Line ${diag.line}:${diag.column} - ${diag.message}`)
+              }
             }
           }
         } else if (result.warningCount > 0) {
-          this.log(`${relativePath}: warnings`)
+          if (!this.agentMode) {
+            this.log(`${relativePath}: warnings`)
+          }
+
           for (const diag of result.diagnostics) {
             if (diag.severity === 'warning') {
-              this.log(`  ⚠️  Line ${diag.line}:${diag.column} - ${diag.message}`)
+              if (this.agentMode) {
+                allDiagnostics.push({
+                  column: diag.column,
+                  file: relativePath,
+                  line: diag.line,
+                  message: diag.message,
+                  severity: 'warning',
+                })
+              } else {
+                this.log(`  ⚠️  Line ${diag.line}:${diag.column} - ${diag.message}`)
+              }
             }
           }
-        } else {
+        } else if (!this.agentMode) {
           this.log(`${relativePath}: ok`)
         }
       }
 
       // Summary
       const summary = validator.getSummary()
-      this.log('')
-      this.log(`Checked ${summary.totalFiles} file(s): ${summary.totalErrors} error(s), ${summary.totalWarnings} warning(s)`)
-
       hasErrors = summary.hasErrors
+
+      if (this.agentMode) {
+        this.log('AGENT_LINT_RESULT:')
+        this.log(`files_checked=${summary.totalFiles}`)
+        this.log(`errors=${summary.totalErrors}`)
+        this.log(`warnings=${summary.totalWarnings}`)
+        this.log(`has_errors=${hasErrors}`)
+
+        if (allDiagnostics.length > 0) {
+          // Group by severity
+          const errors = allDiagnostics.filter(d => d.severity === 'error')
+          const warnings = allDiagnostics.filter(d => d.severity === 'warning')
+
+          if (errors.length > 0) {
+            this.log('AGENT_LINT_ERRORS:')
+            for (const diag of errors.slice(0, 30)) {
+              this.log(`- ${diag.file}:${diag.line}:${diag.column}: ${diag.message}`)
+            }
+
+            if (errors.length > 30) {
+              this.log(`- ... and ${errors.length - 30} more errors`)
+            }
+          }
+
+          if (warnings.length > 0) {
+            this.log('AGENT_LINT_WARNINGS:')
+            for (const diag of warnings.slice(0, 20)) {
+              this.log(`- ${diag.file}:${diag.line}:${diag.column}: ${diag.message}`)
+            }
+
+            if (warnings.length > 20) {
+              this.log(`- ... and ${warnings.length - 20} more warnings`)
+            }
+          }
+
+          if (hasErrors) {
+            this.log('AGENT_ACTION: Fix the errors above before pushing to Xano.')
+          }
+        } else {
+          this.log('AGENT_COMPLETE: lint_passed')
+          this.log('AGENT_MESSAGE: All files passed linting.')
+        }
+      } else {
+        this.log('')
+        this.log(`Checked ${summary.totalFiles} file(s): ${summary.totalErrors} error(s), ${summary.totalWarnings} warning(s)`)
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.error(`Lint failed: ${message}`)
