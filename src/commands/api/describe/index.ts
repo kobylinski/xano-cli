@@ -21,6 +21,56 @@ import type {
 } from '../../../lib/types.js'
 
 /**
+ * Strip HTML tags from text
+ */
+function stripHtml(text: string): string {
+  return text
+    .replaceAll(/<br\s*\/?>/gi, '\n')  // Convert <br> to newlines
+    .replaceAll(/<[^>]+>/g, '')         // Remove all other HTML tags
+    .replaceAll(/\n\s*\n/g, '\n')       // Collapse multiple newlines
+    .trim()
+}
+
+/**
+ * Format response schema properties for display (recursive)
+ */
+function formatResponseFields(
+  schema: OpenApiSchema,
+  indent: number = 0
+): string[] {
+  const lines: string[] = []
+  const prefix = '  '.repeat(indent)
+
+  if (schema.type === 'array' && schema.items) {
+    lines.push(`${prefix}(array of:)`)
+    lines.push(...formatResponseFields(schema.items, indent + 1))
+    return lines
+  }
+
+  if (schema.properties) {
+    for (const [name, prop] of Object.entries(schema.properties)) {
+      const required = schema.required?.includes(name) ? '' : '?'
+      const type = formatSchemaType(prop)
+      lines.push(`${prefix}${name}${required}: ${type}`)
+
+      if (prop.description) {
+        lines.push(`${prefix}  ${stripHtml(prop.description)}`)
+      }
+
+      // Recurse for nested objects
+      if (prop.type === 'object' && prop.properties) {
+        lines.push(...formatResponseFields(prop, indent + 1))
+      } else if (prop.type === 'array' && prop.items?.properties) {
+        lines.push(`${prefix}  (array of:)`)
+        lines.push(...formatResponseFields(prop.items, indent + 2))
+      }
+    }
+  }
+
+  return lines
+}
+
+/**
  * Convert OpenAPI schema to a simplified input format
  */
 function schemaToInputs(
@@ -325,7 +375,7 @@ export default class ApiDescribe extends BaseCommand {
     this.log(`Group: ${result.group} (canonical: ${result.groupCanonical || 'unknown'})`)
 
     if (result.description) {
-      this.log(`Description: ${result.description}`)
+      this.log(`Description: ${stripHtml(result.description)}`)
     }
 
     if (result.tags && result.tags.length > 0) {
@@ -352,17 +402,25 @@ export default class ApiDescribe extends BaseCommand {
         this.log(`  ${input.name}: ${input.type} ${required}${location}`)
 
         if (input.description) {
-          this.log(`    ${input.description}`)
+          this.log(`    ${stripHtml(input.description)}`)
         }
       }
     }
 
     this.log('')
+    this.log('Response:')
     if (result.response) {
-      this.log('Response:')
-      this.log(`  ${JSON.stringify(result.response, null, 2).split('\n').join('\n  ')}`)
+      const responseLines = formatResponseFields(result.response, 1)
+      if (responseLines.length > 0) {
+        for (const line of responseLines) {
+          this.log(line)
+        }
+      } else {
+        // Fallback for schemas without properties (e.g., primitives)
+        this.log(`  ${formatSchemaType(result.response)}`)
+      }
     } else {
-      this.log('Response: (not specified)')
+      this.log('  (not specified)')
     }
   }
 }
