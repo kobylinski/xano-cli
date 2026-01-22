@@ -356,3 +356,64 @@ export interface StatusEntry {
   status: FileStatus
   type?: XanoObjectType
 }
+
+// OpenAPI 3.0 specification (simplified for Xano usage)
+export interface OpenApiSpec {
+  components?: {
+    schemas?: Record<string, OpenApiSchema>
+    securitySchemes?: Record<string, unknown>
+  }
+  info: {
+    description?: string
+    title: string
+    version: string
+  }
+  openapi: string
+  paths: Record<string, OpenApiPathItem>
+  servers?: Array<{ url: string }>
+}
+
+export interface OpenApiPathItem {
+  delete?: OpenApiOperation
+  get?: OpenApiOperation
+  head?: OpenApiOperation
+  options?: OpenApiOperation
+  patch?: OpenApiOperation
+  post?: OpenApiOperation
+  put?: OpenApiOperation
+}
+
+export interface OpenApiOperation {
+  description?: string
+  operationId?: string
+  parameters?: OpenApiParameter[]
+  requestBody?: {
+    content?: Record<string, { schema?: OpenApiSchema }>
+    required?: boolean
+  }
+  responses?: Record<string, {
+    content?: Record<string, { schema?: OpenApiSchema }>
+    description?: string
+  }>
+  security?: Array<Record<string, string[]>>
+  summary?: string
+  tags?: string[]
+}
+
+export interface OpenApiParameter {
+  description?: string
+  in: 'cookie' | 'header' | 'path' | 'query'
+  name: string
+  required?: boolean
+  schema?: OpenApiSchema
+}
+
+export interface OpenApiSchema {
+  description?: string
+  enum?: string[]
+  format?: string
+  items?: OpenApiSchema
+  properties?: Record<string, OpenApiSchema>
+  required?: string[]
+  type?: string
+}

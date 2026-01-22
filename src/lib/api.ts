@@ -9,6 +9,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import type {
+  OpenApiSpec,
   RequestHistoryItem,
   XanoApiAddon,
   XanoApiBranch,
@@ -721,6 +722,39 @@ export class XanoApi {
       this.profile,
       'GET',
       `/api:meta/workspace/${this.workspaceId}/apigroup/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
+
+  /**
+   * Get OpenAPI specification for a specific API endpoint
+   */
+  async getApiEndpointOpenApi(apiGroupId: number, apiId: number): Promise<ApiResponse<OpenApiSpec>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${apiGroupId}/api/${apiId}/openapi?${this.branchParam}`
+    )
+  }
+
+  /**
+   * Get OpenAPI specification for an API group
+   */
+  async getApiGroupOpenApi(apiGroupId: number): Promise<ApiResponse<OpenApiSpec>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${apiGroupId}/openapi?${this.branchParam}`
+    )
+  }
+
+  /**
+   * Get workspace-wide OpenAPI specification
+   */
+  async getWorkspaceOpenApi(): Promise<ApiResponse<OpenApiSpec>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/openapi?${this.branchParam}`
     )
   }
 
