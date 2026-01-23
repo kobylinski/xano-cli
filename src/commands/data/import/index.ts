@@ -18,7 +18,7 @@ import { loadObjects } from '../../../lib/objects.js'
 import {
   findProjectRoot,
   isInitialized,
-  loadLocalConfig,
+  loadEffectiveConfig,
 } from '../../../lib/project.js'
 import {
   formatTableNotFoundError,
@@ -99,7 +99,7 @@ export default class DataImport extends Command {
       this.error('Project not initialized. Run "xano init" first.')
     }
 
-    const config = loadLocalConfig(projectRoot)
+    const config = loadEffectiveConfig(projectRoot)
     if (!config) {
       this.error('Failed to load .xano/config.json')
     }

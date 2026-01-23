@@ -7,7 +7,7 @@ import {
 import {
   findProjectRoot,
   isInitialized,
-  loadLocalConfig,
+  loadEffectiveConfig,
 } from '../../../lib/project.js'
 
 export default class ApiGroups extends Command {
@@ -39,7 +39,7 @@ export default class ApiGroups extends Command {
       this.error('Project not initialized. Run "xano init" first.')
     }
 
-    const config = loadLocalConfig(projectRoot)
+    const config = loadEffectiveConfig(projectRoot)
     if (!config) {
       this.error('Failed to load .xano/config.json')
     }
@@ -89,6 +89,6 @@ export default class ApiGroups extends Command {
     }
 
     this.log('')
-    this.log('Use the canonical ID with "xano api:call" to invoke live endpoints.')
+    this.log('Use group name or canonical ID with "xano api:call <group> <method> <path>" to invoke live endpoints.')
   }
 }

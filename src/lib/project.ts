@@ -168,6 +168,32 @@ export function createLocalConfig(
 }
 
 /**
+ * Load effective config by merging .xano/config.json with xano.json defaults
+ * Values in .xano/config.json take precedence over xano.json
+ */
+export function loadEffectiveConfig(projectRoot: string): null | XanoLocalConfig {
+  const localConfig = loadLocalConfig(projectRoot)
+  if (!localConfig) {
+    return null
+  }
+
+  const projectConfig = loadXanoJson(projectRoot)
+  if (!projectConfig) {
+    return localConfig
+  }
+
+  // Merge: local config takes precedence, project config provides defaults
+  return {
+    ...localConfig,
+    // Apply defaults from xano.json for fields not set in local config
+    ...(projectConfig.datasources && !localConfig.datasources && { datasources: projectConfig.datasources }),
+    ...(projectConfig.defaultDatasource && !localConfig.defaultDatasource && { defaultDatasource: projectConfig.defaultDatasource }),
+    ...(projectConfig.naming && !localConfig.naming && { naming: projectConfig.naming }),
+    ...(projectConfig.profile && !localConfig.profile && { profile: projectConfig.profile }),
+  }
+}
+
+/**
  * Check if .xano/config.json exists (project is initialized)
  */
 export function isInitialized(projectRoot: string): boolean {

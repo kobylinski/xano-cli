@@ -7,7 +7,7 @@ import {
 import {
   findProjectRoot,
   isInitialized,
-  loadLocalConfig,
+  loadEffectiveConfig,
 } from '../../../lib/project.js'
 
 export default class ApiEndpoints extends Command {
@@ -46,7 +46,7 @@ export default class ApiEndpoints extends Command {
       this.error('Project not initialized. Run "xano init" first.')
     }
 
-    const config = loadLocalConfig(projectRoot)
+    const config = loadEffectiveConfig(projectRoot)
     if (!config) {
       this.error('Failed to load .xano/config.json')
     }
@@ -148,6 +148,6 @@ export default class ApiEndpoints extends Command {
       this.log('')
     }
 
-    this.log('To call an endpoint: xano api:call <canonical> <path> [--method POST] [--body \'{"key":"value"}\']')
+    this.log('To call an endpoint: xano api:call [<group>] <method> <path> [-b \'{"key":"value"}\']')
   }
 }
