@@ -11,6 +11,7 @@ import {
   formatAgentDatasourceBlockedMessage,
   resolveEffectiveDatasource,
 } from '../../../lib/datasource.js'
+import { formatApiResponse, formatErrorResponse, formatYamlLike } from '../../../lib/format.js'
 import {
   findGroupByName,
   loadGroups,
@@ -19,7 +20,7 @@ import {
 import {
   findProjectRoot,
   isInitialized,
-  loadLocalConfig,
+  loadEffectiveConfig,
 } from '../../../lib/project.js'
 
 /**
@@ -75,23 +76,29 @@ function extractByPath(data: unknown, jsonPath: string): unknown {
 }
 
 export default class ApiCall extends BaseCommand {
+   
   static args = {
-    groupOrPath: Args.string({
-      description: 'API group name or endpoint path (e.g., "auth" or "/auth/login")',
+    groupOrMethod: Args.string({
+      description: 'API group name/canonical OR HTTP method (GET, POST, PUT, DELETE, PATCH)',
+      required: true,
+    }),
+    methodOrPath: Args.string({
+      description: 'HTTP method OR endpoint path (when group is specified)',
       required: true,
     }),
     path: Args.string({
-      description: 'Endpoint path when group is specified (e.g., "/auth/login")',
+      description: 'Endpoint path (when group and method are specified)',
       required: false,
     }),
   }
-  static description = 'Call a live API endpoint'
+static description = 'Call a live API endpoint'
   static examples = [
-    '<%= config.bin %> api:call /auth/login -m POST -b \'{"email":"test@example.com","password":"secret"}\'',
-    '<%= config.bin %> api:call /auth/login -m POST -b \'{"email":"...","password":"..."}\' --extract .authToken --save .xano/token.txt',
-    '<%= config.bin %> api:call /profile --token-file .xano/token.txt',
-    '<%= config.bin %> api:call /users --token "eyJhbG..."',
-    '<%= config.bin %> api:call auth /login -m POST',
+    '<%= config.bin %> api:call GET /users',
+    '<%= config.bin %> api:call POST /auth/login -b \'{"email":"test@example.com","password":"secret"}\'',
+    '<%= config.bin %> api:call auth POST /login -b \'{"email":"...","password":"..."}\'',
+    '<%= config.bin %> api:call KM1dKCw- POST /auth/login -b \'{"email":"..."}\'',
+    '<%= config.bin %> api:call GET /profile --token-file .xano/token.txt',
+    '<%= config.bin %> api:call POST /auth/login -b \'...\' --extract .authToken --save .xano/token.txt',
   ]
   static flags = {
     ...BaseCommand.baseFlags,
@@ -121,11 +128,6 @@ export default class ApiCall extends BaseCommand {
     json: Flags.boolean({
       default: false,
       description: 'Output response as formatted JSON',
-    }),
-    method: Flags.string({
-      char: 'm',
-      default: 'GET',
-      description: 'HTTP method (GET, POST, PUT, DELETE, PATCH)',
     }),
     raw: Flags.boolean({
       default: false,
@@ -158,9 +160,9 @@ export default class ApiCall extends BaseCommand {
       this.error('Project not initialized. Run "xano init" first.')
     }
 
-    const config = loadLocalConfig(projectRoot)
+    const config = loadEffectiveConfig(projectRoot)
     if (!config) {
-      this.error('Failed to load .xano/config.json')
+      this.error('Failed to load config. Check .xano/config.json exists.')
     }
 
     const profile = getProfile(flags.profile, config.profile)
@@ -179,14 +181,36 @@ export default class ApiCall extends BaseCommand {
       this.warn(formatAgentDatasourceBlockedMessage(flags.datasource, datasource))
     }
 
-    // Resolve group and path from arguments
-    const method = flags.method.toUpperCase()
-    const { canonical, endpointPath } = this.resolveGroupAndPath(
-      projectRoot,
-      args.groupOrPath,
-      args.path,
-      method
-    )
+    // Parse arguments: [group] <method> <path>
+    const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+    let groupName: string | undefined
+    let method: string
+    let endpointPath: string
+
+    if (args.path) {
+      // All three provided: group method path
+      groupName = args.groupOrMethod
+      method = args.methodOrPath.toUpperCase()
+      endpointPath = args.path
+    } else if (httpMethods.includes(args.groupOrMethod.toUpperCase())) {
+      // Two provided and first is method: method path
+      method = args.groupOrMethod.toUpperCase()
+      endpointPath = args.methodOrPath
+    } else {
+      // Two provided and first is group: group method (path missing)
+      this.error('Missing endpoint path. Usage: xano api:call [group] <method> <path>')
+    }
+
+    if (!httpMethods.includes(method)) {
+      this.error(`Invalid HTTP method: ${method}. Must be one of: ${httpMethods.join(', ')}`)
+    }
+
+    if (!endpointPath.startsWith('/')) {
+      endpointPath = '/' + endpointPath
+    }
+
+    // Resolve canonical from group name if provided
+    const canonical = this.resolveCanonical(projectRoot, groupName, method, endpointPath)
 
     // Parse headers
     const headers: Record<string, string> = {}
@@ -248,13 +272,14 @@ export default class ApiCall extends BaseCommand {
         status: response.status,
       }
 
-      if (flags.raw) {
-        this.log(JSON.stringify(errorOutput))
-      } else if (flags.json) {
+      // JSON flag has priority
+      if (flags.json) {
         this.log(JSON.stringify(errorOutput, null, 2))
+      } else if (flags.raw) {
+        this.log(JSON.stringify(errorOutput))
       } else {
-        this.log(`Error: ${response.error}`)
-        this.log(`Status: ${response.status}`)
+        // YAML-like format: styled for humans, plain for agents
+        this.log(formatErrorResponse(response.status, response.error || 'Unknown error', { styled: !agentMode }))
       }
 
       // Still allow saving error response
@@ -266,8 +291,8 @@ export default class ApiCall extends BaseCommand {
         }
 
         writeFileSync(savePath, JSON.stringify(errorOutput, null, 2) + '\n', 'utf8')
-        if (!flags.raw) {
-          this.log(`Saved to ${savePath}`)
+        if (!flags.raw && !flags.json) {
+          this.log(`\nSaved to ${savePath}`)
         }
       }
 
@@ -290,17 +315,23 @@ export default class ApiCall extends BaseCommand {
       }
     }
 
-    // Format output
+    // Format output based on mode priority: --json > --raw > YAML-like (styled/plain)
     let outputString: string
     if (flags.extract) {
-      // When extracting, output just the value (string or JSON)
-      outputString = typeof output === 'string' ? output : JSON.stringify(output, null, 2)
+      // When extracting, output just the value
+      if (flags.json) {
+        outputString = typeof output === 'string' ? JSON.stringify(output) : JSON.stringify(output, null, 2)
+      } else {
+        outputString = typeof output === 'string' ? output : formatYamlLike(output, { styled: !agentMode })
+      }
+    } else if (flags.json) {
+      // JSON flag has priority
+      outputString = JSON.stringify(output, null, 2)
     } else if (flags.raw) {
       outputString = JSON.stringify(output)
-    } else if (flags.json) {
-      outputString = JSON.stringify(output, null, 2)
     } else {
-      outputString = `Status: ${response.status}\n\nResponse:\n${JSON.stringify(output, null, 2)}`
+      // YAML-like format with status: styled for humans, plain for agents
+      outputString = formatApiResponse(response.status, output, { styled: !agentMode })
     }
 
     // Save to file if requested
@@ -313,16 +344,16 @@ export default class ApiCall extends BaseCommand {
         mkdirSync(saveDir, { recursive: true })
       }
 
-      // For extracted values, save just the raw value (no JSON wrapping for strings)
+      // Save as JSON for machine-readable format
       const saveContent = flags.extract && typeof output === 'string'
         ? output
         : typeof output === 'string' ? output : JSON.stringify(output, null, 2)
 
       writeFileSync(savePath, saveContent + '\n', 'utf8')
 
-      // When saving, also output to console unless using --raw
-      if (!flags.raw) {
-        this.log(`Saved to ${savePath}`)
+      // Show saved message unless using --raw or --json
+      if (!flags.raw && !flags.json) {
+        this.log(`\nSaved to ${savePath}`)
       }
     }
 
@@ -330,6 +361,33 @@ export default class ApiCall extends BaseCommand {
     if (!flags.save || !flags.raw) {
       this.log(outputString)
     }
+  }
+
+  /**
+   * Resolve the canonical ID from arguments
+   * If group is provided, use it; otherwise auto-resolve from path
+   */
+  private resolveCanonical(
+    projectRoot: string,
+    groupName: string | undefined,
+    method: string,
+    endpointPath: string
+  ): string {
+    const groups = loadGroups(projectRoot)
+
+    // If no group provided, auto-resolve from path
+    if (!groupName) {
+      return this.resolveCanonicalFromPath(projectRoot, endpointPath, method, groups)
+    }
+
+    // Try to resolve as group name first
+    const groupInfo = findGroupByName(groups, groupName)
+    if (groupInfo) {
+      return groupInfo.canonical
+    }
+
+    // Assume it's a canonical ID
+    return groupName
   }
 
   /**
@@ -398,8 +456,8 @@ export default class ApiCall extends BaseCommand {
     if (matchingEndpoints.length === 0) {
       this.error(
         `Could not find API endpoint for path "${endpointPath}".\n` +
-        'Run "xano pull --sync" to refresh metadata, or specify the group explicitly:\n' +
-        `  xano api:call <group> ${endpointPath}`
+        'Run "xano sync" to refresh metadata, or specify the group explicitly:\n' +
+        `  xano api:call <group> <method> ${endpointPath}`
       )
     }
 
@@ -409,7 +467,7 @@ export default class ApiCall extends BaseCommand {
       if (uniqueGroups.length > 1) {
         this.error(
           `Ambiguous endpoint "${endpointPath}" found in multiple groups: ${uniqueGroups.join(', ')}\n` +
-          `Specify the group explicitly: xano api:call <group> ${endpointPath}`
+          `Specify the group explicitly: xano api:call <group> <method> ${endpointPath}`
         )
       }
     }
@@ -428,49 +486,11 @@ export default class ApiCall extends BaseCommand {
   }
 
   /**
-   * Resolve the canonical ID and endpoint path from arguments
-   */
-  private resolveGroupAndPath(
-    projectRoot: string,
-    groupOrPath: string,
-    pathArg: string | undefined,
-    method: string
-  ): { canonical: string; endpointPath: string } {
-    const groups = loadGroups(projectRoot)
-
-    // If first arg starts with /, it's a path - auto-resolve group
-    if (groupOrPath.startsWith('/')) {
-      const endpointPath = groupOrPath
-      const canonical = this.resolveCanonicalFromPath(projectRoot, endpointPath, method, groups)
-      return { canonical, endpointPath }
-    }
-
-    // First arg is group name or canonical, second is path
-    if (!pathArg) {
-      this.error('Endpoint path is required when specifying a group.')
-    }
-
-    let endpointPath = pathArg
-    if (!endpointPath.startsWith('/')) {
-      endpointPath = '/' + endpointPath
-    }
-
-    // Try to resolve as group name first
-    const groupInfo = findGroupByName(groups, groupOrPath)
-    if (groupInfo) {
-      return { canonical: groupInfo.canonical, endpointPath }
-    }
-
-    // Assume it's a canonical ID
-    return { canonical: groupOrPath, endpointPath }
-  }
-
-  /**
    * Resolve auth token from flags
    */
   private resolveToken(token?: string, tokenFile?: string): string | undefined {
     if (token) {
-      return token
+      return token.trim()
     }
 
     if (tokenFile) {
