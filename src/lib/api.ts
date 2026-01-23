@@ -717,14 +717,6 @@ export class XanoApi {
     )
   }
 
-  async getApiGroup(id: number): Promise<ApiResponse<XanoApiGroup>> {
-    return apiRequest(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/apigroup/${id}?${this.branchParam}&include_xanoscript=true`
-    )
-  }
-
   /**
    * Get OpenAPI specification for a specific API endpoint
    */
@@ -733,6 +725,14 @@ export class XanoApi {
       this.profile,
       'GET',
       `/api:meta/workspace/${this.workspaceId}/apigroup/${apiGroupId}/api/${apiId}/openapi?${this.branchParam}`
+    )
+  }
+
+  async getApiGroup(id: number): Promise<ApiResponse<XanoApiGroup>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/apigroup/${id}?${this.branchParam}&include_xanoscript=true`
     )
   }
 
@@ -748,17 +748,37 @@ export class XanoApi {
   }
 
   /**
-   * Get workspace-wide OpenAPI specification
+   * Get OpenAPI specification for an API group by canonical ID
+   * Uses the public apispec endpoint which is faster than metadata API
    */
-  async getWorkspaceOpenApi(): Promise<ApiResponse<OpenApiSpec>> {
-    return apiRequest(
-      this.profile,
-      'GET',
-      `/api:meta/workspace/${this.workspaceId}/openapi?${this.branchParam}`
-    )
-  }
+  async getApiGroupOpenApiByCanonical(canonical: string): Promise<ApiResponse<OpenApiSpec>> {
+    const url = `${this.profile.instance_origin}/apispec:${canonical}?type=json`
 
-  // ========== Table Trigger CRUD ==========
+    try {
+      const response = await fetch(url)
+
+      if (!response.ok) {
+        return {
+          error: `HTTP ${response.status}`,
+          ok: false,
+          status: response.status,
+        }
+      }
+
+      const data = await response.json() as OpenApiSpec
+      return {
+        data,
+        ok: true,
+        status: response.status,
+      }
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        ok: false,
+        status: 0,
+      }
+    }
+  }
 
   /**
    * Get detailed info about an API group including canonical ID
@@ -770,6 +790,8 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/apigroup/${groupId}?${this.branchParam}`
     )
   }
+
+  // ========== Table Trigger CRUD ==========
 
   async getFunction(id: number): Promise<ApiResponse<XanoApiFunction>> {
     return apiRequest(
@@ -807,8 +829,6 @@ export class XanoApi {
     )
   }
 
-  // ========== Addon CRUD ==========
-
   /**
    * Get middleware request history
    */
@@ -828,6 +848,8 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/middleware/${middlewareId}/request_history?${params.toString()}`
     )
   }
+
+  // ========== Addon CRUD ==========
 
   /**
    * Get object by type and ID
@@ -898,8 +920,6 @@ export class XanoApi {
     )
   }
 
-  // ========== Middleware CRUD ==========
-
   /**
    * Get table indexes
    */
@@ -910,6 +930,8 @@ export class XanoApi {
       `/api:meta/workspace/${this.workspaceId}/table/${tableId}/index?${this.branchParam}`
     )
   }
+
+  // ========== Middleware CRUD ==========
 
   /**
    * Get table schema definition
@@ -983,6 +1005,17 @@ export class XanoApi {
       this.profile,
       'GET',
       `/api:meta/workspace/${this.workspaceId}/workflow_test/${id}?${this.branchParam}&include_xanoscript=true`
+    )
+  }
+
+  /**
+   * Get workspace-wide OpenAPI specification
+   */
+  async getWorkspaceOpenApi(): Promise<ApiResponse<OpenApiSpec>> {
+    return apiRequest(
+      this.profile,
+      'GET',
+      `/api:meta/workspace/${this.workspaceId}/openapi?${this.branchParam}`
     )
   }
 
