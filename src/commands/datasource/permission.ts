@@ -11,6 +11,7 @@ import { describeAccessLevel } from '../../lib/datasource.js'
 import {
   findProjectRoot,
   isInitialized,
+  loadEffectiveConfig,
   loadLocalConfig,
   loadXanoJson,
   saveLocalConfig,
@@ -36,6 +37,7 @@ export default class DataSourcePermission extends BaseCommand {
   static description = 'Get or set datasource access permissions'
   static examples = [
     '<%= config.bin %> datasource:permission',
+    '<%= config.bin %> datasource:permission --json',
     '<%= config.bin %> datasource:permission live',
     '<%= config.bin %> datasource:permission live read-only',
     '<%= config.bin %> datasource:permission test read-write',
@@ -47,6 +49,10 @@ export default class DataSourcePermission extends BaseCommand {
     clear: Flags.boolean({
       default: false,
       description: 'Clear permission for datasource (use default: read-only)',
+    }),
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON',
     }),
   }
 
@@ -67,9 +73,12 @@ export default class DataSourcePermission extends BaseCommand {
       this.error('Failed to load .xano/config.json')
     }
 
+    // Load effective config for reading (merges xano.json defaults)
+    const effectiveConfig = loadEffectiveConfig(projectRoot)!
+
     // List mode (no name provided)
     if (!args.name) {
-      await this.listPermissions(config.datasources, flags.profile, config)
+      await this.listPermissions(effectiveConfig.datasources, flags.profile, effectiveConfig, flags.json)
       return
     }
 
@@ -86,9 +95,10 @@ export default class DataSourcePermission extends BaseCommand {
 
     // Clear mode
     if (flags.clear) {
-      if (config.datasources?.[args.name]) {
-        delete config.datasources[args.name]
-        if (Object.keys(config.datasources).length === 0) {
+      const hadPermission = Boolean(config.datasources?.[args.name])
+      if (hadPermission) {
+        delete config.datasources![args.name]
+        if (Object.keys(config.datasources!).length === 0) {
           delete config.datasources
         }
 
@@ -104,7 +114,17 @@ export default class DataSourcePermission extends BaseCommand {
 
           saveXanoJson(projectRoot, projectConfig)
         }
+      }
 
+      if (flags.json) {
+        this.log(JSON.stringify({
+          action: 'clear',
+          datasource: args.name,
+          effective: 'read-only',
+          level: null,
+          success: true,
+        }, null, 2))
+      } else if (hadPermission) {
         this.log(`Permission for "${args.name}" cleared. Using default (read-only).`)
       } else {
         this.log(`No custom permission configured for "${args.name}".`)
@@ -115,8 +135,18 @@ export default class DataSourcePermission extends BaseCommand {
 
     // Get mode (name but no level)
     if (!args.level) {
-      const level = config.datasources?.[args.name]
-      if (level) {
+      const level = effectiveConfig.datasources?.[args.name]
+      const effectiveLevelValue = level || 'read-only'
+
+      if (flags.json) {
+        this.log(JSON.stringify({
+          datasource: args.name,
+          description: describeAccessLevel(effectiveLevelValue),
+          effective: effectiveLevelValue,
+          isDefault: !level,
+          level: level || null,
+        }, null, 2))
+      } else if (level) {
         this.log(`${args.name}: ${level} (${describeAccessLevel(level)})`)
       } else {
         this.log(`${args.name}: read-only (default - ${describeAccessLevel('read-only')})`)
@@ -172,13 +202,25 @@ export default class DataSourcePermission extends BaseCommand {
       saveXanoJson(projectRoot, projectConfig)
     }
 
-    this.log(`Permission for "${exactName}" set to: ${level} (${describeAccessLevel(level)})`)
+    if (flags.json) {
+      this.log(JSON.stringify({
+        action: 'set',
+        datasource: exactName,
+        description: describeAccessLevel(level),
+        effective: level,
+        level,
+        success: true,
+      }, null, 2))
+    } else {
+      this.log(`Permission for "${exactName}" set to: ${level} (${describeAccessLevel(level)})`)
+    }
   }
 
   private async listPermissions(
     permissions: DatasourcePermissions | undefined,
     profileFlag: string | undefined,
-    config: { branch: string; profile?: string; workspaceId: number }
+    config: { branch: string; profile?: string; workspaceId: number },
+    jsonOutput: boolean
   ): Promise<void> {
     // Get actual datasources from API
     const profile = getProfile(profileFlag, config.profile)
@@ -194,6 +236,33 @@ export default class DataSourcePermission extends BaseCommand {
     }
 
     const dataSources = response.data || []
+
+    if (jsonOutput) {
+      const result = {
+        datasources: dataSources.map(ds => {
+          const level = permissions?.[ds.label]
+          return {
+            description: describeAccessLevel(level || 'read-only'),
+            effective: level || 'read-only',
+            isDefault: !level,
+            level: level || null,
+            name: ds.label,
+          }
+        }),
+        orphaned: [] as Array<{ level: string; name: string }>,
+      }
+
+      // Add orphaned permissions
+      if (permissions) {
+        const remoteNames = new Set(dataSources.map(ds => ds.label))
+        result.orphaned = Object.keys(permissions)
+          .filter(name => !remoteNames.has(name))
+          .map(name => ({ level: permissions[name], name }))
+      }
+
+      this.log(JSON.stringify(result, null, 2))
+      return
+    }
 
     if (dataSources.length === 0) {
       this.log('No data sources found.')

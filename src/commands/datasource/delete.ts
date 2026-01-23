@@ -21,12 +21,17 @@ export default class DataSourceDelete extends Command {
   static examples = [
     '<%= config.bin %> datasource:delete staging',
     '<%= config.bin %> datasource:delete test --force',
+    '<%= config.bin %> datasource:delete test --force --json',
   ]
   static flags = {
     force: Flags.boolean({
       char: 'f',
       default: false,
       description: 'Skip confirmation',
+    }),
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON',
     }),
     profile: Flags.string({
       char: 'p',
@@ -58,8 +63,18 @@ export default class DataSourceDelete extends Command {
     }
 
     if (!flags.force) {
-      this.log(`About to delete data source: ${args.label}`)
-      this.log('Use --force to confirm deletion')
+      if (flags.json) {
+        this.log(JSON.stringify({
+          action: 'confirm_required',
+          datasource: args.label,
+          message: 'Use --force to confirm deletion',
+          success: false,
+        }, null, 2))
+      } else {
+        this.log(`About to delete data source: ${args.label}`)
+        this.log('Use --force to confirm deletion')
+      }
+
       return
     }
 
@@ -67,9 +82,27 @@ export default class DataSourceDelete extends Command {
     const response = await api.deleteDataSource(args.label)
 
     if (!response.ok) {
+      if (flags.json) {
+        this.log(JSON.stringify({
+          action: 'delete',
+          datasource: args.label,
+          error: response.error,
+          success: false,
+        }, null, 2))
+        return
+      }
+
       this.error(`Failed to delete data source: ${response.error}`)
     }
 
-    this.log(`Deleted data source: ${args.label}`)
+    if (flags.json) {
+      this.log(JSON.stringify({
+        action: 'delete',
+        datasource: args.label,
+        success: true,
+      }, null, 2))
+    } else {
+      this.log(`Deleted data source: ${args.label}`)
+    }
   }
 }

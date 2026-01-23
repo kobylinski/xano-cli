@@ -8,6 +8,7 @@ import {
 import {
   findProjectRoot,
   isInitialized,
+  loadEffectiveConfig,
   loadLocalConfig,
   loadXanoJson,
   saveLocalConfig,
@@ -24,6 +25,7 @@ export default class DataSourceDefault extends BaseCommand {
   static description = 'Get or set the default datasource for data commands'
   static examples = [
     '<%= config.bin %> datasource:default',
+    '<%= config.bin %> datasource:default --json',
     '<%= config.bin %> datasource:default test',
     '<%= config.bin %> datasource:default live',
     '<%= config.bin %> datasource:default --clear',
@@ -33,6 +35,10 @@ export default class DataSourceDefault extends BaseCommand {
     clear: Flags.boolean({
       default: false,
       description: 'Clear default datasource (use Xano default)',
+    }),
+    json: Flags.boolean({
+      default: false,
+      description: 'Output as JSON',
     }),
   }
 
@@ -53,6 +59,9 @@ export default class DataSourceDefault extends BaseCommand {
       this.error('Failed to load .xano/config.json')
     }
 
+    // Load effective config for reading (merges xano.json defaults)
+    const effectiveConfig = loadEffectiveConfig(projectRoot)!
+
     // Block write operations in agent mode
     const isWriteOperation = flags.clear || args.name
     if (isWriteOperation && isAgentMode(flags.agent)) {
@@ -66,7 +75,8 @@ export default class DataSourceDefault extends BaseCommand {
 
     // Clear mode
     if (flags.clear) {
-      if (config.defaultDatasource) {
+      const hadDefault = Boolean(config.defaultDatasource)
+      if (hadDefault) {
         delete config.defaultDatasource
         saveLocalConfig(projectRoot, config)
 
@@ -76,7 +86,16 @@ export default class DataSourceDefault extends BaseCommand {
           delete projectConfig.defaultDatasource
           saveXanoJson(projectRoot, projectConfig)
         }
+      }
 
+      if (flags.json) {
+        this.log(JSON.stringify({
+          action: 'clear',
+          default: null,
+          effective: 'live',
+          success: true,
+        }, null, 2))
+      } else if (hadDefault) {
         this.log('Default datasource cleared. Using Xano default (live).')
       } else {
         this.log('No default datasource configured.')
@@ -87,8 +106,13 @@ export default class DataSourceDefault extends BaseCommand {
 
     // Get mode (no name provided)
     if (!args.name) {
-      if (config.defaultDatasource) {
-        this.log(`Default datasource: ${config.defaultDatasource}`)
+      if (flags.json) {
+        this.log(JSON.stringify({
+          default: effectiveConfig.defaultDatasource || null,
+          effective: effectiveConfig.defaultDatasource || 'live',
+        }, null, 2))
+      } else if (effectiveConfig.defaultDatasource) {
+        this.log(`Default datasource: ${effectiveConfig.defaultDatasource}`)
       } else {
         this.log('No default datasource configured. Using Xano default (live).')
       }
@@ -133,6 +157,15 @@ export default class DataSourceDefault extends BaseCommand {
       saveXanoJson(projectRoot, projectConfig)
     }
 
-    this.log(`Default datasource set to: ${exactName}`)
+    if (flags.json) {
+      this.log(JSON.stringify({
+        action: 'set',
+        default: exactName,
+        effective: exactName,
+        success: true,
+      }, null, 2))
+    } else {
+      this.log(`Default datasource set to: ${exactName}`)
+    }
   }
 }
