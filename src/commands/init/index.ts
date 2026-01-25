@@ -1,7 +1,7 @@
 import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -19,6 +19,7 @@ import {
   getConfigJsonPath,
   getDefaultPaths,
   getXanoJsonPath,
+  isXanoGitignored,
   loadLocalConfig,
   loadXanoJson,
   saveLocalConfig,
@@ -71,29 +72,6 @@ interface CredentialsFile {
 }
 
 const CREATE_NEW_PROFILE = '[CREATE_NEW]'
-
-/**
- * Ensure .xano/ is in .gitignore
- */
-function ensureGitignore(projectRoot: string): void {
-  const gitignorePath = join(projectRoot, '.gitignore')
-  const xanoPattern = '.xano/'
-
-  if (existsSync(gitignorePath)) {
-    const content = readFileSync(gitignorePath, 'utf8')
-    // Check if .xano/ is already in gitignore (as line or with trailing content)
-    if (content.split('\n').some(line => line.trim() === xanoPattern || line.trim() === '.xano')) {
-      return // Already ignored
-    }
-
-    // Append .xano/ to existing gitignore
-    const suffix = content.endsWith('\n') ? '' : '\n'
-    appendFileSync(gitignorePath, `${suffix}${xanoPattern}\n`, 'utf8')
-  } else {
-    // Create new .gitignore
-    writeFileSync(gitignorePath, `${xanoPattern}\n`, 'utf8')
-  }
-}
 
 export default class Init extends BaseCommand {
   static args = {
@@ -897,25 +875,41 @@ static flags = {
     const localConfig = createLocalConfig(finalProjectConfig, branch)
     saveLocalConfig(projectRoot, localConfig)
 
-    // Ensure .xano/ is in .gitignore
-    ensureGitignore(projectRoot)
+    // Check if .xano/ is gitignored and warn if not
+    const xanoGitignored = isXanoGitignored(projectRoot)
 
     if (flags.agent || this.jsonMode) {
-      this.agentComplete({
+      const result: Record<string, string> = {
         branch,
         filesCreated: hasXanoJson ? '.xano/config.json' : 'xano.json,.xano/config.json',
         profile: profileName,
         workspace: workspaceName,
         workspaceId: workspaceId.toString(),
-      }, 'xano pull')
-      if (!this.jsonMode) {
-        console.log('AGENT_SUGGEST: Consider installing the Claude Code skill with "xano skill --project" for AI-assisted development')
+      }
+
+      if (!xanoGitignored) {
+        result.warning = '.xano/ directory is not in .gitignore'
+        result.action = 'Add ".xano/" to .gitignore to prevent committing local state'
+      }
+
+      this.agentComplete(result, 'xano pull')
+
+      if (!this.jsonMode && !xanoGitignored) {
+        console.log('AGENT_WARNING: .xano/ directory is not in .gitignore')
+        console.log('AGENT_ACTION: Add ".xano/" to .gitignore to prevent committing local state')
       }
     } else {
       this.log(`\nProject initialized!`)
       this.log(`  Profile: ${profileName}`)
       this.log(`  Workspace: ${workspaceName}`)
       this.log(`  Branch: ${branch}`)
+
+      if (!xanoGitignored) {
+        this.log('')
+        this.warn('The .xano/ directory is not in .gitignore.')
+        this.log('  Add ".xano/" to .gitignore to prevent committing local state.')
+      }
+
       this.log('')
       this.log("Run 'xano pull' to fetch files from Xano.")
     }

@@ -304,6 +304,27 @@ const LEGACY_KEY_MAPPING: Record<string, string> = {
 }
 
 /**
+ * Check if .xano/ directory is in .gitignore
+ */
+export function isXanoGitignored(projectRoot: string): boolean {
+  const gitignorePath = join(projectRoot, '.gitignore')
+
+  if (!existsSync(gitignorePath)) {
+    return false
+  }
+
+  try {
+    const content = readFileSync(gitignorePath, 'utf8')
+    return content.split('\n').some(line => {
+      const trimmed = line.trim()
+      return trimmed === '.xano/' || trimmed === '.xano' || trimmed === '.xano/**'
+    })
+  } catch {
+    return false
+  }
+}
+
+/**
  * Normalize paths to VSCode's camelCase format
  * Handles legacy snake_case keys for backwards compatibility
  */
