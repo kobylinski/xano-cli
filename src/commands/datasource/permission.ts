@@ -11,11 +11,10 @@ import { describeAccessLevel } from '../../lib/datasource.js'
 import {
   findProjectRoot,
   isInitialized,
+  loadDatasourcesConfig,
   loadEffectiveConfig,
   loadLocalConfig,
-  loadXanoJson,
-  saveLocalConfig,
-  saveXanoJson,
+  saveDatasourcesConfig,
 } from '../../lib/project.js'
 
 const ACCESS_LEVELS: DatasourceAccessLevel[] = ['locked', 'read-only', 'read-write']
@@ -95,25 +94,16 @@ export default class DataSourcePermission extends BaseCommand {
 
     // Clear mode
     if (flags.clear) {
-      const hadPermission = Boolean(config.datasources?.[args.name])
+      const datasourcesConfig = loadDatasourcesConfig(projectRoot) || {}
+      const hadPermission = Boolean(datasourcesConfig.datasources?.[args.name])
+
       if (hadPermission) {
-        delete config.datasources![args.name]
-        if (Object.keys(config.datasources!).length === 0) {
-          delete config.datasources
+        delete datasourcesConfig.datasources![args.name]
+        if (Object.keys(datasourcesConfig.datasources!).length === 0) {
+          delete datasourcesConfig.datasources
         }
 
-        saveLocalConfig(projectRoot, config)
-
-        // Also update xano.json if it exists
-        const projectConfig = loadXanoJson(projectRoot)
-        if (projectConfig?.datasources?.[args.name]) {
-          delete projectConfig.datasources[args.name]
-          if (Object.keys(projectConfig.datasources).length === 0) {
-            delete projectConfig.datasources
-          }
-
-          saveXanoJson(projectRoot, projectConfig)
-        }
+        saveDatasourcesConfig(projectRoot, datasourcesConfig)
       }
 
       if (flags.json) {
@@ -183,24 +173,14 @@ export default class DataSourcePermission extends BaseCommand {
 
     const level = args.level as DatasourceAccessLevel
 
-    // Update local config
-    if (!config.datasources) {
-      config.datasources = {}
+    // Update datasources.json (dedicated file for datasource config)
+    const datasourcesConfig = loadDatasourcesConfig(projectRoot) || {}
+    if (!datasourcesConfig.datasources) {
+      datasourcesConfig.datasources = {}
     }
 
-    config.datasources[exactName] = level
-    saveLocalConfig(projectRoot, config)
-
-    // Also update xano.json if it exists
-    const projectConfig = loadXanoJson(projectRoot)
-    if (projectConfig) {
-      if (!projectConfig.datasources) {
-        projectConfig.datasources = {}
-      }
-
-      projectConfig.datasources[exactName] = level
-      saveXanoJson(projectRoot, projectConfig)
-    }
+    datasourcesConfig.datasources[exactName] = level
+    saveDatasourcesConfig(projectRoot, datasourcesConfig)
 
     if (flags.json) {
       this.log(JSON.stringify({

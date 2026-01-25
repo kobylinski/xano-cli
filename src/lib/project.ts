@@ -6,12 +6,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import type { XanoLocalConfig, XanoPaths, XanoProjectConfig } from './types.js'
+import type { XanoDatasourcesConfig, XanoLocalConfig, XanoPaths, XanoProjectConfig } from './types.js'
 
 const XANO_JS = 'xano.js'
 const XANO_JSON = 'xano.json'
 const XANO_DIR = '.xano'
 const CONFIG_JSON = 'config.json'
+const DATASOURCES_JSON = 'datasources.json'
 
 /**
  * Find project root by looking for .xano/config.json (primary) or xano.js/xano.json (fallback)
@@ -148,6 +149,40 @@ export function saveLocalConfig(projectRoot: string, config: XanoLocalConfig): v
 }
 
 /**
+ * Get path to .xano/datasources.json
+ */
+export function getDatasourcesConfigPath(projectRoot: string): string {
+  return join(projectRoot, XANO_DIR, DATASOURCES_JSON)
+}
+
+/**
+ * Load .xano/datasources.json (local datasource config, gitignored)
+ */
+export function loadDatasourcesConfig(projectRoot: string): null | XanoDatasourcesConfig {
+  const filePath = getDatasourcesConfigPath(projectRoot)
+
+  if (!existsSync(filePath)) {
+    return null
+  }
+
+  try {
+    const content = readFileSync(filePath, 'utf8')
+    return JSON.parse(content) as XanoDatasourcesConfig
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Save .xano/datasources.json (local datasource config, gitignored)
+ */
+export function saveDatasourcesConfig(projectRoot: string, config: XanoDatasourcesConfig): void {
+  ensureXanoDir(projectRoot)
+  const filePath = getDatasourcesConfigPath(projectRoot)
+  writeFileSync(filePath, JSON.stringify(config, null, 2) + '\n', 'utf8')
+}
+
+/**
  * Create local config from project config + branch
  */
 export function createLocalConfig(
@@ -168,8 +203,10 @@ export function createLocalConfig(
 }
 
 /**
- * Load effective config by merging .xano/config.json with xano.json defaults
- * Values in .xano/config.json take precedence over xano.json
+ * Load effective config by merging configs with priority:
+ * 1. .xano/datasources.json (highest for datasource settings)
+ * 2. .xano/config.json
+ * 3. xano.json (lowest, provides defaults)
  */
 export function loadEffectiveConfig(projectRoot: string): null | XanoLocalConfig {
   const localConfig = loadLocalConfig(projectRoot)
@@ -178,19 +215,32 @@ export function loadEffectiveConfig(projectRoot: string): null | XanoLocalConfig
   }
 
   const projectConfig = loadXanoJson(projectRoot)
-  if (!projectConfig) {
-    return localConfig
+  const datasourcesConfig = loadDatasourcesConfig(projectRoot)
+
+  // Start with local config
+  let result = { ...localConfig }
+
+  // Apply defaults from xano.json for fields not set in local config
+  if (projectConfig) {
+    result = {
+      ...result,
+      ...(projectConfig.datasources && !result.datasources && { datasources: projectConfig.datasources }),
+      ...(projectConfig.defaultDatasource && !result.defaultDatasource && { defaultDatasource: projectConfig.defaultDatasource }),
+      ...(projectConfig.naming && !result.naming && { naming: projectConfig.naming }),
+      ...(projectConfig.profile && !result.profile && { profile: projectConfig.profile }),
+    }
   }
 
-  // Merge: local config takes precedence, project config provides defaults
-  return {
-    ...localConfig,
-    // Apply defaults from xano.json for fields not set in local config
-    ...(projectConfig.datasources && !localConfig.datasources && { datasources: projectConfig.datasources }),
-    ...(projectConfig.defaultDatasource && !localConfig.defaultDatasource && { defaultDatasource: projectConfig.defaultDatasource }),
-    ...(projectConfig.naming && !localConfig.naming && { naming: projectConfig.naming }),
-    ...(projectConfig.profile && !localConfig.profile && { profile: projectConfig.profile }),
+  // Apply datasources.json with highest priority (overrides everything for datasource settings)
+  if (datasourcesConfig) {
+    result = {
+      ...result,
+      ...(datasourcesConfig.datasources && { datasources: datasourcesConfig.datasources }),
+      ...(datasourcesConfig.defaultDatasource && { defaultDatasource: datasourcesConfig.defaultDatasource }),
+    }
   }
+
+  return result
 }
 
 /**

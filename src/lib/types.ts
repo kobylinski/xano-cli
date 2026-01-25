@@ -17,6 +17,12 @@ export type DatasourceAccessLevel = 'locked' | 'read-only' | 'read-write'
 // Datasource permissions map (datasource label -> access level)
 export type DatasourcePermissions = Record<string, DatasourceAccessLevel>
 
+// .xano/datasources.json - local datasource configuration (gitignored)
+export interface XanoDatasourcesConfig {
+  datasources?: DatasourcePermissions  // Datasource access permissions
+  defaultDatasource?: string           // Default datasource for data commands
+}
+
 // Context passed to custom resolver functions (sanitize, resolvePath)
 export interface ResolverContext {
   default: string         // Default result for current naming mode

@@ -8,11 +8,10 @@ import {
 import {
   findProjectRoot,
   isInitialized,
+  loadDatasourcesConfig,
   loadEffectiveConfig,
   loadLocalConfig,
-  loadXanoJson,
-  saveLocalConfig,
-  saveXanoJson,
+  saveDatasourcesConfig,
 } from '../../lib/project.js'
 
 export default class DataSourceDefault extends BaseCommand {
@@ -75,17 +74,12 @@ export default class DataSourceDefault extends BaseCommand {
 
     // Clear mode
     if (flags.clear) {
-      const hadDefault = Boolean(config.defaultDatasource)
-      if (hadDefault) {
-        delete config.defaultDatasource
-        saveLocalConfig(projectRoot, config)
+      const datasourcesConfig = loadDatasourcesConfig(projectRoot) || {}
+      const hadDefault = Boolean(datasourcesConfig.defaultDatasource)
 
-        // Also update xano.json if it exists
-        const projectConfig = loadXanoJson(projectRoot)
-        if (projectConfig?.defaultDatasource) {
-          delete projectConfig.defaultDatasource
-          saveXanoJson(projectRoot, projectConfig)
-        }
+      if (hadDefault) {
+        delete datasourcesConfig.defaultDatasource
+        saveDatasourcesConfig(projectRoot, datasourcesConfig)
       }
 
       if (flags.json) {
@@ -146,16 +140,10 @@ export default class DataSourceDefault extends BaseCommand {
       ds => ds.label.toLowerCase() === args.name!.toLowerCase()
     )?.label || args.name!
 
-    // Update local config
-    config.defaultDatasource = exactName
-    saveLocalConfig(projectRoot, config)
-
-    // Also update xano.json if it exists
-    const projectConfig = loadXanoJson(projectRoot)
-    if (projectConfig) {
-      projectConfig.defaultDatasource = exactName
-      saveXanoJson(projectRoot, projectConfig)
-    }
+    // Update datasources.json (dedicated file for datasource config)
+    const datasourcesConfig = loadDatasourcesConfig(projectRoot) || {}
+    datasourcesConfig.defaultDatasource = exactName
+    saveDatasourcesConfig(projectRoot, datasourcesConfig)
 
     if (flags.json) {
       this.log(JSON.stringify({

@@ -1,7 +1,7 @@
 import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -71,6 +71,29 @@ interface CredentialsFile {
 }
 
 const CREATE_NEW_PROFILE = '[CREATE_NEW]'
+
+/**
+ * Ensure .xano/ is in .gitignore
+ */
+function ensureGitignore(projectRoot: string): void {
+  const gitignorePath = join(projectRoot, '.gitignore')
+  const xanoPattern = '.xano/'
+
+  if (existsSync(gitignorePath)) {
+    const content = readFileSync(gitignorePath, 'utf8')
+    // Check if .xano/ is already in gitignore (as line or with trailing content)
+    if (content.split('\n').some(line => line.trim() === xanoPattern || line.trim() === '.xano')) {
+      return // Already ignored
+    }
+
+    // Append .xano/ to existing gitignore
+    const suffix = content.endsWith('\n') ? '' : '\n'
+    appendFileSync(gitignorePath, `${suffix}${xanoPattern}\n`, 'utf8')
+  } else {
+    // Create new .gitignore
+    writeFileSync(gitignorePath, `${xanoPattern}\n`, 'utf8')
+  }
+}
 
 export default class Init extends BaseCommand {
   static args = {
@@ -873,6 +896,9 @@ static flags = {
     const finalProjectConfig = loadXanoJson(projectRoot)!
     const localConfig = createLocalConfig(finalProjectConfig, branch)
     saveLocalConfig(projectRoot, localConfig)
+
+    // Ensure .xano/ is in .gitignore
+    ensureGitignore(projectRoot)
 
     if (flags.agent || this.jsonMode) {
       this.agentComplete({
