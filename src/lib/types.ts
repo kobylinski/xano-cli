@@ -23,6 +23,12 @@ export interface XanoDatasourcesConfig {
   defaultDatasource?: string           // Default datasource for data commands
 }
 
+// .xano/cli.json - CLI-only settings (not used by VSCode extension)
+export interface XanoCliConfig {
+  naming?: NamingMode  // File naming mode
+  profile?: string     // Profile name from ~/.xano/credentials.yaml
+}
+
 // Context passed to custom resolver functions (sanitize, resolvePath)
 export interface ResolverContext {
   default: string         // Default result for current naming mode
@@ -123,10 +129,10 @@ export interface XanoLocalConfig {
 // Status values match VSCode extension: new, unchanged, changed, error, notfound
 export interface XanoObject {
   id: number
-  original: string // base64 encoded original content
+  original?: string // base64 encoded original content (CLI-only, may be missing if created by VSCode)
   path: string
-  sha256: string
-  staged: boolean // kept for VSCode extension compatibility
+  sha256?: string   // content hash (CLI-only, may be missing if created by VSCode)
+  staged: boolean   // kept for VSCode extension compatibility
   status: 'changed' | 'error' | 'new' | 'notfound' | 'unchanged'
   type: XanoObjectType
 }

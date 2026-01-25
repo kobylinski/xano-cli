@@ -14,6 +14,7 @@ import {
   listProfileNames,
 } from '../../lib/api.js'
 import {
+  createCliConfig,
   createLocalConfig,
   findProjectRoot,
   getConfigJsonPath,
@@ -22,6 +23,7 @@ import {
   isXanoGitignored,
   loadLocalConfig,
   loadXanoJson,
+  saveCliConfig,
   saveLocalConfig,
   saveXanoJson,
 } from '../../lib/project.js'
@@ -870,10 +872,16 @@ static flags = {
       saveXanoJson(projectRoot, newProjectConfig)
     }
 
-    // Create .xano/config.json
+    // Create .xano/config.json (VSCode compatible)
     const finalProjectConfig = loadXanoJson(projectRoot)!
     const localConfig = createLocalConfig(finalProjectConfig, branch)
     saveLocalConfig(projectRoot, localConfig)
+
+    // Create .xano/cli.json (CLI-only settings that VSCode would overwrite)
+    const cliConfig = createCliConfig(finalProjectConfig)
+    if (Object.keys(cliConfig).length > 0) {
+      saveCliConfig(projectRoot, cliConfig)
+    }
 
     // Check if .xano/ is gitignored and warn if not
     const xanoGitignored = isXanoGitignored(projectRoot)

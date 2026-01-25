@@ -433,8 +433,22 @@ private customResolver?: PathResolver
       const localSha256 = computeSha256(localContent)
       const obj = findObjectByPath(objects, filePath)
 
-      if (obj && localSha256 !== obj.sha256) {
+      // Check if local file has changes compared to what we synced
+      // If sha256 is missing (VSCode-created record), we can't determine if changed, treat as potentially modified
+      const hasLocalChanges = !obj?.sha256 || localSha256 !== obj.sha256
+
+      if (obj && hasLocalChanges) {
         if (merge) {
+          // Can't do 3-way merge without original base content
+          if (!obj.original) {
+            return {
+              error: 'Cannot merge: missing original content (file may have been created by VSCode extension). Use --force to overwrite.',
+              objects,
+              skipped: true,
+              success: false,
+            }
+          }
+
           const mergeResult = this.attemptMerge(projectRoot, fullPath, localContent, serverContent, obj.original)
 
           if (!mergeResult.success) {

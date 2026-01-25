@@ -6,12 +6,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import type { XanoDatasourcesConfig, XanoLocalConfig, XanoPaths, XanoProjectConfig } from './types.js'
+import type { XanoCliConfig, XanoDatasourcesConfig, XanoLocalConfig, XanoPaths, XanoProjectConfig } from './types.js'
 
 const XANO_JS = 'xano.js'
 const XANO_JSON = 'xano.json'
 const XANO_DIR = '.xano'
 const CONFIG_JSON = 'config.json'
+const CLI_JSON = 'cli.json'
 const DATASOURCES_JSON = 'datasources.json'
 
 /**
@@ -183,7 +184,43 @@ export function saveDatasourcesConfig(projectRoot: string, config: XanoDatasourc
 }
 
 /**
+ * Get path to .xano/cli.json
+ */
+export function getCliConfigPath(projectRoot: string): string {
+  return join(projectRoot, XANO_DIR, CLI_JSON)
+}
+
+/**
+ * Load .xano/cli.json (CLI-only settings, not used by VSCode extension)
+ */
+export function loadCliConfig(projectRoot: string): null | XanoCliConfig {
+  const filePath = getCliConfigPath(projectRoot)
+
+  if (!existsSync(filePath)) {
+    return null
+  }
+
+  try {
+    const content = readFileSync(filePath, 'utf8')
+    return JSON.parse(content) as XanoCliConfig
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Save .xano/cli.json (CLI-only settings, not used by VSCode extension)
+ */
+export function saveCliConfig(projectRoot: string, config: XanoCliConfig): void {
+  ensureXanoDir(projectRoot)
+  const filePath = getCliConfigPath(projectRoot)
+  writeFileSync(filePath, JSON.stringify(config, null, 2) + '\n', 'utf8')
+}
+
+/**
  * Create local config from project config + branch
+ * NOTE: Only includes VSCode-compatible keys. CLI-only settings (naming, profile)
+ * should be saved separately to cli.json to avoid being overwritten by VSCode.
  */
 export function createLocalConfig(
   projectConfig: XanoProjectConfig,
@@ -191,22 +228,37 @@ export function createLocalConfig(
 ): XanoLocalConfig {
   return {
     branch,
-    ...(projectConfig.datasources && { datasources: projectConfig.datasources }),
-    ...(projectConfig.defaultDatasource && { defaultDatasource: projectConfig.defaultDatasource }),
     instanceName: projectConfig.instance,
-    ...(projectConfig.naming && { naming: projectConfig.naming }),
     paths: { ...projectConfig.paths },
-    ...(projectConfig.profile && { profile: projectConfig.profile }),
     workspaceId: projectConfig.workspaceId,
     workspaceName: projectConfig.workspace,
   }
 }
 
 /**
+ * Create CLI config from project config
+ * Contains CLI-only settings that would be overwritten by VSCode extension
+ */
+export function createCliConfig(projectConfig: XanoProjectConfig): XanoCliConfig {
+  const config: XanoCliConfig = {}
+
+  if (projectConfig.naming) {
+    config.naming = projectConfig.naming
+  }
+
+  if (projectConfig.profile) {
+    config.profile = projectConfig.profile
+  }
+
+  return config
+}
+
+/**
  * Load effective config by merging configs with priority:
- * 1. .xano/datasources.json (highest for datasource settings)
- * 2. .xano/config.json
- * 3. xano.json (lowest, provides defaults)
+ * 1. .xano/cli.json (highest for CLI-only settings: naming, profile)
+ * 2. .xano/datasources.json (highest for datasource settings)
+ * 3. .xano/config.json (VSCode compatible)
+ * 4. xano.json (lowest, provides defaults)
  */
 export function loadEffectiveConfig(projectRoot: string): null | XanoLocalConfig {
   const localConfig = loadLocalConfig(projectRoot)
@@ -215,12 +267,13 @@ export function loadEffectiveConfig(projectRoot: string): null | XanoLocalConfig
   }
 
   const projectConfig = loadXanoJson(projectRoot)
+  const cliConfig = loadCliConfig(projectRoot)
   const datasourcesConfig = loadDatasourcesConfig(projectRoot)
 
-  // Start with local config
+  // Start with local config (VSCode compatible keys only)
   let result = { ...localConfig }
 
-  // Apply defaults from xano.json for fields not set in local config
+  // Apply defaults from xano.json for fields not set
   if (projectConfig) {
     result = {
       ...result,
@@ -228,6 +281,15 @@ export function loadEffectiveConfig(projectRoot: string): null | XanoLocalConfig
       ...(projectConfig.defaultDatasource && !result.defaultDatasource && { defaultDatasource: projectConfig.defaultDatasource }),
       ...(projectConfig.naming && !result.naming && { naming: projectConfig.naming }),
       ...(projectConfig.profile && !result.profile && { profile: projectConfig.profile }),
+    }
+  }
+
+  // Apply cli.json with high priority (CLI-only settings that VSCode would overwrite)
+  if (cliConfig) {
+    result = {
+      ...result,
+      ...(cliConfig.naming && { naming: cliConfig.naming }),
+      ...(cliConfig.profile && { profile: cliConfig.profile }),
     }
   }
 

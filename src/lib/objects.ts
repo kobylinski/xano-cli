@@ -273,6 +273,7 @@ export function removeObjectById(objects: XanoObjectsFile, id: number): XanoObje
 /**
  * Update object status based on file content
  * Status values match VSCode extension: new, unchanged, changed, error, notfound
+ * NOTE: If sha256 is missing (VSCode-created record), we compute it and update the object
  */
 export function updateObjectStatus(
   objects: XanoObjectsFile,
@@ -286,6 +287,18 @@ export function updateObjectStatus(
     }
 
     const currentSha256 = computeFileSha256(fullPath)
+
+    // If sha256 is missing (VSCode-created record), set it now
+    if (!obj.sha256) {
+      const content = readFileSync(fullPath, 'utf8')
+      return {
+        ...obj,
+        original: encodeBase64(content),
+        sha256: currentSha256!,
+        status: 'unchanged' as const,
+      }
+    }
+
     if (currentSha256 !== obj.sha256) {
       return { ...obj, status: 'changed' as const }
     }
