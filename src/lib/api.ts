@@ -749,13 +749,18 @@ export class XanoApi {
 
   /**
    * Get OpenAPI specification for an API group by canonical ID
-   * Uses the public apispec endpoint which is faster than metadata API
+   * Uses the apispec endpoint with authentication
    */
   async getApiGroupOpenApiByCanonical(canonical: string): Promise<ApiResponse<OpenApiSpec>> {
     const url = `${this.profile.instance_origin}/apispec:${canonical}?type=json`
 
     try {
-      const response = await fetch(url)
+      const response = await fetch(url, {
+        headers: {
+          accept: 'application/json',
+          Authorization: `Bearer ${this.profile.access_token}`,
+        },
+      })
 
       if (!response.ok) {
         return {
