@@ -292,7 +292,7 @@ describe('lib/objects', () => {
       expect(result[0].status).to.equal('unchanged')
       expect(result[0].staged).to.equal(false)
       expect(result[0].sha256).to.equal(computeSha256(newContent))
-      expect(decodeBase64(result[0].original)).to.equal(newContent)
+      expect(decodeBase64(result[0].original!)).to.equal(newContent)
     })
   })
 

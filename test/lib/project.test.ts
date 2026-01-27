@@ -196,7 +196,7 @@ describe('lib/project', () => {
       expect(localConfig.paths).to.deep.equal(projectConfig.paths)
     })
 
-    it('preserves datasources configuration', () => {
+    it('excludes CLI-only settings (datasources, naming, profile) for VSCode compatibility', () => {
       const projectConfig: XanoProjectConfig = {
         datasources: {
           live: 'locked',
@@ -204,6 +204,7 @@ describe('lib/project', () => {
           test: 'read-write',
         },
         instance: 'a1b2-c3d4-e5f6',
+        naming: 'vscode',
         paths: {
           apis: 'apis',
           functions: 'functions',
@@ -211,17 +212,17 @@ describe('lib/project', () => {
           tasks: 'tasks',
           workflowTests: 'workflow_tests',
         },
+        profile: 'myprofile',
         workspace: 'Test Workspace',
         workspaceId: 123,
       }
 
       const localConfig = createLocalConfig(projectConfig, 'main')
 
-      expect(localConfig.datasources).to.deep.equal({
-        live: 'locked',
-        staging: 'read-only',
-        test: 'read-write',
-      })
+      // These CLI-only settings should NOT be in config.json (stored in cli.json/datasources.json)
+      expect(localConfig.datasources).to.be.undefined
+      expect(localConfig.naming).to.be.undefined
+      expect(localConfig.profile).to.be.undefined
     })
 
     it('handles missing datasources configuration', () => {
