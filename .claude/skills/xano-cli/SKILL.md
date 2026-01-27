@@ -18,7 +18,10 @@ project/
 ├── xano.json              # Project config (versioned, commit this)
 ├── .xano/                  # Local state (add to .gitignore)
 │   ├── config.json         # Local config with branch info
-│   └── objects.json        # Object mappings and checksums
+│   ├── cli.json            # CLI-only settings (naming, profile)
+│   ├── objects.json        # Object mappings and checksums
+│   ├── groups.json         # API group canonical IDs
+│   └── datasources.json    # Datasource permissions
 ├── functions/              # XanoScript functions
 │   └── user/               # Subdirectories from natural text names
 │       └── security_events/
@@ -29,6 +32,8 @@ project/
 ├── tasks/                  # Scheduled tasks
 └── workflow_tests/         # Workflow tests
 ```
+
+**For detailed configuration file structures and command-config relationships, see `CONFIG.md` in this skill directory.**
 
 ## Path Resolution (Important for Agents)
 

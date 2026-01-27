@@ -1,5 +1,5 @@
 import { Command, Flags } from '@oclif/core'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +12,7 @@ const SKILL_NAME = 'xano-cli'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const PACKAGE_ROOT = resolve(__dirname, '..', '..', '..')
-const SKILL_SOURCE = join(PACKAGE_ROOT, '.claude', 'skills', 'xano-cli', 'SKILL.md')
+const SKILL_SOURCE_DIR = join(PACKAGE_ROOT, '.claude', 'skills', 'xano-cli')
 
 export default class Skill extends Command {
   static description = 'Install Claude Code skill for xano-cli usage guidance'
@@ -53,8 +53,6 @@ static flags = {
       skillDir = join(homedir(), '.claude', 'skills', SKILL_NAME)
     }
 
-    const skillFile = join(skillDir, 'SKILL.md')
-
     if (flags.uninstall) {
       if (existsSync(skillDir)) {
         rmSync(skillDir, { recursive: true })
@@ -66,24 +64,29 @@ static flags = {
       return
     }
 
-    // Read skill content from package
-    if (!existsSync(SKILL_SOURCE)) {
-      this.error(`Skill source not found: ${SKILL_SOURCE}`)
+    // Check source directory exists
+    if (!existsSync(SKILL_SOURCE_DIR)) {
+      this.error(`Skill source directory not found: ${SKILL_SOURCE_DIR}`)
     }
 
-    const skillContent = readFileSync(SKILL_SOURCE, 'utf8')
-
-    // Create directory if needed
+    // Create target directory if needed
     if (!existsSync(skillDir)) {
       mkdirSync(skillDir, { recursive: true })
     }
 
-    // Write skill file
-    writeFileSync(skillFile, skillContent, 'utf8')
+    // Copy all files from source to target
+    const files = readdirSync(SKILL_SOURCE_DIR).filter(f => f.endsWith('.md'))
+    for (const file of files) {
+      const sourcePath = join(SKILL_SOURCE_DIR, file)
+      const targetPath = join(skillDir, file)
+      const content = readFileSync(sourcePath, 'utf8')
+      writeFileSync(targetPath, content, 'utf8')
+    }
 
     const scope = isProjectScope ? 'project' : 'user'
     this.log(`Installed xano-cli skill (${scope} scope)`)
-    this.log(`  Location: ${skillFile}`)
+    this.log(`  Location: ${skillDir}`)
+    this.log(`  Files: ${files.join(', ')}`)
     this.log('')
     this.log('Restart Claude Code to load the skill.')
     this.log('The skill will activate when you ask about Xano CLI usage.')

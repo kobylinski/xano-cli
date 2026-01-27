@@ -31,8 +31,11 @@ Example project structure (paths are configurable via `xano.json`):
 project/
 ├── xano.json              # Versioned config (commit this)
 ├── .xano/                  # Local state (gitignore this)
-│   ├── config.json         # Branch info
-│   └── objects.json        # Object mappings
+│   ├── config.json         # Branch & workspace info (VSCode compatible)
+│   ├── cli.json            # CLI-only settings (naming, profile)
+│   ├── objects.json        # Object registry & checksums
+│   ├── groups.json         # API group canonical IDs
+│   └── datasources.json    # Datasource permissions
 ├── app/
 │   ├── functions/          # XanoScript functions
 │   ├── apis/               # API endpoints by group
@@ -495,6 +498,122 @@ module.exports = {
 |----------|-------------|
 | `XANO_PROFILE` | Default profile |
 | `XANO_BRANCH` | Default branch |
+
+### Configuration Files Reference
+
+The CLI uses multiple configuration files with different purposes:
+
+| File | Location | Versioned | Purpose |
+|------|----------|-----------|---------|
+| `xano.json` | project root | Yes | Project template (human-managed) |
+| `config.json` | `.xano/` | No | Local workspace config (VSCode compatible) |
+| `cli.json` | `.xano/` | No | CLI-only settings |
+| `objects.json` | `.xano/` | No | Object registry |
+| `groups.json` | `.xano/` | No | API group canonical IDs |
+| `datasources.json` | `.xano/` | No | Datasource permissions |
+| `credentials.yaml` | `~/.xano/` | No | Global auth profiles |
+
+**Config load priority** (highest first):
+1. `cli.json` - CLI-only settings (naming, profile)
+2. `datasources.json` - Datasource settings
+3. `config.json` - VSCode-compatible local config
+4. `xano.json` - Project template defaults
+
+**VSCode Compatibility Note:** The VSCode extension overwrites `config.json` with only its known keys. CLI-only settings (`naming`, `profile`) are stored separately in `cli.json` to prevent loss.
+
+<details>
+<summary><strong>File Structures (click to expand)</strong></summary>
+
+**xano.json** (versioned project template):
+```json
+{
+  "instance": "a1b2-c3d4",
+  "workspace": "My Workspace",
+  "workspaceId": 123,
+  "paths": { "functions": "functions", "apis": "apis", "tables": "tables", "tasks": "tasks", "workflowTests": "workflow_tests" },
+  "naming": "default",
+  "profile": "myprofile"
+}
+```
+
+**.xano/config.json** (local config):
+```json
+{
+  "branch": "main",
+  "instanceName": "a1b2-c3d4",
+  "workspaceId": 123,
+  "workspaceName": "My Workspace",
+  "paths": { ... }
+}
+```
+
+**.xano/cli.json** (CLI-only settings):
+```json
+{
+  "naming": "default",
+  "profile": "myprofile"
+}
+```
+
+**.xano/objects.json** (object registry):
+```json
+[
+  {
+    "id": 123,
+    "path": "functions/my_func.xs",
+    "type": "function",
+    "status": "unchanged",
+    "staged": false,
+    "sha256": "abc123...",
+    "original": "base64..."
+  }
+]
+```
+
+**.xano/groups.json** (API group canonical IDs):
+```json
+{
+  "bootstrap": { "id": 123, "canonical": "abc123def456" },
+  "users": { "id": 456, "canonical": "xyz789abc012" }
+}
+```
+
+**.xano/datasources.json** (datasource permissions):
+```json
+{
+  "defaultDatasource": "dev",
+  "datasources": {
+    "live": "read-only",
+    "dev": "read-write",
+    "staging": "read-write"
+  }
+}
+```
+
+**~/.xano/credentials.yaml** (global credentials):
+```yaml
+default: myprofile
+profiles:
+  myprofile:
+    instance_origin: https://a1b2-c3d4.xano.io
+    access_token: xano_pat_...
+```
+
+</details>
+
+**Command → Config Matrix:**
+
+| Command | config.json | cli.json | objects.json | groups.json | datasources.json |
+|---------|:-----------:|:--------:|:------------:|:-----------:|:----------------:|
+| `init` | W | W | - | - | - |
+| `sync/pull/push` | R | R | W | W | - |
+| `status` | R | R | R | - | - |
+| `api:call` | R | R | R | R | - |
+| `data:*` | R | R | - | - | R |
+| `datasource:*` | R | - | - | - | W |
+| `branch:switch` | W | - | W | W | - |
+
+*R = Read, W = Write, - = Not used*
 
 ## Claude Code Integration
 
