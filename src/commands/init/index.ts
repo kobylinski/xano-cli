@@ -737,7 +737,7 @@ static flags = {
       workspaceName = `Workspace ${workspaceId}`
     } else if (projectConfig) {
       workspaceId = projectConfig.workspaceId
-      workspaceName = projectConfig.workspace
+      workspaceName = projectConfig.workspace || `Workspace ${projectConfig.workspaceId}`
     } else if (profile.workspace) {
       // Handle backward compatibility: workspace can be number (ID) or string (name)
       const workspaces = await this.fetchWorkspaces(profile.access_token, profile.instance_origin)

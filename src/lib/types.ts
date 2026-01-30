@@ -83,7 +83,7 @@ export interface XanoProjectConfig {
   naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths
   profile?: string     // Profile name from ~/.xano/credentials.yaml
-  workspace: string
+  workspace?: string   // Workspace name (optional - may be missing in older configs or VSCode-created configs)
   workspaceId: number
 }
 

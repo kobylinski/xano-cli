@@ -217,9 +217,10 @@ export function upsertObject(
  *
  * Path structure:
  * - API endpoint: app/apis/{group_name}/{endpoint}_VERB.xs (e.g., app/apis/bootstrap/auth_login_POST.xs)
- * - API group:    app/apis/{group_name}.xs (e.g., app/apis/bootstrap.xs)
+ * - API group (default naming):  app/apis/{group_name}.xs (e.g., app/apis/bootstrap.xs)
+ * - API group (VSCode naming):   app/apis/{group_name}/api_group.xs (e.g., app/apis/bootstrap/api_group.xs)
  *
- * So we extract the directory name and look for {group_name}.xs at the parent level
+ * So we extract the directory name and look for the group file in both locations
  */
 export function findApiGroupForEndpoint(
   objects: XanoObjectsFile,
@@ -238,21 +239,24 @@ export function findApiGroupForEndpoint(
   const groupName = parts.pop()
   if (!groupName) return undefined
 
-  // Build the expected api_group path: app/apis/bootstrap.xs
+  // Build expected paths for both naming conventions
   const apisDir = parts.join('/')
-  const apiGroupPath = `${apisDir}/${groupName}.xs`
+  // Default naming: app/apis/bootstrap.xs
+  const defaultApiGroupPath = `${apisDir}/${groupName}.xs`
+  // VSCode naming: app/apis/bootstrap/api_group.xs
+  const vscodeApiGroupPath = `${apisDir}/${groupName}/api_group.xs`
 
-  // Look for the api_group with this exact path
+  // Look for the api_group with exact path (check both naming conventions)
   const apiGroup = objects.find(
-    (obj) => obj.type === 'api_group' && obj.path === apiGroupPath
+    (obj) => obj.type === 'api_group' && (obj.path === defaultApiGroupPath || obj.path === vscodeApiGroupPath)
   )
 
   if (apiGroup) return apiGroup
 
-  // Fallback: find any api_group whose name matches the group directory
+  // Fallback: find any api_group whose path matches the group directory
   // This handles cases where the group might be at a different path
   return objects.find(
-    (obj) => obj.type === 'api_group' && obj.path.endsWith(`/${groupName}.xs`)
+    (obj) => obj.type === 'api_group' && (obj.path.endsWith(`/${groupName}.xs`) || obj.path.endsWith(`/${groupName}/api_group.xs`))
   )
 }
 

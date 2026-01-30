@@ -231,7 +231,8 @@ export function createLocalConfig(
     instanceName: projectConfig.instance,
     paths: { ...projectConfig.paths },
     workspaceId: projectConfig.workspaceId,
-    workspaceName: projectConfig.workspace,
+    // Fallback for configs missing workspace name (e.g., from VSCode extension or older CLI)
+    workspaceName: projectConfig.workspace || `Workspace ${projectConfig.workspaceId}`,
   }
 }
 
