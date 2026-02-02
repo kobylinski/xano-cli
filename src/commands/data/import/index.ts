@@ -291,23 +291,25 @@ export default class DataImport extends Command {
     flags: { 'allow-id': boolean; 'chunk-size': number; datasource?: string; remote?: boolean },
     verbose: boolean
   ): Promise<{ inserted: number; skipped: number; updated: number }> {
-    // Resolve table ID (local-first, unless --remote flag is set)
+    // Resolve table ID
+    // With --remote: skip local cache, query Xano API directly
+    // Without --remote: try local cache first (fast path)
     const projectRoot = findProjectRoot()
     let tableId: null | number = null
+    let usedRemoteLookup = false
 
-    if (projectRoot && !flags.remote) {
+    if (flags.remote) {
+      usedRemoteLookup = true
+      tableId = await this.resolveTableIdRemote(api, tableName)
+    } else if (projectRoot) {
       const localResult = resolveTableFromLocal(projectRoot, tableName)
       if (localResult) {
         tableId = localResult.id
       }
     }
 
-    if (tableId === null && flags.remote) {
-      tableId = await this.resolveTableIdRemote(api, tableName)
-    }
-
     if (!tableId) {
-      throw new Error(formatTableNotFoundError(tableName, isAgentMode()))
+      throw new Error(formatTableNotFoundError(tableName, isAgentMode(), usedRemoteLookup))
     }
 
     let inserted = 0

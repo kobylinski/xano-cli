@@ -1,6 +1,7 @@
 import { Args, Flags } from '@oclif/core'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
+import * as readline from 'node:readline'
 
 import type {
   NamingMode,
@@ -19,7 +20,7 @@ import {
   XanoApi,
 } from '../../lib/api.js'
 import { loadConfig } from '../../lib/config.js'
-import { detectType } from '../../lib/detector.js'
+import { detectType, extractApiDetails, extractName, validateSingleBlock } from '../../lib/detector.js'
 import {
   computeFileSha256,
   computeSha256,
@@ -45,6 +46,106 @@ import {
   generateObjectPath,
   hasObjectsJson,
 } from '../../lib/sync.js'
+
+/**
+ * Common PostgreSQL error codes and their meanings
+ * https://www.postgresql.org/docs/current/errcodes-appendix.html
+ */
+const SQL_ERROR_EXPLANATIONS: Record<string, { explanation: string; recovery: string }> = {
+  '22P02': {
+    explanation: 'Invalid text representation - data type mismatch',
+    recovery: 'The column type change is incompatible with existing data (e.g., int → uuid). Delete the table in Xano admin panel and re-push, or migrate data manually.',
+  },
+  '42P01': {
+    explanation: 'Table does not exist',
+    recovery: 'Run "xano pull --sync" to refresh metadata',
+  },
+  '42P07': {
+    explanation: 'Table already exists',
+    recovery: 'Run "xano pull --sync" to refresh metadata',
+  },
+  '22001': {
+    explanation: 'String data is too long for the column',
+    recovery: 'Increase the column length or truncate the data',
+  },
+  '22003': {
+    explanation: 'Numeric value out of range',
+    recovery: 'Change the column type to support larger numbers or adjust the data',
+  },
+  '22007': {
+    explanation: 'Invalid datetime format',
+    recovery: 'Check date/time values match the expected format',
+  },
+  '22008': {
+    explanation: 'Datetime field overflow - value doesn\'t fit in target type',
+    recovery: 'The column type change is incompatible with existing data (e.g., timestamp → date loses time info). Delete the table in Xano admin panel and re-push, or migrate data manually.',
+  },
+  '22012': {
+    explanation: 'Division by zero',
+    recovery: 'Check computed columns or constraints for division operations',
+  },
+  '23502': {
+    explanation: 'NOT NULL constraint violation',
+    recovery: 'Existing rows have NULL values in a column that is now NOT NULL. Provide default values or update existing data first.',
+  },
+  '23503': {
+    explanation: 'Foreign key constraint violation',
+    recovery: 'Referenced data doesn\'t exist or would be orphaned',
+  },
+  '23505': {
+    explanation: 'Unique constraint violation',
+    recovery: 'Duplicate values exist for a column that requires uniqueness',
+  },
+  '23514': {
+    explanation: 'Check constraint violation',
+    recovery: 'Data doesn\'t meet the column\'s validation rules',
+  },
+  '42701': {
+    explanation: 'Duplicate column name',
+    recovery: 'A column with this name already exists in the table',
+  },
+  '42703': {
+    explanation: 'Column does not exist',
+    recovery: 'Referenced column name not found. Check spelling and case sensitivity.',
+  },
+}
+
+/**
+ * Parse SQL error from API response and provide helpful explanation
+ */
+function explainSqlError(error: string, objectType: string): string {
+  // Match pattern: "SQL Error: XXXXX, ERROR_NAME" or just "SQL Error: XXXXX"
+  const sqlMatch = error.match(/SQL Error:\s*([A-Z0-9]+)(?:,\s*([A-Z_]+))?/i)
+
+  if (!sqlMatch) {
+    return error
+  }
+
+  const errorCode = sqlMatch[1]
+  const errorName = sqlMatch[2] || ''
+
+  const info = SQL_ERROR_EXPLANATIONS[errorCode]
+
+  if (info) {
+    const isSchemaChange = objectType === 'table' && ['22P02', '22003', '22007', '22008'].includes(errorCode)
+
+    let message = `SQL Error ${errorCode}: ${info.explanation}`
+
+    if (isSchemaChange) {
+      message += `\n\n    SCHEMA MIGRATION CONFLICT: Existing data is incompatible with new schema.`
+      message += `\n    Recovery: ${info.recovery}`
+      message += `\n\n    Note: Xano CLI cannot automatically drop/recreate tables.`
+      message += `\n    To force the schema change, delete the table in Xano admin panel, then run "xano push".`
+    } else {
+      message += `\n    Recovery: ${info.recovery}`
+    }
+
+    return message
+  }
+
+  // Unknown error code - return original with code highlighted
+  return `${error}\n    (SQL Error Code: ${errorCode}${errorName ? ` - ${errorName}` : ''})`
+}
 
 export default class Push extends BaseCommand {
   static args = {
@@ -72,17 +173,22 @@ export default class Push extends BaseCommand {
       default: false,
       description: 'Force push without confirmation',
     }),
+    'no-validate-blocks': Flags.boolean({
+      default: false,
+      description: 'Skip validation that checks for multiple XanoScript blocks in a file',
+    }),
     sync: Flags.boolean({
       default: false,
       description: 'Force fresh metadata fetch from Xano',
     }),
   }
   static strict = false // Allow multiple path arguments
-private customResolver?: PathResolver
+  private customResolver?: PathResolver
   private customResolveType?: TypeResolver
   private customSanitize?: SanitizeFunction
   private naming?: NamingMode
   private paths!: XanoPaths
+  private skipBlockValidation = false
 
   async run(): Promise<void> {
     const { argv, flags } = await this.parse(Push)
@@ -114,6 +220,9 @@ private customResolver?: PathResolver
       this.paths = { ...getDefaultPaths(), ...config.paths }
       this.naming = config.naming
     }
+
+    // Set validation options from flags
+    this.skipBlockValidation = flags['no-validate-blocks']
 
     const profile = getProfile(flags.profile, config.profile)
     if (!profile) {
@@ -199,6 +308,7 @@ private customResolver?: PathResolver
 
     let successCount = 0
     let errorCount = 0
+    let schemaErrorCount = 0
 
     for (const file of filesToPush) {
       // eslint-disable-next-line no-await-in-loop -- Sequential operations for progress logging
@@ -210,6 +320,11 @@ private customResolver?: PathResolver
         this.log(`  ✓ ${file}`)
       } else {
         errorCount++
+        // Track schema migration errors for guidance
+        if (result.error?.includes('SQL Error') || result.error?.includes('SCHEMA MIGRATION')) {
+          schemaErrorCount++
+        }
+
         this.log(`  ✗ ${file}: ${result.error}`)
       }
     }
@@ -261,13 +376,71 @@ private customResolver?: PathResolver
       }
     } else if (orphanObjects.length > 0) {
       this.log('')
-      this.log(`${orphanObjects.length} local file(s) deleted (use --clean to remove from Xano):`)
-      for (const obj of orphanObjects.slice(0, 5)) {
-        this.log(`  ${obj.path}`)
+      this.log('╔════════════════════════════════════════════════════════════════╗')
+      this.log(`║  ${orphanObjects.length} file(s) deleted locally but still exist on Xano`)
+      this.log('╚════════════════════════════════════════════════════════════════╝')
+      this.log('')
+      for (const obj of orphanObjects.slice(0, 10)) {
+        this.log(`  - ${obj.path}`)
       }
 
-      if (orphanObjects.length > 5) {
-        this.log(`  ... and ${orphanObjects.length - 5} more`)
+      if (orphanObjects.length > 10) {
+        this.log(`  ... and ${orphanObjects.length - 10} more`)
+      }
+
+      this.log('')
+
+      // In agent mode or with --force, just show the message
+      if (agentMode) {
+        this.log('AGENT_ORPHAN_FILES:')
+        this.log(`count=${orphanObjects.length}`)
+        this.log('AGENT_ACTION: Run "xano push --clean" to delete these from Xano')
+      } else if (flags.force) {
+        this.log('Use "xano push --clean" to delete these from Xano.')
+      } else {
+        // Prompt user for interactive deletion
+        const confirmed = await this.confirmOrphanDeletion(orphanObjects.length)
+        if (confirmed) {
+          this.log('')
+          this.log(`Deleting ${orphanObjects.length} orphan object(s) from Xano...`)
+
+          for (const obj of orphanObjects) {
+            let deleteOptions: undefined | { apigroup_id?: number }
+
+            if (obj.type === 'api_endpoint') {
+              const apiGroup = findApiGroupForEndpoint(objects, obj.path)
+              if (apiGroup) {
+                deleteOptions = { apigroup_id: apiGroup.id } // eslint-disable-line camelcase
+              } else {
+                if (!apiGroupCache) {
+                  this.log('  Fetching API group mappings from Xano...')
+                  // eslint-disable-next-line no-await-in-loop -- Only fetched once
+                  apiGroupCache = await this.fetchApiGroupMappings(api)
+                }
+
+                const cachedGroupId = apiGroupCache.get(obj.id)
+                if (cachedGroupId) {
+                  deleteOptions = { apigroup_id: cachedGroupId } // eslint-disable-line camelcase
+                } else {
+                  this.log(`  ✗ Cannot delete ${obj.path}: API group not found`)
+                  continue
+                }
+              }
+            }
+
+            // eslint-disable-next-line no-await-in-loop -- Sequential deletions
+            const response = await api.deleteObject(obj.type, obj.id, deleteOptions)
+            if (response.ok) {
+              objects = objects.filter((o) => o.path !== obj.path)
+              deletedCount++
+              this.log(`  ✓ Deleted ${obj.path}`)
+            } else {
+              this.log(`  ✗ Failed to delete ${obj.path}: ${response.error}`)
+            }
+          }
+        } else {
+          this.log('Skipped. Use "xano push --clean" to delete them later.')
+        }
       }
     }
 
@@ -275,7 +448,45 @@ private customResolver?: PathResolver
     saveObjects(projectRoot, objects)
 
     this.log('')
-    this.log(`Pushed: ${successCount}, Errors: ${errorCount}${deletedCount > 0 ? `, Deleted: ${deletedCount}` : ''}`)
+
+    // Build detailed summary
+    const summaryParts: string[] = []
+    if (successCount > 0) summaryParts.push(`${successCount} pushed`)
+    if (errorCount > 0) summaryParts.push(`${errorCount} failed`)
+    if (deletedCount > 0) summaryParts.push(`${deletedCount} deleted`)
+
+    if (summaryParts.length > 0) {
+      this.log(`Summary: ${summaryParts.join(', ')}`)
+    }
+
+    // Provide guidance for schema errors
+    if (schemaErrorCount > 0) {
+      this.log('')
+      this.log(`${schemaErrorCount} file(s) failed due to schema migration conflicts.`)
+      this.log('To resolve, you must manually delete the affected tables in Xano admin panel,')
+      this.log('then run "xano push" again. WARNING: This will delete all data in those tables.')
+    } else if (errorCount > 0) {
+      // Generic guidance for other errors
+      this.log('')
+      this.log('Some files failed to push. Review the errors above.')
+    }
+  }
+
+  /**
+   * Prompt user to confirm deletion of orphan files
+   */
+  private async confirmOrphanDeletion(count: number): Promise<boolean> {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    })
+
+    return new Promise(resolve => {
+      rl.question(`Delete these ${count} object(s) from Xano? [y/N] `, answer => {
+        rl.close()
+        resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes')
+      })
+    })
   }
 
   /**
@@ -450,6 +661,80 @@ private customResolver?: PathResolver
   }
 
   /**
+   * Find an existing endpoint in objects.json that matches the same verb+path
+   * Used to detect duplicates before pushing
+   */
+  private findExistingEndpointByVerbPath(
+    projectRoot: string,
+    objects: XanoObjectsFile,
+    verb: string,
+    endpointPath: string,
+    excludeFilePath?: string
+  ): null | string {
+    // Normalize the path for comparison
+    const normalizedPath = endpointPath.replace(/^\/+/, '').toLowerCase()
+    const normalizedVerb = verb.toUpperCase()
+
+    for (const obj of objects) {
+      if (obj.type !== 'api_endpoint') continue
+      if (excludeFilePath && obj.path === excludeFilePath) continue
+
+      // Read the file content to extract verb+path
+      const fullPath = join(projectRoot, obj.path)
+      if (!existsSync(fullPath)) continue
+
+      try {
+        const content = readFileSync(fullPath, 'utf8')
+        const details = extractApiDetails(content)
+        if (details) {
+          const objPath = details.path.replace(/^\/+/, '').toLowerCase()
+          if (details.verb.toUpperCase() === normalizedVerb && objPath === normalizedPath) {
+            return obj.path
+          }
+        }
+      } catch {
+        // Skip files that can't be read
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Find an existing workflow test in objects.json that matches the same name
+   * Used to detect duplicates before pushing (Xano uses NAME for uniqueness, not filename)
+   */
+  private findExistingWorkflowTestByName(
+    projectRoot: string,
+    objects: XanoObjectsFile,
+    testName: string,
+    excludeFilePath?: string
+  ): null | string {
+    const normalizedName = testName.toLowerCase()
+
+    for (const obj of objects) {
+      if (obj.type !== 'workflow_test') continue
+      if (excludeFilePath && obj.path === excludeFilePath) continue
+
+      // Read the file content to extract the test name
+      const fullPath = join(projectRoot, obj.path)
+      if (!existsSync(fullPath)) continue
+
+      try {
+        const content = readFileSync(fullPath, 'utf8')
+        const objName = extractName(content)
+        if (objName && objName.toLowerCase() === normalizedName) {
+          return obj.path
+        }
+      } catch {
+        // Skip files that can't be read
+      }
+    }
+
+    return null
+  }
+
+  /**
    * Find objects in objects.json whose local files have been deleted
    */
   private findOrphanObjects(projectRoot: string, objects: XanoObjectsFile): XanoObjectsFile {
@@ -547,6 +832,15 @@ private customResolver?: PathResolver
     }
 
     let content = readFileSync(fullPath, 'utf8')
+
+    // Validate single block before pushing (unless skipped)
+    if (!this.skipBlockValidation) {
+      const blockError = validateSingleBlock(content)
+      if (blockError) {
+        return { error: blockError, objects, success: false }
+      }
+    }
+
     const existingObj = findObjectByPath(objects, filePath)
     let newId: number
     let objectType: XanoObjectType
@@ -593,6 +887,24 @@ private customResolver?: PathResolver
           }
         }
 
+        // Provide helpful message for cryptic schema errors
+        if (response.error?.includes('Invalid schema')) {
+          return {
+            error: `${response.error} - This usually means the file has invalid XanoScript syntax or structure. Check for: multiple blocks in one file, mismatched braces, or unsupported syntax.`,
+            objects,
+            success: false,
+          }
+        }
+
+        // Provide helpful message for SQL errors (schema migrations, constraint violations)
+        if (response.error?.includes('SQL Error')) {
+          return {
+            error: explainSqlError(response.error, objectType),
+            objects,
+            success: false,
+          }
+        }
+
         return { error: response.error || 'Update failed', objects, success: false }
       }
 
@@ -609,6 +921,8 @@ private customResolver?: PathResolver
 
       // For api_endpoint, we need to find the apigroup_id from the path hierarchy
       const createOptions: { apigroup_id?: number } = {}
+      let endpointDetails: ReturnType<typeof extractApiDetails> = null
+
       if (objectType === 'api_endpoint') {
         const apiGroup = findApiGroupForEndpoint(objects, filePath)
         if (apiGroup) {
@@ -623,14 +937,90 @@ private customResolver?: PathResolver
             success: false,
           }
         }
+
+        // Check for local duplicates before pushing
+        endpointDetails = extractApiDetails(content)
+        if (endpointDetails) {
+          const duplicateFile = this.findExistingEndpointByVerbPath(
+            projectRoot,
+            objects,
+            endpointDetails.verb,
+            endpointDetails.path,
+            filePath
+          )
+          if (duplicateFile) {
+            return {
+              error: `Duplicate endpoint: ${endpointDetails.verb} /${endpointDetails.path} is already defined in "${duplicateFile}". Delete one of the conflicting files.`,
+              objects,
+              success: false,
+            }
+          }
+        }
+      }
+
+      // For workflow_test, check for duplicate test names before pushing
+      let workflowTestName: null | string = null
+      if (objectType === 'workflow_test') {
+        workflowTestName = extractName(content)
+        if (workflowTestName) {
+          const duplicateFile = this.findExistingWorkflowTestByName(
+            projectRoot,
+            objects,
+            workflowTestName,
+            filePath
+          )
+          if (duplicateFile) {
+            return {
+              error: `Duplicate workflow test: "${workflowTestName}" is already defined in "${duplicateFile}". Xano uses the test NAME (not filename) for uniqueness. Rename the test or delete one of the conflicting files.`,
+              objects,
+              success: false,
+            }
+          }
+        }
       }
 
       const response = await api.createObject(objectType, content, createOptions)
 
       if (!response.ok) {
-        if (response.status === 409 || response.error?.includes('already exists')) {
+        if (response.status === 409 || response.error?.includes('already exists') || response.error?.includes('Duplicate record')) {
+          // Provide context about which endpoint is duplicated
+          if (objectType === 'api_endpoint' && endpointDetails) {
+            return {
+              error: `Endpoint ${endpointDetails.verb} /${endpointDetails.path} already exists on Xano. Run "xano pull --sync" to update mappings, then delete the duplicate local file.`,
+              objects,
+              success: false,
+            }
+          }
+
+          // Provide context about which workflow test is duplicated
+          if (objectType === 'workflow_test' && workflowTestName) {
+            return {
+              error: `Workflow test "${workflowTestName}" already exists on Xano (Xano uses NAME for uniqueness). Run "xano pull --sync" to update mappings, then rename or delete the duplicate.`,
+              objects,
+              success: false,
+            }
+          }
+
           return {
             error: 'Object already exists on Xano. Run "xano pull --sync" to update mappings.',
+            objects,
+            success: false,
+          }
+        }
+
+        // Provide helpful message for cryptic schema errors
+        if (response.error?.includes('Invalid schema')) {
+          return {
+            error: `${response.error} - This usually means the file has invalid XanoScript syntax or structure. Check for: multiple blocks in one file, mismatched braces, or unsupported syntax.`,
+            objects,
+            success: false,
+          }
+        }
+
+        // Provide helpful message for SQL errors (schema migrations, constraint violations)
+        if (response.error?.includes('SQL Error')) {
+          return {
+            error: explainSqlError(response.error, objectType),
             objects,
             success: false,
           }

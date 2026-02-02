@@ -160,6 +160,8 @@ xano push --clean
 xano push functions/ --sync --clean
 ```
 
+**Orphan files (deleted locally):** When files are deleted locally but still exist on Xano, the push command displays them prominently and prompts for confirmation before deleting from Xano. Use `--clean` to include orphan deletion, or `--force` to skip the confirmation prompt.
+
 ### Check Status
 
 The status command performs three-way comparison: local files vs synced state (objects.json) vs remote Xano.
@@ -189,13 +191,20 @@ Status indicators:
 - `D↑` - Deleted remotely (was synced, now deleted on Xano)
 - `R` - Remote only (on Xano, not pulled locally)
 
+**Deleted files notice:** When files are deleted locally but still exist on Xano, the status command displays a prominent notice with the count and suggests using `xano push --clean` to sync the deletions.
+
 ### List Remote Objects
+
+Query the Xano server to see what objects exist remotely. Useful for:
+- Verifying deletions were applied
+- Discovering objects not yet pulled locally
+- Comparing local vs remote state
 
 ```bash
 # List all objects on Xano
 xano list
 
-# List by type
+# List by type (trailing slash optional)
 xano list functions/
 xano list tables/
 xano list apis/
@@ -214,6 +223,8 @@ xano list -l
 # JSON output
 xano list --json
 ```
+
+**Verify table deletion:** Run `xano list tables/` - if the deleted table doesn't appear, it's been removed from Xano.
 
 ### Branch Management
 
@@ -377,6 +388,11 @@ xano push data/addons/
 - Comments are allowed before the keyword line
 - Check for typos in the keyword
 
+**"File contains multiple XanoScript blocks"**
+- Each `.xs` file must contain exactly one top-level block
+- If you have multiple functions/tests in one file, split them into separate files
+- Example error: `Multiple XanoScript blocks found: workflow_test at line 1, workflow_test at line 15`
+
 **Object not detected as new**
 - Ensure the file is in a configured directory (check `xano.json` paths)
 - Run `xano push --sync <path>` to force metadata refresh
@@ -479,6 +495,9 @@ Work directly with table records (CRUD operations). Password fields are automati
 xano data:list users
 xano data:list 271
 xano data:list tables/users.xs
+
+# Force remote API lookup (bypass local cache)
+xano data:list users --remote
 
 # Filter records (server-side filtering)
 xano data:list users --filter "status=active"
@@ -985,6 +1004,10 @@ rm .xano/token.txt
 
 14. **Use dry-run for import** - `xano data:import data.json --dry-run` previews changes without executing
 
+15. **Use --remote for fresh lookups** - `xano data:list users --remote` bypasses local cache and queries Xano directly (useful after table renames or deletions)
+
+16. **One block per file** - Each `.xs` file must contain exactly one XanoScript block. Split multiple functions/tests into separate files.
+
 ## Naming Modes
 
 The CLI supports different naming modes for file organization via the `naming` field in config:
@@ -1215,3 +1238,34 @@ Run `xano pull --sync` to refresh the baseline.
 
 ### Missing objects.json
 The CLI will auto-sync metadata when objects.json is missing. You can also run `xano pull --sync` manually.
+
+### SQL Migration Errors
+
+When pushing table schema changes, you may encounter PostgreSQL errors. The CLI provides explanations and recovery paths:
+
+| Error Code | Meaning | Recovery |
+|------------|---------|----------|
+| `22P02` | Invalid text representation - data type mismatch | Column type change incompatible with existing data (e.g., int → uuid). Delete table in Xano admin and re-push, or migrate data manually. |
+| `22008` | Datetime field overflow | Column type change loses data (e.g., timestamp → date). Backup data, delete column, re-create with new type. |
+| `23502` | NOT NULL violation | Existing rows have NULL values but new schema requires NOT NULL. Add default value or update existing records first. |
+| `42703` | Column does not exist | Column was renamed or deleted. Run `xano pull --sync` to get current schema. |
+| `42P16` | Invalid table definition | Schema structure invalid. Check column definitions and constraints. |
+
+**Example error output:**
+```
+Error pushing tables/users.xs: 22P02, INVALID TEXT REPRESENTATION
+
+Explanation: Invalid text representation - data type mismatch
+Recovery: The column type change is incompatible with existing data (e.g., int → uuid).
+          Delete the table in Xano admin panel and re-push, or migrate data manually.
+```
+
+### Table not found with --remote flag
+
+When using `--remote` flag and a table is not found:
+```
+Table "users" not found on Xano server.
+The table may have been deleted or renamed.
+```
+
+This means the table genuinely doesn't exist on Xano (not a cache issue). Verify the table name is correct or run `xano pull --sync` to see available tables.

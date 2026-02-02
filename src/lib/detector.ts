@@ -795,3 +795,125 @@ export function extractIdFromFilename(filename: string): null | number {
   const match = fileBasename.match(/^(\d+)_/)
   return match ? Number.parseInt(match[1], 10) : null
 }
+
+/**
+ * XanoScript block keywords that define top-level objects
+ */
+const BLOCK_KEYWORDS = [
+  'function',
+  'table',
+  'table_trigger',
+  'query',
+  'api_group',
+  'middleware',
+  'addon',
+  'task',
+  'workflow_test',
+]
+
+/**
+ * Count the number of top-level XanoScript blocks in content
+ * Used to detect when a file contains multiple blocks (which is invalid)
+ *
+ * Returns an array of { keyword, name, line } for each block found
+ */
+export function countBlocks(content: string): Array<{ keyword: string; line: number; name: string }> {
+  const blocks: Array<{ keyword: string; line: number; name: string }> = []
+  const lines = content.split('\n')
+
+  // Track brace depth to know when we're at top level
+  let braceDepth = 0
+  let inString = false
+  let stringChar = ''
+
+  for (const [lineIndex, line] of lines.entries()) {
+    const lineNumber = lineIndex + 1
+
+    // Process character by character to track string state and brace depth
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i]
+      const prevChar = i > 0 ? line[i - 1] : ''
+
+      // Skip escaped characters in strings
+      if (prevChar === '\\') continue
+
+      // Toggle string state
+      if ((char === '"' || char === "'") && !inString) {
+        inString = true
+        stringChar = char
+      } else if (char === stringChar && inString) {
+        inString = false
+        stringChar = ''
+      }
+
+      // Track braces only outside strings
+      if (!inString) {
+        if (char === '{') braceDepth++
+        if (char === '}') braceDepth--
+      }
+    }
+
+    // Only check for keywords at brace depth 0 (before any block opens)
+    // We need to check the line content before processing braces for this line
+    if (braceDepth <= 1) {
+      const trimmedLine = line.trim()
+
+      // Skip comments and empty lines
+      if (trimmedLine.startsWith('//') || trimmedLine === '') continue
+
+      // Check for block keywords at line start
+      for (const keyword of BLOCK_KEYWORDS) {
+        if (trimmedLine.startsWith(keyword + ' ')) {
+          // Must match a valid block declaration pattern:
+          // - keyword followed by quoted name: function "My Name" { or workflow_test "Test Case" {
+          // - keyword followed by identifier: function my_func { or table users {
+          // - keyword followed by path/verb: query /path verb=GET { or query POST /path {
+          // Property assignments like `api_group = "value"` should NOT match
+          const match = trimmedLine.match(
+            new RegExp(`^${keyword}\\s+(?:"([^"]+)"|([a-zA-Z_/][a-zA-Z0-9_/]*))`, 'i')
+          )
+
+          // Skip if no valid block declaration pattern found (e.g., api_group = "..." is a property)
+          if (!match) break
+
+          const name = match[1] || match[2] || '(unnamed)'
+
+          // Only count if we're actually at top level (braceDepth was 0 before this line opened a brace)
+          // Check if this line opens a brace
+          const opensBlock = trimmedLine.includes('{')
+          const depthBeforeLine = braceDepth - (opensBlock ? 1 : 0)
+
+          if (depthBeforeLine === 0 || blocks.length === 0) {
+            blocks.push({ keyword, line: lineNumber, name })
+          }
+
+          break
+        }
+      }
+    }
+  }
+
+  return blocks
+}
+
+/**
+ * Validate that a file contains only a single top-level XanoScript block
+ * Returns null if valid, or an error message if invalid
+ */
+export function validateSingleBlock(content: string): null | string {
+  const blocks = countBlocks(content)
+
+  if (blocks.length === 0) {
+    return 'No valid XanoScript block found. File must start with a keyword like function, table, query, task, workflow_test, etc.'
+  }
+
+  if (blocks.length > 1) {
+    const blockList = blocks
+      .map((b) => `  Line ${b.line}: ${b.keyword} "${b.name}"`)
+      .join('\n')
+
+    return `Multiple XanoScript blocks found in single file (only one allowed):\n${blockList}\n\nSplit into separate files - one ${blocks[0].keyword} per file.`
+  }
+
+  return null
+}

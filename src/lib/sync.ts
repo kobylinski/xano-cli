@@ -23,8 +23,10 @@ import {
   type ApiGroupsFile,
   computeSha256,
   encodeBase64,
+  type EndpointsFile,
   extractXanoscript,
   loadObjects,
+  saveEndpoints,
   saveGroups,
   saveObjects,
   upsertObject,
@@ -45,6 +47,7 @@ export interface FetchedObject {
 
 export interface FetchResult {
   apiGroups: ApiGroupsFile
+  endpoints: EndpointsFile
   objects: FetchedObject[]
 }
 
@@ -66,7 +69,11 @@ export async function fetchAllObjects(
 ): Promise<FetchResult> {
   const allObjects: FetchedObject[] = []
   const apiGroupsFile: ApiGroupsFile = {}
+  const endpointsFile: EndpointsFile = {}
   const print = log || (() => {})
+
+  // Track canonical IDs for each API group (by ID)
+  const apiGroupCanonicals = new Map<number, string>()
 
   // Fetch API groups first for endpoint grouping AND as objects to sync
   const apiGroups = new Map<number, string>()
@@ -86,6 +93,9 @@ export async function fetchAllObjects(
         canonical,
         id: group.id,
       }
+
+      // Track canonical for endpoint lookup
+      apiGroupCanonicals.set(group.id, canonical)
       // Add api_group to allObjects if it has xanoscript
       const xs = extractXanoscript(group.xanoscript)
       if (xs) {
@@ -136,6 +146,21 @@ export async function fetchAllObjects(
           type: 'api_endpoint',
           verb: endpoint.verb,
           xanoscript: xs,
+        })
+      }
+
+      // Add to endpoints.json (for all endpoints, not just those with xanoscript)
+      const verb = endpoint.verb.toUpperCase()
+      const canonical = apiGroupCanonicals.get(endpoint.apigroup_id)
+      if (canonical) {
+        if (!endpointsFile[verb]) {
+          endpointsFile[verb] = []
+        }
+
+        endpointsFile[verb].push({
+          canonical,
+          id: endpoint.id,
+          pattern: endpoint.name, // endpoint.name is the path pattern like "devices/{device_id}"
         })
       }
     }
@@ -263,6 +288,7 @@ export async function fetchAllObjects(
 
   return {
     apiGroups: apiGroupsFile,
+    endpoints: endpointsFile,
     objects: allObjects,
   }
 }
@@ -379,9 +405,10 @@ export async function syncFromXano(
     })
   }
 
-  // Save objects.json and groups.json
+  // Save objects.json, groups.json, and endpoints.json
   saveObjects(projectRoot, objects)
   saveGroups(projectRoot, fetchResult.apiGroups)
+  saveEndpoints(projectRoot, fetchResult.endpoints)
 
   return {
     newObjects,

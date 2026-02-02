@@ -1,5 +1,5 @@
 import { Args, Flags } from '@oclif/core'
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 
 import type {
@@ -21,6 +21,7 @@ import {
   XanoApi,
 } from '../../lib/api.js'
 import { loadConfig } from '../../lib/config.js'
+import { detectType, extractApiDetails, extractName } from '../../lib/detector.js'
 import {
   computeFileSha256,
   computeSha256,
@@ -168,6 +169,12 @@ private customResolver?: PathResolver
     // Sort entries by path
     entries.sort((a, b) => a.path.localeCompare(b.path))
 
+    // Detect duplicate endpoint definitions
+    const duplicateEndpoints = this.detectDuplicateEndpoints(projectRoot, pathsToCheck)
+
+    // Detect duplicate workflow test names
+    const duplicateWorkflowTests = this.detectDuplicateWorkflowTests(projectRoot, pathsToCheck)
+
     // Fetch extended info if requested
     if (flags.extended) {
       await this.fetchExtendedInfo(api, entries, flags.json)
@@ -175,14 +182,28 @@ private customResolver?: PathResolver
 
     // Output
     if (flags.json) {
-      this.log(JSON.stringify(entries, null, 2))
+      const output: {
+        duplicateEndpoints?: Record<string, string[]>
+        duplicateWorkflowTests?: Record<string, string[]>
+        entries: StatusEntry[]
+      } = { entries }
+
+      if (duplicateEndpoints.size > 0) {
+        output.duplicateEndpoints = Object.fromEntries(duplicateEndpoints)
+      }
+
+      if (duplicateWorkflowTests.size > 0) {
+        output.duplicateWorkflowTests = Object.fromEntries(duplicateWorkflowTests)
+      }
+
+      this.log(JSON.stringify(output, null, 2))
       return
     }
 
     if (agentMode) {
-      this.displayAgentResults(entries, config.workspaceName, config.branch)
+      this.displayAgentResults(entries, config.workspaceName, config.branch, duplicateEndpoints, duplicateWorkflowTests)
     } else {
-      this.displayResults(entries, config.workspaceName, config.branch, flags.extended)
+      this.displayResults(entries, config.workspaceName, config.branch, flags.extended, duplicateEndpoints, duplicateWorkflowTests)
     }
   }
 
@@ -260,12 +281,100 @@ private customResolver?: PathResolver
   }
 
   /**
+   * Detect duplicate API endpoint definitions across local files
+   * Returns a map of "VERB /path" -> list of files that define it
+   */
+  private detectDuplicateEndpoints(
+    projectRoot: string,
+    filePaths: string[]
+  ): Map<string, string[]> {
+    const endpointToFiles = new Map<string, string[]>()
+
+    for (const filePath of filePaths) {
+      const fullPath = join(projectRoot, filePath)
+      if (!existsSync(fullPath)) continue
+
+      // Only check files in apis directory
+      if (!filePath.includes('/apis/') && !filePath.startsWith('apis/')) continue
+
+      try {
+        const content = readFileSync(fullPath, 'utf8')
+        const details = extractApiDetails(content)
+        if (details) {
+          const key = `${details.verb} /${details.path.replace(/^\/+/, '')}`
+          const existing = endpointToFiles.get(key) || []
+          existing.push(filePath)
+          endpointToFiles.set(key, existing)
+        }
+      } catch {
+        // Skip files that can't be read
+      }
+    }
+
+    // Filter to only duplicates (more than one file)
+    const duplicates = new Map<string, string[]>()
+    for (const [key, files] of endpointToFiles) {
+      if (files.length > 1) {
+        duplicates.set(key, files)
+      }
+    }
+
+    return duplicates
+  }
+
+  /**
+   * Detect duplicate workflow test names across local files
+   * Xano uses the test name (not file path) for uniqueness
+   * Returns a map of "Test Name" -> list of files that define it
+   */
+  private detectDuplicateWorkflowTests(
+    projectRoot: string,
+    filePaths: string[]
+  ): Map<string, string[]> {
+    const testNameToFiles = new Map<string, string[]>()
+
+    for (const filePath of filePaths) {
+      const fullPath = join(projectRoot, filePath)
+      if (!existsSync(fullPath)) continue
+
+      try {
+        const content = readFileSync(fullPath, 'utf8')
+        const type = detectType(content)
+
+        // Only check workflow_test files
+        if (type !== 'workflow_test') continue
+
+        const testName = extractName(content)
+        if (testName) {
+          const existing = testNameToFiles.get(testName) || []
+          existing.push(filePath)
+          testNameToFiles.set(testName, existing)
+        }
+      } catch {
+        // Skip files that can't be read
+      }
+    }
+
+    // Filter to only duplicates (more than one file)
+    const duplicates = new Map<string, string[]>()
+    for (const [name, files] of testNameToFiles) {
+      if (files.length > 1) {
+        duplicates.set(name, files)
+      }
+    }
+
+    return duplicates
+  }
+
+  /**
    * Display results in agent-friendly structured format
    */
   private displayAgentResults(
     entries: StatusEntry[],
     workspaceName: string,
-    branch: string
+    branch: string,
+    duplicateEndpoints: Map<string, string[]>,
+    duplicateWorkflowTests: Map<string, string[]>
   ): void {
     const modified = entries.filter((e) => e.status === 'modified')
     const newEntries = entries.filter((e) => e.status === 'new')
@@ -306,6 +415,36 @@ private customResolver?: PathResolver
       this.log('AGENT_WARNING: conflicts_detected')
       this.log('AGENT_MESSAGE: Files have been modified both locally and remotely. Manual resolution required.')
       this.log('AGENT_ACTION: Ask user how to resolve conflicts (keep local, pull remote, or merge manually)')
+    }
+
+    // Duplicate endpoint definitions
+    if (duplicateEndpoints.size > 0) {
+      this.log('AGENT_DUPLICATE_ENDPOINTS:')
+      for (const [endpoint, files] of duplicateEndpoints) {
+        this.log(`- ${endpoint}:`)
+        for (const file of files) {
+          this.log(`    ${file}`)
+        }
+      }
+
+      this.log('AGENT_WARNING: duplicate_endpoints_detected')
+      this.log('AGENT_MESSAGE: Multiple files define the same API endpoint. Push will fail. Delete duplicates.')
+      this.log('AGENT_ACTION: Delete one of the conflicting files for each duplicate endpoint')
+    }
+
+    // Duplicate workflow test names
+    if (duplicateWorkflowTests.size > 0) {
+      this.log('AGENT_DUPLICATE_WORKFLOW_TESTS:')
+      for (const [testName, files] of duplicateWorkflowTests) {
+        this.log(`- "${testName}":`)
+        for (const file of files) {
+          this.log(`    ${file}`)
+        }
+      }
+
+      this.log('AGENT_WARNING: duplicate_workflow_tests_detected')
+      this.log('AGENT_MESSAGE: Multiple files define the same workflow test name. Xano uses NAME (not filename) for uniqueness. Push will fail.')
+      this.log('AGENT_ACTION: Rename the test in one of the conflicting files or delete duplicates')
     }
 
     // Files needing push
@@ -361,7 +500,9 @@ private customResolver?: PathResolver
     entries: StatusEntry[],
     workspaceName: string,
     branch: string,
-    showExtended: boolean
+    showExtended: boolean,
+    duplicateEndpoints: Map<string, string[]>,
+    duplicateWorkflowTests: Map<string, string[]>
   ): void {
     this.log('')
     this.log(`Workspace: ${workspaceName}`)
@@ -476,6 +617,30 @@ private customResolver?: PathResolver
       this.log('')
     }
 
+    if (duplicateEndpoints.size > 0) {
+      this.log('Duplicate endpoint definitions (will fail on push):')
+      for (const [endpoint, files] of duplicateEndpoints) {
+        this.log(`  ${endpoint}:`)
+        for (const file of files) {
+          this.log(`    - ${file}`)
+        }
+      }
+
+      this.log('')
+    }
+
+    if (duplicateWorkflowTests.size > 0) {
+      this.log('Duplicate workflow test names (will fail on push):')
+      for (const [testName, files] of duplicateWorkflowTests) {
+        this.log(`  "${testName}":`)
+        for (const file of files) {
+          this.log(`    - ${file}`)
+        }
+      }
+
+      this.log('')
+    }
+
     if (newEntries.length > 0) {
       this.log('New (local only, push to add):')
       for (const entry of newEntries) {
@@ -490,7 +655,9 @@ private customResolver?: PathResolver
       const deletedRemote = deleted.filter(e => e.detail === 'remote')
 
       if (deletedLocal.length > 0) {
-        this.log('Deleted locally:')
+        this.log('┌────────────────────────────────────────────────────────────────┐')
+        this.log(`│  ${deletedLocal.length} file(s) deleted locally (still exist on Xano)`)
+        this.log('└────────────────────────────────────────────────────────────────┘')
         for (const entry of deletedLocal) {
           this.log(formatEntry(entry))
         }
@@ -559,6 +726,13 @@ private customResolver?: PathResolver
     }
 
     // Hints
+    const deletedLocal = deleted.filter(e => e.detail === 'local')
+
+    if (deletedLocal.length > 0) {
+      this.log('')
+      this.log(`Run 'xano push --clean' to delete ${deletedLocal.length} file(s) from Xano`)
+    }
+
     if (modifiedLocal.length > 0 || newEntries.length > 0) {
       this.log('')
       this.log("Run 'xano push' to push local changes to Xano")
@@ -572,6 +746,16 @@ private customResolver?: PathResolver
     if (modifiedBoth.length > 0) {
       this.log('')
       this.log('Resolve conflicts manually before syncing')
+    }
+
+    if (duplicateEndpoints.size > 0) {
+      this.log('')
+      this.log('Delete duplicate endpoint files before pushing (only one file per endpoint path+verb)')
+    }
+
+    if (duplicateWorkflowTests.size > 0) {
+      this.log('')
+      this.log('Rename or delete duplicate workflow tests before pushing (Xano uses test NAME, not filename, for uniqueness)')
     }
   }
 

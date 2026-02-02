@@ -9,10 +9,12 @@ import { join } from 'node:path'
 
 import type { XanoObject, XanoObjectsFile, XanoObjectType } from './types.js'
 
+import { logger } from './logger.js'
 import { ensureXanoDir, getXanoDirPath } from './project.js'
 
 const OBJECTS_JSON = 'objects.json'
 const GROUPS_JSON = 'groups.json'
+const ENDPOINTS_JSON = 'endpoints.json'
 
 /**
  * API group info stored in groups.json
@@ -26,6 +28,21 @@ export interface ApiGroupInfo {
  * Structure of .xano/groups.json
  */
 export type ApiGroupsFile = Record<string, ApiGroupInfo>
+
+/**
+ * Single endpoint entry in endpoints.json
+ */
+export interface EndpointEntry {
+  canonical: string
+  id: number
+  pattern: string  // e.g., "devices/{device_id}" or "auth/login"
+}
+
+/**
+ * Structure of .xano/endpoints.json
+ * Indexed by HTTP verb for fast lookup
+ */
+export type EndpointsFile = Record<string, EndpointEntry[]>
 
 /**
  * Get path to .xano/objects.json
@@ -65,6 +82,8 @@ export function loadObjects(projectRoot: string): XanoObjectsFile {
 export function saveObjects(projectRoot: string, objects: XanoObjectsFile): void {
   ensureXanoDir(projectRoot)
   const filePath = getObjectsJsonPath(projectRoot)
+  logger.fileOp('write', '.xano/objects.json')
+  logger.dataStored('objects', { count: objects.length })
   writeFileSync(filePath, JSON.stringify(objects, null, 2) + '\n', 'utf8')
 }
 
@@ -92,7 +111,158 @@ export function loadGroups(projectRoot: string): ApiGroupsFile {
 export function saveGroups(projectRoot: string, groups: ApiGroupsFile): void {
   ensureXanoDir(projectRoot)
   const filePath = getGroupsJsonPath(projectRoot)
+  logger.fileOp('write', '.xano/groups.json')
+  logger.dataStored('groups', { count: Object.keys(groups).length })
   writeFileSync(filePath, JSON.stringify(groups, null, 2) + '\n', 'utf8')
+}
+
+/**
+ * Get path to .xano/endpoints.json
+ */
+export function getEndpointsJsonPath(projectRoot: string): string {
+  return join(getXanoDirPath(projectRoot), ENDPOINTS_JSON)
+}
+
+/**
+ * Load .xano/endpoints.json
+ */
+export function loadEndpoints(projectRoot: string): EndpointsFile {
+  const filePath = getEndpointsJsonPath(projectRoot)
+
+  if (!existsSync(filePath)) {
+    return {}
+  }
+
+  try {
+    const content = readFileSync(filePath, 'utf8')
+    return JSON.parse(content) as EndpointsFile
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Save .xano/endpoints.json
+ */
+export function saveEndpoints(projectRoot: string, endpoints: EndpointsFile): void {
+  ensureXanoDir(projectRoot)
+  const filePath = getEndpointsJsonPath(projectRoot)
+  writeFileSync(filePath, JSON.stringify(endpoints, null, 2) + '\n', 'utf8')
+}
+
+/**
+ * Result of matching a concrete path against endpoint patterns
+ */
+export interface EndpointMatchResult {
+  canonical: string
+  endpoint: EndpointEntry
+  pathParams: Record<string, string>
+  queryParams: Record<string, string>
+}
+
+/**
+ * Match a concrete path against a pattern
+ * Pattern segments are either literals or {param} placeholders
+ * Returns extracted path parameters if matched, null if no match
+ */
+function matchPattern(
+  concretePath: string,
+  pattern: string
+): null | Record<string, string> {
+  // Normalize: remove leading slashes and split
+  const concreteSegments = concretePath.replace(/^\/+/, '').split('/').filter(Boolean)
+  const patternSegments = pattern.replace(/^\/+/, '').split('/').filter(Boolean)
+
+  if (concreteSegments.length !== patternSegments.length) {
+    return null
+  }
+
+  const params: Record<string, string> = {}
+
+  for (const [i, patternPart] of patternSegments.entries()) {
+    const concretePart = concreteSegments[i]
+
+    // Check if this is a parameter placeholder {name}
+    if (patternPart.startsWith('{') && patternPart.endsWith('}')) {
+      const paramName = patternPart.slice(1, -1)
+      params[paramName] = concretePart
+    } else if (patternPart !== concretePart) {
+      // Literal segment must match exactly
+      return null
+    }
+  }
+
+  return params
+}
+
+/**
+ * Find matching endpoint for a concrete path and HTTP method
+ *
+ * @param endpoints - Loaded endpoints.json
+ * @param method - HTTP method (GET, POST, etc.)
+ * @param path - Concrete path like "/devices/abc-123"
+ * @returns Match result with canonical, extracted params, or null if no match
+ * @throws Error if multiple endpoints match across different canonicals
+ */
+export function findMatchingEndpoint(
+  endpoints: EndpointsFile,
+  method: string,
+  path: string
+): EndpointMatchResult | null {
+  const verb = method.toUpperCase()
+  const verbEndpoints = endpoints[verb]
+
+  if (!verbEndpoints || verbEndpoints.length === 0) {
+    return null
+  }
+
+  // Separate path from query string
+  const [pathPart, queryString] = path.split('?')
+
+  // Parse query parameters
+  const queryParams: Record<string, string> = {}
+  if (queryString) {
+    for (const pair of queryString.split('&')) {
+      const [key, value] = pair.split('=')
+      if (key) {
+        queryParams[decodeURIComponent(key)] = value ? decodeURIComponent(value) : ''
+      }
+    }
+  }
+
+  // Find all matching endpoints
+  const matches: Array<{ endpoint: EndpointEntry; pathParams: Record<string, string> }> = []
+
+  for (const endpoint of verbEndpoints) {
+    const pathParams = matchPattern(pathPart, endpoint.pattern)
+    if (pathParams !== null) {
+      matches.push({ endpoint, pathParams })
+    }
+  }
+
+  if (matches.length === 0) {
+    return null
+  }
+
+  // Check for ambiguity across different canonicals
+  const uniqueCanonicals = new Set(matches.map(m => m.endpoint.canonical))
+  if (uniqueCanonicals.size > 1) {
+    const canonicalList = [...uniqueCanonicals].join(', ')
+    throw new Error(
+      `Ambiguous endpoint: path "${path}" matches endpoints in multiple API groups.\n` +
+      `Canonicals: ${canonicalList}\n` +
+      `Specify the group explicitly: xano api:call <group> ${method} ${path}`
+    )
+  }
+
+  // Return first match (all have same canonical)
+  const match = matches[0]
+  return {
+    canonical: match.endpoint.canonical,
+    endpoint: match.endpoint,
+    pathParams: match.pathParams,
+    queryParams,
+  }
 }
 
 /**

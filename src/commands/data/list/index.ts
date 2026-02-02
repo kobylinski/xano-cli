@@ -239,10 +239,17 @@ export default class DataList extends Command {
     // Resolve table reference (name, ID, or file path) to table name
     const tableName = this.resolveTableName(args.table, projectRoot)
 
-    // Resolve table name to ID (local-first, unless --remote flag is set)
+    // Resolve table name to ID
+    // With --remote: skip local cache, query Xano API directly
+    // Without --remote: try local cache first (fast path)
     let tableId: null | number = null
+    let usedRemoteLookup = false
 
-    if (!flags.remote) {
+    if (flags.remote) {
+      // --remote flag: bypass local cache entirely
+      usedRemoteLookup = true
+      tableId = await this.resolveTableIdRemote(api, tableName)
+    } else {
       // Try local resolution first (fast path)
       const localResult = resolveTableFromLocal(projectRoot, tableName)
       if (localResult) {
@@ -250,13 +257,8 @@ export default class DataList extends Command {
       }
     }
 
-    // Fall back to remote if not found locally or --remote flag is set
-    if (tableId === null && flags.remote) {
-      tableId = await this.resolveTableIdRemote(api, tableName)
-    }
-
     if (!tableId) {
-      this.error(formatTableNotFoundError(tableName, isAgentMode()))
+      this.error(formatTableNotFoundError(tableName, isAgentMode(), usedRemoteLookup))
     }
 
     // Check if we need search (filters or sort provided)

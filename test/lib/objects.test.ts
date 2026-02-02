@@ -10,15 +10,20 @@ import {
   computeSha256,
   decodeBase64,
   encodeBase64,
+  type EndpointsFile,
+  findMatchingEndpoint,
   findObjectById,
   findObjectByPath,
   findObjectsByType,
   getAllObjectPaths,
+  getEndpointsJsonPath,
   getObjectsJsonPath,
+  loadEndpoints,
   loadObjects,
   markObjectSynced,
   removeObjectById,
   removeObjectByPath,
+  saveEndpoints,
   saveObjects,
   updateObjectStatus,
   upsertObject,
@@ -305,6 +310,199 @@ describe('lib/objects', () => {
 
       const paths = getAllObjectPaths(objects)
       expect(paths).to.deep.equal(['a.xs', 'b.xs'])
+    })
+  })
+
+  describe('getEndpointsJsonPath', () => {
+    it('returns correct path', () => {
+      expect(getEndpointsJsonPath(tempDir)).to.equal(join(tempDir, '.xano', 'endpoints.json'))
+    })
+  })
+
+  describe('loadEndpoints / saveEndpoints', () => {
+    const sampleEndpoints: EndpointsFile = {
+      DELETE: [
+        { canonical: 'abc123', id: 100, pattern: 'devices/{device_id}' },
+      ],
+      GET: [
+        { canonical: 'abc123', id: 101, pattern: 'devices' },
+        { canonical: 'abc123', id: 102, pattern: 'devices/{device_id}' },
+      ],
+      POST: [
+        { canonical: 'abc123', id: 103, pattern: 'devices/{device_id}/block' },
+      ],
+    }
+
+    it('returns empty object when file does not exist', () => {
+      expect(loadEndpoints(tempDir)).to.deep.equal({})
+    })
+
+    it('saves and loads endpoints correctly', () => {
+      saveEndpoints(tempDir, sampleEndpoints)
+      const loaded = loadEndpoints(tempDir)
+      expect(loaded).to.deep.equal(sampleEndpoints)
+    })
+
+    it('creates .xano directory when saving', () => {
+      saveEndpoints(tempDir, sampleEndpoints)
+      expect(existsSync(join(tempDir, '.xano'))).to.be.true
+    })
+  })
+
+  describe('findMatchingEndpoint', () => {
+    const endpoints: EndpointsFile = {
+      DELETE: [
+        { canonical: 'abc123', id: 100, pattern: 'devices/{device_id}' },
+      ],
+      GET: [
+        { canonical: 'abc123', id: 101, pattern: 'devices' },
+        { canonical: 'abc123', id: 102, pattern: 'devices/{device_id}' },
+        { canonical: 'abc123', id: 103, pattern: 'users/{user_id}/devices' },
+      ],
+      POST: [
+        { canonical: 'abc123', id: 104, pattern: 'devices/{device_id}/block' },
+        { canonical: 'abc123', id: 105, pattern: 'auth/login' },
+      ],
+    }
+
+    describe('pattern matching', () => {
+      it('matches exact literal path', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', '/devices')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(101)
+        expect(result!.canonical).to.equal('abc123')
+      })
+
+      it('matches path with single parameter', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', '/devices/abc-123-def')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(102)
+        // eslint-disable-next-line camelcase
+        expect(result!.pathParams).to.deep.equal({ device_id: 'abc-123-def' })
+      })
+
+      it('matches DELETE with parameter', () => {
+        const result = findMatchingEndpoint(endpoints, 'DELETE', '/devices/my-device-uuid')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(100)
+        // eslint-disable-next-line camelcase
+        expect(result!.pathParams).to.deep.equal({ device_id: 'my-device-uuid' })
+      })
+
+      it('matches path with parameter in middle', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', '/users/123/devices')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(103)
+        // eslint-disable-next-line camelcase
+        expect(result!.pathParams).to.deep.equal({ user_id: '123' })
+      })
+
+      it('matches path with parameter and trailing literal', () => {
+        const result = findMatchingEndpoint(endpoints, 'POST', '/devices/xyz-789/block')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(104)
+        // eslint-disable-next-line camelcase
+        expect(result!.pathParams).to.deep.equal({ device_id: 'xyz-789' })
+      })
+
+      it('matches literal POST path', () => {
+        const result = findMatchingEndpoint(endpoints, 'POST', '/auth/login')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(105)
+        expect(result!.pathParams).to.deep.equal({})
+      })
+    })
+
+    describe('path normalization', () => {
+      it('handles path without leading slash', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', 'devices')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(101)
+      })
+
+      it('handles path with multiple leading slashes', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', '///devices')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(101)
+      })
+    })
+
+    describe('query parameters', () => {
+      it('extracts query parameters from path', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', '/devices?page=1&limit=10')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(101)
+        expect(result!.queryParams).to.deep.equal({ limit: '10', page: '1' })
+      })
+
+      it('handles query parameters with parameterized path', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', '/devices/abc-123?include=owner')
+        expect(result).to.not.be.null
+        expect(result!.endpoint.id).to.equal(102)
+        // eslint-disable-next-line camelcase
+        expect(result!.pathParams).to.deep.equal({ device_id: 'abc-123' })
+        expect(result!.queryParams).to.deep.equal({ include: 'owner' })
+      })
+    })
+
+    describe('no match cases', () => {
+      it('returns null for unknown verb', () => {
+        const result = findMatchingEndpoint(endpoints, 'PATCH', '/devices')
+        expect(result).to.be.null
+      })
+
+      it('returns null for path with wrong segment count', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', '/devices/123/extra/segments')
+        expect(result).to.be.null
+      })
+
+      it('returns null for non-matching literal segment', () => {
+        const result = findMatchingEndpoint(endpoints, 'GET', '/users')
+        expect(result).to.be.null
+      })
+
+      it('returns null for empty endpoints', () => {
+        const result = findMatchingEndpoint({}, 'GET', '/devices')
+        expect(result).to.be.null
+      })
+    })
+
+    describe('ambiguity handling', () => {
+      it('throws error when path matches endpoints in different canonicals', () => {
+        const ambiguousEndpoints: EndpointsFile = {
+          GET: [
+            { canonical: 'group-a', id: 1, pattern: 'users/{id}' },
+            { canonical: 'group-b', id: 2, pattern: 'users/{user_id}' },
+          ],
+        }
+
+        let error: Error | undefined
+        try {
+          findMatchingEndpoint(ambiguousEndpoints, 'GET', '/users/123')
+        } catch (error_) {
+          error = error_ as Error
+        }
+
+        expect(error).to.not.be.undefined
+        expect(error!.message).to.include('Ambiguous endpoint')
+        expect(error!.message).to.include('group-a')
+        expect(error!.message).to.include('group-b')
+      })
+
+      it('does not throw when multiple patterns match same canonical', () => {
+        // This shouldn't happen in practice, but if it does, same canonical is fine
+        const sameCanonicalEndpoints: EndpointsFile = {
+          GET: [
+            { canonical: 'same-group', id: 1, pattern: 'items/{id}' },
+            { canonical: 'same-group', id: 2, pattern: 'items/{item_id}' },
+          ],
+        }
+
+        // Should not throw, returns first match
+        const result = findMatchingEndpoint(sameCanonicalEndpoints, 'GET', '/items/123')
+        expect(result).to.not.be.null
+        expect(result!.canonical).to.equal('same-group')
+      })
     })
   })
 })

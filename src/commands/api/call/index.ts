@@ -14,8 +14,9 @@ import {
 import { formatApiResponse, formatErrorResponse, formatYamlLike } from '../../../lib/format.js'
 import {
   findGroupByName,
+  findMatchingEndpoint,
+  loadEndpoints,
   loadGroups,
-  loadObjects,
 } from '../../../lib/objects.js'
 import {
   findProjectRoot,
@@ -365,7 +366,7 @@ static description = 'Call a live API endpoint'
 
   /**
    * Resolve the canonical ID from arguments
-   * If group is provided, use it; otherwise auto-resolve from path
+   * If group is provided, use it; otherwise auto-resolve from path using endpoints.json
    */
   private resolveCanonical(
     projectRoot: string,
@@ -375,114 +376,50 @@ static description = 'Call a live API endpoint'
   ): string {
     const groups = loadGroups(projectRoot)
 
-    // If no group provided, auto-resolve from path
-    if (!groupName) {
-      return this.resolveCanonicalFromPath(projectRoot, endpointPath, method, groups)
-    }
-
-    // Try to resolve as group name first
-    const groupInfo = findGroupByName(groups, groupName)
-    if (groupInfo) {
-      return groupInfo.canonical
-    }
-
-    // Assume it's a canonical ID
-    return groupName
-  }
-
-  /**
-   * Resolve canonical ID from endpoint path by looking up in objects.json
-   */
-  private resolveCanonicalFromPath(
-    projectRoot: string,
-    endpointPath: string,
-    method: string,
-    groups: ReturnType<typeof loadGroups>
-  ): string {
-    const objects = loadObjects(projectRoot)
-
-    // Normalize the path for comparison
-    const normalizedPath = endpointPath.startsWith('/') ? endpointPath.slice(1) : endpointPath
-
-    // Find matching api_endpoint objects
-    const matchingEndpoints: { groupName: string; path: string }[] = []
-
-    for (const obj of objects) {
-      if (obj.type !== 'api_endpoint') continue
-
-      // Extract endpoint path and group from the file path
-      // File path format: app/apis/{group}/{path}_{VERB}.xs
-      const parts = obj.path.split('/')
-      if (parts.length < 3) continue
-
-      const filename = parts.at(-1)!
-      const groupDir = parts.at(-2)!
-
-      // Parse filename to get endpoint path and verb
-      // Format: path_part_VERB.xs (e.g., auth_login_POST.xs, users_id_GET.xs)
-      const match = filename.match(/^(.+)_([A-Z]+)\.xs$/)
-      if (!match) continue
-
-      const [, pathPart, verb] = match
-
-      // Check if verb matches the requested method
-      if (verb !== method) continue
-
-      // Convert path_part back to path (approximate)
-      // This is tricky because we don't have the exact original path
-      // We'll try a simpler match: check if the normalized path contains the key parts
-
-      // For exact matching, we need to compare with the actual endpoint path
-      // Let's check if the path contains similar segments
-      const pathSegments = normalizedPath.replaceAll(/[{}]/g, '').split('/').filter(Boolean)
-      const filePathSegments = pathPart.split('_').filter(Boolean)
-
-      // Simple match: all path segments should appear in the file path
-      const isMatch = pathSegments.every(seg =>
-        filePathSegments.some(fileSeg =>
-          fileSeg.toLowerCase() === seg.toLowerCase() ||
-          fileSeg.toLowerCase() === 'id' && /^\{.*\}$/.test(seg)
-        )
-      )
-
-      if (isMatch || pathPart.toLowerCase().includes(pathSegments.join('_').toLowerCase())) {
-        matchingEndpoints.push({
-          groupName: groupDir,
-          path: obj.path,
-        })
+    // If group is provided, use it directly
+    if (groupName) {
+      // Try to resolve as group name first
+      const groupInfo = findGroupByName(groups, groupName)
+      if (groupInfo) {
+        return groupInfo.canonical
       }
+
+      // Assume it's a canonical ID
+      return groupName
     }
 
-    if (matchingEndpoints.length === 0) {
+    // Auto-resolve from path using endpoints.json
+    const endpoints = loadEndpoints(projectRoot)
+
+    // Check if endpoints.json exists and has data
+    if (Object.keys(endpoints).length === 0) {
       this.error(
         `Could not find API endpoint for path "${endpointPath}".\n` +
-        'Run "xano sync" to refresh metadata, or specify the group explicitly:\n' +
-        `  xano api:call <group> <method> ${endpointPath}`
+        'Run "xano pull --sync" to refresh metadata, or specify the group explicitly:\n' +
+        `  xano api:call <group> ${method} ${endpointPath}`
       )
     }
 
-    if (matchingEndpoints.length > 1) {
-      // Check if all matches are in the same group
-      const uniqueGroups = [...new Set(matchingEndpoints.map(e => e.groupName))]
-      if (uniqueGroups.length > 1) {
+    try {
+      const match = findMatchingEndpoint(endpoints, method, endpointPath)
+
+      if (!match) {
         this.error(
-          `Ambiguous endpoint "${endpointPath}" found in multiple groups: ${uniqueGroups.join(', ')}\n` +
-          `Specify the group explicitly: xano api:call <group> <method> ${endpointPath}`
+          `Could not find API endpoint for ${method} "${endpointPath}".\n` +
+          'Run "xano pull --sync" to refresh metadata, or specify the group explicitly:\n' +
+          `  xano api:call <group> ${method} ${endpointPath}`
         )
       }
+
+      return match.canonical
+    } catch (error) {
+      // Handle ambiguity error from findMatchingEndpoint
+      if (error instanceof Error) {
+        this.error(error.message)
+      }
+
+      throw error
     }
-
-    const {groupName} = matchingEndpoints[0]
-    const groupInfo = findGroupByName(groups, groupName)
-
-    if (!groupInfo) {
-      this.error(
-        `API group "${groupName}" not found in groups.json.\n` +
-        'Run "xano pull --sync" to refresh metadata.'
-      )
-    }
-
-    return groupInfo.canonical
   }
 
   /**

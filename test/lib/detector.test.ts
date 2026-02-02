@@ -3,6 +3,7 @@ import { expect } from 'chai'
 import type { PathResolver, ResolverContext, SanitizeFunction } from '../../src/lib/types.js'
 
 import {
+  countBlocks,
   detectType,
   detectTypeFromPath,
   extractApiDetails,
@@ -13,6 +14,7 @@ import {
   generateKeyFromPath,
   sanitize,
   sanitizePath,
+  validateSingleBlock,
 } from '../../src/lib/detector.js'
 
 describe('lib/detector', () => {
@@ -464,6 +466,227 @@ function my_func { }`
         expect(result1).to.equal('tables/USERS.xs')
         expect(result2).to.equal('functions/my_function.xs')
       })
+    })
+  })
+
+  describe('countBlocks', () => {
+    it('counts single function block', () => {
+      const content = `function my_func {
+  // body
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0]).to.deep.include({ keyword: 'function', name: 'my_func' })
+    })
+
+    it('counts single workflow_test block with quoted name', () => {
+      const content = `workflow_test "My Test Case" {
+  // body
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0]).to.deep.include({ keyword: 'workflow_test', name: 'My Test Case' })
+    })
+
+    it('detects multiple workflow_test blocks', () => {
+      const content = `workflow_test "First Test" {
+  // test 1
+}
+
+workflow_test "Second Test" {
+  // test 2
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(2)
+      expect(blocks[0]).to.deep.include({ keyword: 'workflow_test', name: 'First Test' })
+      expect(blocks[1]).to.deep.include({ keyword: 'workflow_test', name: 'Second Test' })
+    })
+
+    it('detects multiple different block types', () => {
+      const content = `function helper {
+  // helper
+}
+
+workflow_test "Test" {
+  // test
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(2)
+      expect(blocks[0].keyword).to.equal('function')
+      expect(blocks[1].keyword).to.equal('workflow_test')
+    })
+
+    it('ignores nested keywords inside blocks', () => {
+      const content = `function outer {
+  // This is not a real block:
+  // function inner { }
+  var x = "function fake { }"
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0].keyword).to.equal('function')
+    })
+
+    it('ignores api_group property assignment inside query block', () => {
+      const content = `query POST /users {
+  api_group = "User Management"
+
+  input {
+    text user_id
+  }
+
+  response = {
+    success: true
+  }
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0].keyword).to.equal('query')
+    })
+
+    it('ignores property assignments that look like block keywords (regression test)', () => {
+      // Regression test: api_group = "..." property assignments inside query blocks
+      // were incorrectly detected as separate api_group blocks
+      const content = `// List items endpoint
+query items verb=GET {
+  api_group = "Public API"
+  auth = "users"
+
+  input {
+    bool? active_only?
+  }
+
+  stack {
+    var $filter {
+      value = $input.active_only ?? false
+    }
+  }
+
+  response = {items: []}
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0].keyword).to.equal('query')
+      expect(blocks[0].name).to.equal('items')
+    })
+
+    it('ignores function calls inside stack blocks', () => {
+      const content = `query POST /auth/login {
+  stack {
+    function validate_input input={email: $input.email} {
+    }
+
+    function create_session input={user_id: $var.user.id} {
+    }
+  }
+
+  response = $var.token
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0].keyword).to.equal('query')
+    })
+
+    it('handles nested object literals with braces', () => {
+      const content = `query GET /test {
+  response = {
+    data: {
+      nested: {
+        value: 1
+      }
+    }
+  }
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0].keyword).to.equal('query')
+    })
+
+    it('handles backtick expressions with braces (potential false positive)', () => {
+      // If XanoScript uses backticks for expressions, braces inside might throw off tracking
+      // eslint-disable-next-line no-template-curly-in-string
+      const content = "query GET /test {\n  message = `Value: ${var.x}`\n  response = {\n    ok: true\n  }\n}"
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0].keyword).to.equal('query')
+    })
+
+    it('handles closing brace in string that could reset depth', () => {
+      const content = `query GET /test {
+  message = "}"
+  function_name = "something"
+  response = true
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0].keyword).to.equal('query')
+    })
+
+    it('handles comments before first block', () => {
+      const content = `// This is a comment
+// Another comment
+
+workflow_test "Test" {
+  // body
+}`
+      const blocks = countBlocks(content)
+      expect(blocks).to.have.length(1)
+      expect(blocks[0]).to.deep.include({ keyword: 'workflow_test', name: 'Test' })
+    })
+
+    it('returns empty array for empty content', () => {
+      expect(countBlocks('')).to.have.length(0)
+    })
+
+    it('returns empty array for comment-only content', () => {
+      expect(countBlocks('// just a comment')).to.have.length(0)
+    })
+
+    it('includes line numbers', () => {
+      const content = `// comment
+workflow_test "First" {
+}
+
+workflow_test "Second" {
+}`
+      const blocks = countBlocks(content)
+      expect(blocks[0].line).to.equal(2)
+      expect(blocks[1].line).to.equal(5)
+    })
+  })
+
+  describe('validateSingleBlock', () => {
+    it('returns null for valid single block', () => {
+      const content = `function my_func {
+  // body
+}`
+      expect(validateSingleBlock(content)).to.be.null
+    })
+
+    it('returns error for multiple blocks', () => {
+      const content = `workflow_test "First" {
+}
+
+workflow_test "Second" {
+}`
+      const error = validateSingleBlock(content)
+      expect(error).to.not.be.null
+      expect(error).to.include('Multiple XanoScript blocks')
+      expect(error).to.include('First')
+      expect(error).to.include('Second')
+      expect(error).to.include('Split into separate files')
+    })
+
+    it('returns error for empty content', () => {
+      const error = validateSingleBlock('')
+      expect(error).to.not.be.null
+      expect(error).to.include('No valid XanoScript block found')
+    })
+
+    it('returns error for comment-only content', () => {
+      const error = validateSingleBlock('// just a comment')
+      expect(error).to.not.be.null
+      expect(error).to.include('No valid XanoScript block found')
     })
   })
 })

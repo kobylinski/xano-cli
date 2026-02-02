@@ -87,12 +87,33 @@ export function getLocalTables(projectRoot: string): LocalTableResult[] {
 }
 
 /**
- * Format error message when table not found locally
+ * Format error message when table not found
+ * @param tableRef - The table reference that was not found
+ * @param agentMode - Whether to format for AI agent consumption
+ * @param usedRemote - Whether --remote flag was used (changes the error message)
  */
 export function formatTableNotFoundError(
   tableRef: string,
-  agentMode?: boolean
+  agentMode?: boolean,
+  usedRemote?: boolean
 ): string {
+  if (usedRemote) {
+    // Table not found on remote Xano server
+    if (agentMode) {
+      return [
+        `AGENT_ERROR: table_not_found`,
+        `AGENT_TABLE: ${tableRef}`,
+        `AGENT_MESSAGE: Table "${tableRef}" not found on Xano server.`,
+        `AGENT_ACTION: Verify the table name is correct. The table may have been deleted or renamed.`,
+        `AGENT_SUGGESTION: Run "xano pull --sync" to see available tables.`,
+      ].join('\n')
+    }
+
+    return `Table "${tableRef}" not found on Xano server.\n` +
+      `The table may have been deleted or renamed. Run "xano pull --sync" to see available tables.`
+  }
+
+  // Table not found in local cache
   if (agentMode) {
     return [
       `AGENT_ERROR: table_not_found`,

@@ -25,6 +25,7 @@ import {
   encodeBase64,
   findObjectByPath,
   loadObjects,
+  saveEndpoints,
   saveGroups,
   saveObjects,
   upsertObject,
@@ -168,6 +169,7 @@ private customResolver?: PathResolver
 
       saveObjects(projectRoot, objects)
       saveGroups(projectRoot, fetchResult.apiGroups)
+      saveEndpoints(projectRoot, fetchResult.endpoints)
     }
 
     // Determine which files to pull

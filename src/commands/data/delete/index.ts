@@ -179,22 +179,24 @@ export default class DataDelete extends Command {
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
 
-    // Resolve table name to ID (local-first, unless --remote flag is set)
+    // Resolve table name to ID
+    // With --remote: skip local cache, query Xano API directly
+    // Without --remote: try local cache first (fast path)
     let tableId: null | number = null
+    let usedRemoteLookup = false
 
-    if (!flags.remote) {
+    if (flags.remote) {
+      usedRemoteLookup = true
+      tableId = await this.resolveTableIdRemote(api, args.table)
+    } else {
       const localResult = resolveTableFromLocal(projectRoot, args.table)
       if (localResult) {
         tableId = localResult.id
       }
     }
 
-    if (tableId === null && flags.remote) {
-      tableId = await this.resolveTableIdRemote(api, args.table)
-    }
-
     if (!tableId) {
-      this.error(formatTableNotFoundError(args.table, isAgentMode()))
+      this.error(formatTableNotFoundError(args.table, isAgentMode(), usedRemoteLookup))
     }
 
     // Determine delete mode

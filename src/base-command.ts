@@ -4,6 +4,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import { logger, resolveVerbosity } from './lib/logger.js'
+
 interface CredentialsFile {
   default?: string
   profiles: {
@@ -84,6 +86,18 @@ export default abstract class BaseCommand extends Command {
       env: 'XANO_PROFILE',
       required: false,
     }),
+    silent: Flags.boolean({
+      char: 's',
+      default: false,
+      description: 'Silent mode (errors only)',
+    }),
+    verbose: Flags.integer({
+      char: 'v',
+      default: 0,
+      description: 'Verbosity level: 1=verbose, 2=debug, 3=trace (or use -v, -vv, -vvv)',
+      max: 3,
+      min: 0,
+    }),
   }
 // Override the flags property to include baseFlags
   static flags = BaseCommand.baseFlags
@@ -115,5 +129,34 @@ export default abstract class BaseCommand extends Command {
   protected getProfile(): string | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- oclif workaround to access flags before parsing
     return (this as any).flags?.profile
+  }
+
+  /**
+   * Initialize logger with verbosity level before command runs
+   */
+  async init(): Promise<void> {
+    await super.init()
+
+    // Parse flags to get verbosity settings
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { flags } = await (this as any).parse(this.constructor as typeof Command)
+
+    // Load config verbosity if available
+    let configVerbose: number | undefined
+    try {
+      const configDir = join(process.cwd(), '.xano')
+      const cliConfigPath = join(configDir, 'cli.json')
+      if (existsSync(cliConfigPath)) {
+        const content = readFileSync(cliConfigPath, 'utf8')
+        const config = JSON.parse(content)
+        configVerbose = config.verbose
+      }
+    } catch {
+      // Ignore config errors
+    }
+
+    // Resolve and set verbosity
+    const level = resolveVerbosity(flags.verbose, flags.silent, configVerbose)
+    logger.setLevel(level)
   }
 }
