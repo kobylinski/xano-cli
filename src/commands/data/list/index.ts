@@ -307,7 +307,7 @@ export default class DataList extends Command {
           return str.length
         })
       )
-      return Math.min(maxLen, 30)
+      return Math.min(maxLen, 36)
     })
 
     // Print table header
