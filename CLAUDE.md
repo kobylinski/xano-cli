@@ -54,12 +54,12 @@ xano-cli/
 | Technology | Purpose |
 |------------|---------|
 | **TypeScript** | Primary language |
-| **Node.js 18+** | Runtime environment |
+| **Node.js 20+** | Runtime environment |
 | **oclif** | CLI framework (command structure, flags, args) |
 | **Mocha + Chai** | Testing framework |
 | **ESLint** | Code linting |
 | **js-yaml** | YAML parsing for credentials |
-| **xanoscript-lint** | XanoScript validation |
+| **@xano/xanoscript-language-server** | Official XanoScript parser and validation |
 
 ### Key Files
 

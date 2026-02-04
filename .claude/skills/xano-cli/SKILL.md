@@ -488,6 +488,23 @@ xano push --profile production functions/my_function.xs
 
 Work directly with table records (CRUD operations). Password fields are automatically hashed by Xano.
 
+### Flag Availability: `--force`
+
+The `--force` flag is only available on destructive commands that have confirmation prompts. Do NOT use `--force` on commands that don't support it.
+
+| Command | `--force` | Short | Purpose |
+|---------|:---------:|:-----:|---------|
+| `data:create` | No | - | Not needed (non-destructive) |
+| `data:bulk` | No | - | Not needed (non-destructive) |
+| `data:list` | No | - | Read-only |
+| `data:get` | No | - | Read-only |
+| `data:columns` | No | - | Read-only |
+| `data:export` | No | - | Read-only |
+| `data:import` | No | - | Has `--dry-run` instead |
+| `data:update` | Yes | - | Skip confirmation for bulk updates |
+| `data:delete` | Yes | `-f` | Skip confirmation |
+| `data:truncate` | Yes | `-f` | Skip confirmation prompt |
+
 ### Listing and Searching Records
 
 ```bash
