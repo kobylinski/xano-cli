@@ -8,6 +8,9 @@ const gitignorePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 
 export default [
   includeIgnoreFile(gitignorePath),
+  {
+    ignores: ['bin/*.cjs'],  // Lightweight CommonJS scripts use different conventions
+  },
   ...oclif,
   prettier,
   {

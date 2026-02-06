@@ -94,7 +94,7 @@ export default abstract class BaseCommand extends Command {
     verbose: Flags.integer({
       char: 'v',
       default: 0,
-      description: 'Verbosity level: 1=verbose, 2=debug, 3=trace (or use -v, -vv, -vvv)',
+      description: 'Verbosity level: -v, -vv, -vvv or --verbose=N (1=verbose, 2=debug, 3=trace)',
       max: 3,
       min: 0,
     }),

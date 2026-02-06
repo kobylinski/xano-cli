@@ -5,16 +5,18 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import type { XanoObject, XanoObjectsFile, XanoObjectType } from './types.js'
 
+import { sanitize, sanitizePath, snakeCase } from './detector.js'
 import { logger } from './logger.js'
 import { ensureXanoDir, getXanoDirPath } from './project.js'
 
 const OBJECTS_JSON = 'objects.json'
 const GROUPS_JSON = 'groups.json'
 const ENDPOINTS_JSON = 'endpoints.json'
+const SEARCH_JSON = 'search.json'
 
 /**
  * API group info stored in groups.json
@@ -85,6 +87,264 @@ export function saveObjects(projectRoot: string, objects: XanoObjectsFile): void
   logger.fileOp('write', '.xano/objects.json')
   logger.dataStored('objects', { count: objects.length })
   writeFileSync(filePath, JSON.stringify(objects, null, 2) + '\n', 'utf8')
+  saveSearchIndex(projectRoot, objects)
+}
+
+/**
+ * Get path to .xano/search.json
+ */
+export function getSearchIndexPath(projectRoot: string): string {
+  return join(getXanoDirPath(projectRoot), SEARCH_JSON)
+}
+
+// ── Search Index Types ─────────────────────────────────────────────
+
+export interface SearchEntry {
+  path: string
+  type: null | string
+}
+
+export interface SearchFunctionEntry {
+  basename: string
+  path: string
+  pathNoExt: string
+  sanitizedBasename: string
+  sanitizedPathNoExt: string
+  snakeBasename: string
+  snakePathNoExt: string
+}
+
+export interface SearchIndexData {
+  byBasename: Record<string, SearchEntry[]>
+  byPath: Record<string, SearchEntry>
+  bySanitized: Record<string, SearchEntry[]>
+  functions: SearchFunctionEntry[]
+  objects: SearchObjectEntry[]
+  tables: Record<string, string>
+  version: number
+}
+
+export interface SearchObjectEntry {
+  basename: string
+  path: string
+  pathNoExt: string
+  sanitizedPathNoExt: string
+  snakePathNoExt: string
+  type: null | string
+}
+
+// ── Search Index Operations ────────────────────────────────────────
+
+/**
+ * Build precomputed search index from objects list.
+ * Stores all sanitized/snakeCase variants so queries
+ * can resolve without calling sanitize() at lookup time.
+ */
+export function buildSearchIndex(objects: XanoObjectsFile): SearchIndexData {
+  const byPath: Record<string, SearchEntry> = {}
+  const byBasename: Record<string, SearchEntry[]> = {}
+  const bySanitized: Record<string, SearchEntry[]> = {}
+  const tables: Record<string, string> = {}
+  const functions: SearchFunctionEntry[] = []
+  const allObjects: SearchObjectEntry[] = []
+
+  for (const obj of objects) {
+    const entry: SearchEntry = { path: obj.path, type: obj.type }
+    const base = basename(obj.path, '.xs')
+    const pathNoExt = obj.path.replace(/\.xs$/, '')
+    const sanitizedBase = sanitize(base)
+    const snakeBase = snakeCase(base)
+
+    // Index by exact path (with and without .xs extension)
+    byPath[obj.path] = entry
+    if (obj.path.endsWith('.xs')) {
+      byPath[pathNoExt] = entry
+    }
+
+    // Index by basename
+    if (!byBasename[base]) byBasename[base] = []
+    byBasename[base].push(entry)
+
+    // Index by sanitized and snakeCase variants
+    if (!bySanitized[sanitizedBase]) bySanitized[sanitizedBase] = []
+    bySanitized[sanitizedBase].push(entry)
+    if (snakeBase !== sanitizedBase) {
+      if (!bySanitized[snakeBase]) bySanitized[snakeBase] = []
+      bySanitized[snakeBase].push(entry)
+    }
+
+    // Table lookup: basename and variants → path
+    if (obj.type === 'table') {
+      tables[base] = obj.path
+      if (sanitizedBase !== base) tables[sanitizedBase] = obj.path
+      if (snakeBase !== base && snakeBase !== sanitizedBase) tables[snakeBase] = obj.path
+    }
+
+    // Function entries with precomputed path variants
+    if (obj.type === 'function') {
+      functions.push({
+        basename: base,
+        path: obj.path,
+        pathNoExt,
+        sanitizedBasename: sanitizedBase,
+        sanitizedPathNoExt: sanitizePath(pathNoExt),
+        snakeBasename: snakeBase,
+        snakePathNoExt: sanitizePath(pathNoExt, snakeCase),
+      })
+    }
+
+    // All objects with precomputed path variants (for suffix matching)
+    allObjects.push({
+      basename: base,
+      path: obj.path,
+      pathNoExt,
+      sanitizedPathNoExt: sanitizePath(pathNoExt),
+      snakePathNoExt: sanitizePath(pathNoExt, snakeCase),
+      type: obj.type,
+    })
+  }
+
+  return {
+    byBasename,
+    byPath,
+    bySanitized,
+    functions,
+    objects: allObjects,
+    tables,
+    version: 1,
+  }
+}
+
+/**
+ * Save precomputed search index to .xano/search.json.
+ * Called automatically by saveObjects().
+ */
+export function saveSearchIndex(projectRoot: string, objects: XanoObjectsFile): void {
+  ensureXanoDir(projectRoot)
+  const index = buildSearchIndex(objects)
+  const filePath = getSearchIndexPath(projectRoot)
+  writeFileSync(filePath, JSON.stringify(index) + '\n', 'utf8')
+}
+
+/**
+ * Load precomputed search index from .xano/search.json.
+ * Returns null if the file does not exist or is invalid.
+ */
+export function loadSearchIndex(projectRoot: string): null | SearchIndexData {
+  const filePath = getSearchIndexPath(projectRoot)
+  if (!existsSync(filePath)) {
+    return null
+  }
+
+  try {
+    const content = readFileSync(filePath, 'utf8')
+    const data = JSON.parse(content) as SearchIndexData
+    if (data.version !== 1) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Remove all search index entries for a given file path.
+ * Mutates and returns the index.
+ */
+export function removeSearchEntry(data: SearchIndexData, filePath: string): SearchIndexData {
+  const pathNoExt = filePath.replace(/\.xs$/, '')
+
+  // Remove from byPath
+  delete data.byPath[filePath]
+  delete data.byPath[pathNoExt]
+
+  // Remove from byBasename
+  for (const key of Object.keys(data.byBasename)) {
+    data.byBasename[key] = data.byBasename[key].filter(e => e.path !== filePath)
+    if (data.byBasename[key].length === 0) delete data.byBasename[key]
+  }
+
+  // Remove from bySanitized
+  for (const key of Object.keys(data.bySanitized)) {
+    data.bySanitized[key] = data.bySanitized[key].filter(e => e.path !== filePath)
+    if (data.bySanitized[key].length === 0) delete data.bySanitized[key]
+  }
+
+  // Remove from tables
+  for (const [key, path] of Object.entries(data.tables)) {
+    if (path === filePath) delete data.tables[key]
+  }
+
+  // Remove from functions and objects
+  data.functions = data.functions.filter(f => f.path !== filePath)
+  data.objects = data.objects.filter(o => o.path !== filePath)
+
+  return data
+}
+
+/**
+ * Add a single file entry to the search index.
+ * Mutates and returns the index.
+ */
+export function addSearchEntry(
+  data: SearchIndexData,
+  filePath: string,
+  type: null | XanoObjectType,
+): SearchIndexData {
+  const entry: SearchEntry = { path: filePath, type }
+  const base = basename(filePath, '.xs')
+  const pathNoExt = filePath.replace(/\.xs$/, '')
+  const sanitizedBase = sanitize(base)
+  const snakeBase = snakeCase(base)
+
+  // Add to byPath
+  data.byPath[filePath] = entry
+  if (filePath.endsWith('.xs')) {
+    data.byPath[pathNoExt] = entry
+  }
+
+  // Add to byBasename
+  if (!data.byBasename[base]) data.byBasename[base] = []
+  data.byBasename[base].push(entry)
+
+  // Add to bySanitized
+  if (!data.bySanitized[sanitizedBase]) data.bySanitized[sanitizedBase] = []
+  data.bySanitized[sanitizedBase].push(entry)
+  if (snakeBase !== sanitizedBase) {
+    if (!data.bySanitized[snakeBase]) data.bySanitized[snakeBase] = []
+    data.bySanitized[snakeBase].push(entry)
+  }
+
+  // Add to tables if table type
+  if (type === 'table') {
+    data.tables[base] = filePath
+    if (sanitizedBase !== base) data.tables[sanitizedBase] = filePath
+    if (snakeBase !== base && snakeBase !== sanitizedBase) data.tables[snakeBase] = filePath
+  }
+
+  // Add to functions if function type
+  if (type === 'function') {
+    data.functions.push({
+      basename: base,
+      path: filePath,
+      pathNoExt,
+      sanitizedBasename: sanitizedBase,
+      sanitizedPathNoExt: sanitizePath(pathNoExt),
+      snakeBasename: snakeBase,
+      snakePathNoExt: sanitizePath(pathNoExt, snakeCase),
+    })
+  }
+
+  // Add to objects
+  data.objects.push({
+    basename: base,
+    path: filePath,
+    pathNoExt,
+    sanitizedPathNoExt: sanitizePath(pathNoExt),
+    snakePathNoExt: sanitizePath(pathNoExt, snakeCase),
+    type,
+  })
+
+  return data
 }
 
 /**

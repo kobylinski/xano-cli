@@ -8,13 +8,15 @@
   },
   "bugs": "https://github.com/kobylinski/xano-cli/issues",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
+    "@xano/xanoscript-language-server": "^11.6.3",
     "inquirer": "^8.2.5",
     "js-yaml": "^4.1.0",
     "papaparse": "^5.5.3",
-    "@xano/xanoscript-language-server": "^11.6.3"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/compat": "^1",

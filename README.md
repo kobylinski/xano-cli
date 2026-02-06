@@ -624,6 +624,73 @@ xano skill            # User scope
 xano skill --project  # Project scope
 ```
 
+## MCP Server (Model Context Protocol)
+
+The CLI includes an MCP server for AI model integration with Claude Desktop and Claude Code.
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `xano_project` | Get project info (workspace, paths, object counts) |
+| `xano_resolve` | Resolve identifier to workspace file path |
+| `xano_search` | Search workspace objects by pattern |
+| `xano_inspect` | Parse and analyze a XanoScript file |
+| `xano_explain` | Get docs for builtin or workspace object |
+| `xano_lint` | Lint a XanoScript file |
+| `xano_sync` | Sync metadata from Xano |
+| `xano_pull` | Pull files from Xano to local |
+| `xano_push` | Push local files to Xano |
+| `xano_status` | Get file status (modified, new, unchanged) |
+| `xano_api_call` | Call a live Xano API endpoint |
+| `xano_tables` | List all tables |
+| `xano_data_list` | List records with filtering and sorting |
+| `xano_data_*` | Data operations (get, create, update, delete, bulk) |
+| `xano_schema_*` | Schema operations (columns, indexes, add, rename, drop) |
+| `xano_history` | Get request history for an object |
+
+### Setup
+
+**One command, run from your Xano project directory:**
+
+```bash
+cd /path/to/your/xano/project
+claude mcp add xano --scope project -- xano mcp --project-root "$(pwd)"
+```
+
+This:
+1. Creates `.mcp.json` in your project (can be versioned)
+2. Captures the absolute project path at setup time
+3. Works with both Claude Code and Claude Desktop
+
+**Claude Desktop** also requires adding to `claude_desktop_config.json`:
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "xano": {
+      "command": "xano",
+      "args": ["mcp", "--project-root", "/path/to/your/xano/project"]
+    }
+  }
+}
+```
+
+### RPC Server
+
+A JSON-RPC 2.0 server is also available for programmatic access:
+
+```bash
+xano rpc
+```
+
+Protocol: newline-delimited JSON-RPC 2.0 over stdio.
+
+Available methods: `api.call`, `api.groups`, `config`, `config.set`, `data.*`, `tables`, `sync`, `pull`, `push`, `status`, `shutdown`
+
 ## License
 
 MIT

@@ -21,7 +21,8 @@ project/
 │   ├── cli.json            # CLI-only settings (naming, profile)
 │   ├── objects.json        # Object mappings and checksums
 │   ├── groups.json         # API group canonical IDs
-│   └── datasources.json    # Datasource permissions
+│   ├── datasources.json    # Datasource permissions
+│   └── search.json         # Precomputed search index (auto-generated)
 ├── functions/              # XanoScript functions
 │   └── user/               # Subdirectories from natural text names
 │       └── security_events/
@@ -261,6 +262,310 @@ xano lint functions/
 
 # Lint only git-staged files
 xano lint --staged
+```
+
+### Inspect
+
+Analyze a XanoScript file to see its structure: inputs, variables, function calls, cross-references, and diagnostics.
+
+```bash
+# Full analysis of a file
+xano inspect functions/my_function.xs
+
+# JSON output (for programmatic use)
+xano inspect functions/my_function.xs --json
+
+# Show only function calls
+xano inspect functions/my_function.xs --calls
+
+# Show only variables
+xano inspect functions/my_function.xs --vars
+
+# Show only inputs
+xano inspect functions/my_function.xs --inputs
+```
+
+Output includes:
+- **Inputs**: Parameter names, types, required/optional/nullable status
+- **Variables**: Variable names and types from the symbol table
+- **Function Calls**: All documented function/construct calls with line numbers (e.g., `math.add`, `db.query`, `stack`)
+- **Variable References**: All `$variable` references grouped by name with line numbers
+- **Cross-References**: Database table references (`db.query`, `db.add`, etc.) and `function.run` calls, resolved to local file paths when available
+- **Diagnostics**: Errors, warnings, and hints from the parser
+
+### Explain
+
+Look up documentation for XanoScript builtins or resolve workspace objects with full context.
+
+```bash
+# Builtin documentation (dot-separated names resolve to builtins)
+xano explain db.query
+xano explain trim
+xano explain stack
+
+# Workspace object resolution (resolves to local file and shows context)
+xano explain brands_POST          # Resolves API endpoint
+xano explain validate_token       # Resolves function by basename
+xano explain Discord/GetMessageByID  # Resolves function by path
+xano explain users                # Resolves table
+
+# Prefix search - list all matching builtin entries
+xano explain db
+xano explain math
+
+# Force builtin docs only (skip workspace resolution)
+xano explain stack --builtin
+
+# JSON output
+xano explain db.query --json
+xano explain brands_POST --json
+```
+
+Resolution order:
+1. **Builtin match**: Dot-separated names (e.g., `db.query`) resolve to static documentation
+2. **Workspace resolution**: Identifiers are matched against `.xano/objects.json` by basename, sanitized name, or path pattern. When resolved, shows: inputs, variables, cross-references (db tables and function.run calls with file paths), and diagnostics
+3. **Prefix search**: Partial matches show a list of matching builtins
+
+Searches across:
+- **Workspace objects**: Functions, tables, API endpoints, tasks, etc. from the synced project
+- **Functions**: Built-in functions like `db.query`, `math.add`, `debug.stop`, `stack`, `var`, `input`
+- **Filters**: Pipe filters like `trim`, `deg2rad`, `number_format`
+- **Input filters**: Input validation filters like `min`, `max`
+- **Query filters**: Database query filters like `covers`, `l1_distance_manhattan`
+
+### Index
+
+Rebuild or incrementally update the search index (`.xano/search.json`) used by `explain` and `inspect` for fast name resolution.
+
+```bash
+# Full rebuild from objects.json
+xano index
+
+# Incremental: update a single file
+xano index functions/my_function.xs
+
+# Incremental: update all objects under a directory
+xano index functions/
+xano index apis/auth/
+```
+
+The search index is rebuilt automatically during `pull`, `push`, and `sync`. Use `xano index` to rebuild manually after git operations or when the index is stale.
+
+### Resolve
+
+Fast identifier resolution to workspace file paths. Useful for scripts and automation.
+
+```bash
+# Resolve by basename
+xano resolve brands_POST
+# Output: brands_POST (api_endpoint)
+#         File: apis/merchant/brands_POST.xs
+
+# Resolve function by path pattern
+xano resolve Discord/GetMessageByID
+
+# Machine-readable JSON output (agent mode auto-detected or use --agent)
+xano resolve my_function --agent
+# Output: {"filePath":"functions/my_function.xs","matchType":"basename","name":"my_function","type":"function"}
+```
+
+Resolution strategies (in order):
+1. Exact path match
+2. Basename match (filename without `.xs`)
+3. Sanitized name match (`myFunction` → `my_function`)
+4. Endpoint pattern (`name_VERB` → `apis/*/name_VERB.xs`)
+5. Function path (`Group/Name` → `functions/group/name.xs`)
+
+#### Lightweight Scripts (Fast Startup)
+
+For hooks and scripts where startup time matters, use the lightweight CommonJS scripts instead of the full CLI (~300ms vs ~6s):
+
+```bash
+# Fast incremental index (single file)
+node bin/index.cjs functions/my_func.xs
+
+# Fast full rebuild
+node bin/index.cjs
+
+# Fast identifier resolution
+node bin/resolve.cjs brands_POST
+# Output: {"filePath":"apis/merchant/brands_POST.xs","matchType":"basename","name":"brands_POST","type":"api_endpoint"}
+```
+
+These scripts bypass the oclif CLI framework and load only the necessary modules.
+
+#### Claude Code Hook for Auto-Indexing
+
+Add a PostToolUse hook so the search index stays current whenever `.xs` files are written or edited. Add this to your project's `.claude/settings.json`:
+
+**For local project install** (xano-cli in node_modules):
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=$(cat | jq -r \".tool_input.file_path // empty\"); [[ \"$FILE\" == *.xs ]] && node \"$CLAUDE_PROJECT_DIR/node_modules/@deligopl/xano-cli/bin/index.cjs\" \"$FILE\" 2>/dev/null || true'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**For global install** (using `npm install -g @deligopl/xano-cli`):
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=$(cat | jq -r \".tool_input.file_path // empty\"); [[ \"$FILE\" == *.xs ]] && node \"$(npm root -g)/@deligopl/xano-cli/bin/index.cjs\" \"$FILE\" 2>/dev/null || true'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook uses the lightweight `index.cjs` script (~300ms startup vs ~6s for full CLI) to incrementally update the search index after each `.xs` file edit.
+
+**Alternative: Use full CLI commands** (slower but always works):
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=$(cat | jq -r \".tool_input.file_path // empty\"); [[ \"$FILE\" == *.xs ]] && xano index \"$FILE\" 2>/dev/null || true'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## MCP Server (Model Context Protocol)
+
+The xano-cli includes an MCP server that provides direct integration with AI models, allowing them to access Xano workspace context without spawning CLI processes.
+
+### Starting the MCP Server
+
+```bash
+# Via oclif command (slower startup)
+xano mcp
+
+# Via lightweight script (faster startup, recommended)
+node bin/mcp.js
+# or with global install:
+node "$(npm root -g)/@deligopl/xano-cli/bin/mcp.js"
+```
+
+### MCP Tools Available
+
+| Tool | Description |
+|------|-------------|
+| `xano_resolve` | Resolve identifier to file path |
+| `xano_inspect` | Parse file, return inputs/vars/refs/diagnostics |
+| `xano_explain` | Get builtin docs or workspace object context |
+| `xano_search` | Search objects by pattern |
+| `xano_lint` | Lint file, return diagnostics |
+| `xano_project` | Get project info (workspace, paths, object counts) |
+| `xano_api_call` | Call a live Xano API endpoint |
+
+### Configuration for Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "xano": {
+      "command": "node",
+      "args": ["/path/to/xano-cli/bin/mcp.js"]
+    }
+  }
+}
+```
+
+**For global install:**
+```json
+{
+  "mcpServers": {
+    "xano": {
+      "command": "xano",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### Configuration for Claude Code
+
+Add to your project's `.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "xano": {
+      "command": "xano",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### Example Tool Responses
+
+**xano_resolve:**
+```json
+{"filePath":"apis/merchant/brands_POST.xs","matchType":"basename","name":"brands_POST","type":"api_endpoint"}
+```
+
+**xano_inspect:**
+```json
+{
+  "file": "apis/merchant/brands_POST.xs",
+  "name": "brands",
+  "type": "api_endpoint",
+  "inputs": {"brand_name": {"type": "text", "optional": false}},
+  "variables": {"$result": {"type": "unknown"}},
+  "dbRefs": [{"operation": "add", "table": "brands", "line": 12, "resolvedPath": "tables/brands.xs"}],
+  "functionRunRefs": [],
+  "diagnostics": {"errors": [], "warnings": [], "hints": []}
+}
+```
+
+**xano_project:**
+```json
+{
+  "projectRoot": "/path/to/project",
+  "totalObjects": 156,
+  "objectCounts": {"function": 45, "table": 23, "api_endpoint": 88},
+  "config": {"instance": "a1b2-c3d4", "workspace": "My Workspace", "workspaceId": 123}
+}
+```
+
+**xano_api_call:**
+```json
+// Request: method=POST, path=/auth/login, body={"email":"...", "password":"..."}
+// Success response:
+{"ok": true, "status": 200, "data": {"authToken": "eyJ...", "user": {...}}}
+
+// Error response:
+{"ok": false, "status": 401, "error": "Invalid credentials"}
 ```
 
 ## Creating New Objects from Local Files
@@ -1255,6 +1560,9 @@ Run `xano pull --sync` to refresh the baseline.
 
 ### Missing objects.json
 The CLI will auto-sync metadata when objects.json is missing. You can also run `xano pull --sync` manually.
+
+### Stale search index
+If `explain` or `inspect` return outdated results, rebuild the search index: `xano index`. The index is rebuilt automatically during `pull`, `push`, and `sync`.
 
 ### SQL Migration Errors
 
