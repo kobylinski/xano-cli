@@ -583,12 +583,17 @@ The CLI uses multiple configuration files with different purposes:
 {
   "defaultDatasource": "dev",
   "datasources": {
-    "live": "read-only",
-    "dev": "read-write",
-    "staging": "read-write"
+    "live": "locked",
+    "staging": "read-only",
+    "dev": "read-write"
   }
 }
 ```
+
+Access levels:
+- `locked` - No access (blocks all operations)
+- `read-only` - Can only read data
+- `read-write` - Full access
 
 **~/.xano/credentials.yaml** (global credentials):
 ```yaml
