@@ -21,7 +21,8 @@ Methods:
 
   api.call               Call a live API endpoint
                          Params: {method, path, body?, headers?, apiGroup?}
-                         Result: {ok, status, data?, error?}
+                         Result: {ok, status, data?, error?, _debug?}
+                         _debug: {request: {url, method, headers, body?}, response?: {status, statusText, headers}}
 
   api.groups             List available API groups
                          Params: {}

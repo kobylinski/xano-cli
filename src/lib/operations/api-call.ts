@@ -4,6 +4,7 @@
  * Shared logic for calling live API endpoints across all interfaces.
  */
 
+import type { RequestDebugInfo } from '../api.js'
 import type { OperationContext } from './context.js'
 
 import { findMatchingEndpoint, loadEndpoints, loadGroups } from '../objects.js'
@@ -23,6 +24,7 @@ export interface ApiCallParams {
  * Result of an API call operation
  */
 export interface ApiCallResult {
+  _debug?: RequestDebugInfo
   data?: unknown
   error?: string
   ok: boolean
@@ -171,6 +173,7 @@ export async function callApiEndpoint(
   )
 
   return {
+    _debug: response._debug,
     data: response.data,
     error: response.error,
     ok: response.ok,

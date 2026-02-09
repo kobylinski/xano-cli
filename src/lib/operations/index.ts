@@ -8,6 +8,9 @@
  * 3. Formats output (console/JSON-RPC response/MCP response)
  */
 
+// Re-export debug info type from api
+export type { RequestDebugInfo } from '../api.js'
+
 // API call operations
 export {
   ApiCallError,

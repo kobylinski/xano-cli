@@ -119,9 +119,27 @@ export function listProfileNames(): string[] {
 }
 
 /**
+ * Debug information for request/response
+ */
+export interface RequestDebugInfo {
+  request: {
+    body?: string
+    headers: Record<string, string>
+    method: string
+    url: string
+  }
+  response?: {
+    headers: Record<string, string>
+    status: number
+    statusText: string
+  }
+}
+
+/**
  * API response wrapper
  */
 export interface ApiResponse<T> {
+  _debug?: RequestDebugInfo
   data?: T
   error?: string
   etag?: string
@@ -339,12 +357,34 @@ export class XanoApi {
       requestBody = JSON.stringify(body)
     }
 
+    // Build debug info for request
+    const debugInfo: RequestDebugInfo = {
+      request: {
+        body: requestBody,
+        headers: requestHeaders,
+        method,
+        url,
+      },
+    }
+
     try {
       const response = await fetch(url, {
         body: requestBody,
         headers: requestHeaders,
         method,
       })
+
+      // Capture response headers
+      const responseHeaders: Record<string, string> = {}
+      for (const [key, value] of response.headers.entries()) {
+        responseHeaders[key] = value
+      }
+
+      debugInfo.response = {
+        headers: responseHeaders,
+        status: response.status,
+        statusText: response.statusText,
+      }
 
       if (!response.ok) {
         let errorMessage = `HTTP ${response.status}`
@@ -356,6 +396,7 @@ export class XanoApi {
         }
 
         return {
+          _debug: debugInfo,
           error: errorMessage,
           ok: false,
           status: response.status,
@@ -364,12 +405,14 @@ export class XanoApi {
 
       const data = await response.json()
       return {
+        _debug: debugInfo,
         data,
         ok: true,
         status: response.status,
       }
     } catch (error) {
       return {
+        _debug: debugInfo,
         error: error instanceof Error ? error.message : 'Unknown error',
         ok: false,
         status: 0,

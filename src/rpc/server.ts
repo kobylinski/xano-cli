@@ -116,6 +116,7 @@ const methods: Record<string, MethodHandler> = {
     })
 
     return {
+      _debug: result._debug,
       data: result.data,
       error: result.error,
       ok: result.ok,
