@@ -5,8 +5,12 @@
 
 import * as yaml from 'js-yaml'
 import { existsSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+
+const require = createRequire(import.meta.url)
+const { version: CLI_VERSION } = require('../../package.json') as { version: string }
 
 import type {
   OpenApiSpec,
@@ -347,6 +351,7 @@ export class XanoApi {
 
     const requestHeaders: Record<string, string> = {
       accept: 'application/json',
+      'User-Agent': `xano-cli/${CLI_VERSION}`,
       ...this.datasourceHeaders(datasource),
       ...headers,
     }
