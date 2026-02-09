@@ -1,7 +1,7 @@
 {
   "name": "@deligopl/xano-cli",
   "description": "CLI for syncing XanoScript files with Xano backend",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "author": "Deligo <marek.k@deligo.pl>",
   "bin": {
     "xano": "bin/run.js"
