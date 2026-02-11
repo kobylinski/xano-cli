@@ -140,42 +140,94 @@ private customResolver?: PathResolver
 
     // Check if sync is needed (missing objects.json or --sync flag)
     const needsSync = flags.sync || !hasObjectsJson(projectRoot)
+    // Bulk fetch when pulling all files (no specific paths) to avoid N+1 API calls
+    const pullAllFiles = inputPaths.length === 0
 
     let objects = loadObjects(projectRoot)
     let fetchedObjects: FetchedObject[] | null = null
 
-    if (needsSync) {
-      this.log('Syncing metadata from Xano...')
-      const fetchResult = await fetchAllObjects(api, (msg) => this.log(msg))
+    // Resolve types from input paths (for filtered fetching)
+    let typesToFetch: XanoObjectType[] | undefined
+    if (!pullAllFiles && !needsSync) {
+      // Collect types for all input paths
+      const allTypes = new Set<XanoObjectType>()
+      for (const inputPath of inputPaths) {
+        const pathTypes = resolveInputToTypes(inputPath, this.paths, this.customResolveType)
+        if (pathTypes) {
+          for (const t of pathTypes) allTypes.add(t)
+        }
+      }
+
+      if (allTypes.size > 0) {
+        typesToFetch = [...allTypes]
+      }
+    }
+
+    // Check if we have matches for the requested paths before fetching
+    let filesToPull: string[] = []
+    if (!pullAllFiles) {
+      filesToPull = this.expandPaths(projectRoot, inputPaths, objects)
+    }
+
+    // Determine if we need to fetch from API:
+    // 1. Always if sync is needed (no objects.json or --sync flag)
+    // 2. When pulling all files (no specific paths)
+    // 3. When specific paths requested but no matches found (with --force, discover from API)
+    const noMatchesForPaths = !pullAllFiles && filesToPull.length === 0 && flags.force
+    const shouldFetchFromApi = needsSync || pullAllFiles || noMatchesForPaths
+
+    if (shouldFetchFromApi) {
+      if (needsSync) {
+        this.log('Syncing metadata from Xano...')
+      } else if (noMatchesForPaths && typesToFetch) {
+        this.log(`No tracked files found, fetching ${typesToFetch.join(', ')} from Xano...`)
+      } else if (noMatchesForPaths) {
+        this.log('No tracked files found, fetching from Xano...')
+      } else {
+        this.log('Fetching all objects from Xano...')
+      }
+
+      // Use filtered fetch when we have specific types and not doing full sync
+      const fetchTypes = (noMatchesForPaths && typesToFetch) ? typesToFetch : undefined
+      const fetchResult = await fetchAllObjects(api, {
+        log: (msg) => this.log(msg),
+        types: fetchTypes,
+      })
       fetchedObjects = fetchResult.objects
       this.log('')
 
-      // Update objects.json with fetched data
-      objects = []
-      for (const obj of fetchedObjects) {
-        const filePath = generateObjectPath(obj, this.paths, {
-          customResolver: this.customResolver,
-          customSanitize: this.customSanitize,
-          naming: this.naming,
-        })
-        objects = upsertObject(objects, filePath, {
-          id: obj.id,
-          original: encodeBase64(obj.xanoscript),
-          sha256: computeSha256(obj.xanoscript),
-          status: 'unchanged',
-          type: obj.type,
-        })
-      }
+      // Update objects.json when syncing or discovering new files
+      if (needsSync || noMatchesForPaths) {
+        for (const obj of fetchedObjects) {
+          const filePath = generateObjectPath(obj, this.paths, {
+            customResolver: this.customResolver,
+            customSanitize: this.customSanitize,
+            naming: this.naming,
+          })
+          objects = upsertObject(objects, filePath, {
+            id: obj.id,
+            original: encodeBase64(obj.xanoscript),
+            sha256: computeSha256(obj.xanoscript),
+            status: 'unchanged',
+            type: obj.type,
+          })
+        }
 
-      saveObjects(projectRoot, objects)
-      saveGroups(projectRoot, fetchResult.apiGroups)
-      saveEndpoints(projectRoot, fetchResult.endpoints)
+        saveObjects(projectRoot, objects)
+        saveGroups(projectRoot, fetchResult.apiGroups)
+        saveEndpoints(projectRoot, fetchResult.endpoints)
+
+        // Re-expand paths with updated objects
+        if (!pullAllFiles) {
+          filesToPull = this.expandPaths(projectRoot, inputPaths, objects)
+        }
+      }
     }
 
-    // Determine which files to pull
-    const filesToPull = inputPaths.length === 0
-      ? objects.map((o) => o.path) // Pull all known objects
-      : this.expandPaths(projectRoot, inputPaths, objects) // Expand directories, normalize files
+    // Determine final files to pull
+    if (pullAllFiles) {
+      filesToPull = objects.map((o) => o.path)
+    }
 
     if (filesToPull.length === 0) {
       this.log('No files to pull.')
@@ -191,7 +243,7 @@ private customResolver?: PathResolver
     let errorCount = 0
     let skippedCount = 0
 
-    // If we already fetched objects during sync, use them directly
+    // Build map of fetched objects by path for fast lookup
     const fetchedByPath = new Map<string, FetchedObject>()
     if (fetchedObjects) {
       for (const obj of fetchedObjects) {

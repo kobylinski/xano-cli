@@ -152,37 +152,41 @@ export async function pullFiles(
 
   // Check if sync is needed
   const needsSync = !hasObjectsJson(projectRoot)
+  // Bulk fetch when pulling all files (no specific paths) to avoid N+1 API calls
+  const pullAllFiles = !filePaths || filePaths.length === 0
 
   let objects = loadObjects(projectRoot)
   let fetchedObjects: FetchedObject[] | null = null
 
-  // Sync metadata if needed
-  if (needsSync) {
+  // Always do bulk fetch when pulling all files OR when sync is needed
+  if (needsSync || pullAllFiles) {
     const fetchResult = await fetchAllObjects(ctx.api)
     fetchedObjects = fetchResult.objects
 
-    // Update objects.json with fetched data
-    objects = []
-    for (const obj of fetchedObjects) {
-      const filePath = generateObjectPath(obj, paths, {})
-      objects = upsertObject(objects, filePath, {
-        id: obj.id,
-        original: encodeBase64(obj.xanoscript),
-        sha256: computeSha256(obj.xanoscript),
-        status: 'unchanged',
-        type: obj.type,
-      })
-    }
+    // Update objects.json when syncing
+    if (needsSync) {
+      objects = []
+      for (const obj of fetchedObjects) {
+        const filePath = generateObjectPath(obj, paths, {})
+        objects = upsertObject(objects, filePath, {
+          id: obj.id,
+          original: encodeBase64(obj.xanoscript),
+          sha256: computeSha256(obj.xanoscript),
+          status: 'unchanged',
+          type: obj.type,
+        })
+      }
 
-    saveObjects(projectRoot, objects)
-    saveGroups(projectRoot, fetchResult.apiGroups)
-    saveEndpoints(projectRoot, fetchResult.endpoints)
+      saveObjects(projectRoot, objects)
+      saveGroups(projectRoot, fetchResult.apiGroups)
+      saveEndpoints(projectRoot, fetchResult.endpoints)
+    }
   }
 
   // Determine which files to pull
-  const filesToPull = filePaths && filePaths.length > 0
-    ? filePaths.filter(p => objects.some(o => o.path === p))
-    : objects.map(o => o.path)
+  const filesToPull = pullAllFiles
+    ? objects.map(o => o.path)
+    : filePaths.filter(p => objects.some(o => o.path === p))
 
   if (filesToPull.length === 0) {
     return { errors: 0, ok: true, pulled: 0, skipped: 0 }

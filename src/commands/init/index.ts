@@ -733,61 +733,32 @@ static flags = {
     let workspaceName: string
 
     if (flags.workspace) {
+      // Explicit flag - use it directly
       workspaceId = Number.parseInt(flags.workspace, 10)
       workspaceName = `Workspace ${workspaceId}`
     } else if (projectConfig) {
+      // Existing xano.json - use its workspace (reinit case)
       workspaceId = projectConfig.workspaceId
       workspaceName = projectConfig.workspace || `Workspace ${projectConfig.workspaceId}`
-    } else if (profile.workspace) {
-      // Handle backward compatibility: workspace can be number (ID) or string (name)
-      const workspaces = await this.fetchWorkspaces(profile.access_token, profile.instance_origin)
-
-      if (typeof profile.workspace === 'number') {
-        workspaceId = profile.workspace
-        const ws = workspaces.find(w => w.id === workspaceId)
-        workspaceName = ws?.name || `Workspace ${workspaceId}`
-      } else {
-        // Old format: workspace is a string name, look up ID
-        const ws = workspaces.find(w => w.name === profile.workspace)
-        if (ws) {
-          workspaceId = ws.id
-          workspaceName = ws.name
-        } else {
-          // Workspace not found, fall through to selection
-          if (flags.agent || this.jsonMode) {
-            const options = workspaces.map(w => ({ name: w.name, value: w.id.toString() }))
-            const map: Record<string, number> = {}
-            for (const w of workspaces) { map[w.name] = w.id }
-
-            this.agentPrompt(
-              'workspace',
-              `Workspace "${profile.workspace}" not found. Select workspace`,
-              options,
-              `xano init project --agent --profile=${profileName} --workspace=<mapped_id>`,
-              map
-            )
-            return
-          }
-
-          this.warn(`Workspace "${profile.workspace}" from profile not found.`)
-          const { workspace } = await inquirer.prompt<{ workspace: Workspace }>([
-            {
-              choices: workspaces.map(w => ({ name: w.name, value: w })),
-              message: 'Select workspace:',
-              name: 'workspace',
-              type: 'list',
-            },
-          ])
-          workspaceId = workspace.id
-          workspaceName = workspace.name
-        }
-      }
     } else {
-      // Need to select workspace
+      // Always prompt for workspace selection (profile default is just the default choice)
       const workspaces = await this.fetchWorkspaces(profile.access_token, profile.instance_origin)
+
+      // Determine default selection from profile
+      let defaultWorkspaceId: number | undefined
+      if (typeof profile.workspace === 'number') {
+        defaultWorkspaceId = profile.workspace
+      } else if (typeof profile.workspace === 'string') {
+        const ws = workspaces.find(w => w.name === profile.workspace)
+        defaultWorkspaceId = ws?.id
+      }
 
       if (flags.agent || this.jsonMode) {
-        const options = workspaces.map(w => ({ name: w.name, value: w.id.toString() }))
+        const options = workspaces.map(w => ({
+          isDefault: w.id === defaultWorkspaceId,
+          name: w.name,
+          value: w.id.toString(),
+        }))
         const map: Record<string, number> = {}
         for (const w of workspaces) { map[w.name] = w.id }
 
@@ -804,6 +775,7 @@ static flags = {
       const { workspace } = await inquirer.prompt<{ workspace: Workspace }>([
         {
           choices: workspaces.map(w => ({ name: w.name, value: w })),
+          default: workspaces.findIndex(w => w.id === defaultWorkspaceId),
           message: 'Select workspace:',
           name: 'workspace',
           type: 'list',
@@ -817,17 +789,20 @@ static flags = {
     let branch: string
 
     if (flags.branch) {
+      // Explicit flag - use it directly
       branch = flags.branch
-    } else if (profile.branch) {
-      branch = profile.branch
     } else {
-      // Need to select branch
+      // Always prompt for branch selection (profile/live branch is just the default choice)
       const branches = await this.fetchBranches(profile.access_token, profile.instance_origin, workspaceId.toString())
       const nonBackup = branches.filter(b => !b.backup)
 
+      // Determine default: prefer profile.branch, then live branch
+      const liveBranch = nonBackup.find(b => b.live)
+      const defaultBranch = profile.branch || liveBranch?.label || nonBackup[0]?.label
+
       if (flags.agent || this.jsonMode) {
         const options = nonBackup.map(b => ({
-          isDefault: b.live,
+          isDefault: b.label === defaultBranch,
           name: b.live ? `${b.label} (live)` : b.label,
           value: b.label,
         }))
@@ -841,14 +816,13 @@ static flags = {
         return
       }
 
-      const liveBranch = nonBackup.find(b => b.live)
       const { selectedBranch } = await inquirer.prompt<{ selectedBranch: string }>([
         {
           choices: nonBackup.map(b => ({
             name: b.live ? `${b.label} (live)` : b.label,
             value: b.label,
           })),
-          default: liveBranch?.label || nonBackup[0]?.label,
+          default: defaultBranch,
           message: 'Select branch:',
           name: 'selectedBranch',
           type: 'list',

@@ -121,6 +121,18 @@ static flags = {
       await this.fetchWorkflowTests(api, remoteObjects, localPaths)
     }
 
+    if (!typeFilter || typeFilter === 'agent') {
+      await this.fetchAgents(api, remoteObjects, localPaths)
+    }
+
+    if (!typeFilter || typeFilter === 'tool') {
+      await this.fetchTools(api, remoteObjects, localPaths)
+    }
+
+    if (!typeFilter || typeFilter === 'mcp_server') {
+      await this.fetchMcpServers(api, remoteObjects, localPaths)
+    }
+
     // Filter remote-only if requested
     let filtered = remoteObjects
     if (flags['remote-only']) {
@@ -134,6 +146,24 @@ static flags = {
     }
 
     this.outputHuman(filtered, typeFilter, config, flags.long, flags['remote-only'])
+  }
+
+  private async fetchAgents(
+    api: XanoApi,
+    results: RemoteObject[],
+    localPaths: Map<string, string>
+  ): Promise<void> {
+    const response = await api.listAgents(1, 1000)
+    if (response.ok && response.data?.items) {
+      for (const agent of response.data.items) {
+        results.push({
+          id: agent.id,
+          localPath: localPaths.get(`agent:${agent.id}`),
+          name: agent.name,
+          type: 'agent',
+        })
+      }
+    }
   }
 
   private async fetchApis(
@@ -202,6 +232,24 @@ static flags = {
     }
   }
 
+  private async fetchMcpServers(
+    api: XanoApi,
+    results: RemoteObject[],
+    localPaths: Map<string, string>
+  ): Promise<void> {
+    const response = await api.listMcpServers(1, 1000)
+    if (response.ok && response.data?.items) {
+      for (const mcp of response.data.items) {
+        results.push({
+          id: mcp.id,
+          localPath: localPaths.get(`mcp_server:${mcp.id}`),
+          name: mcp.name,
+          type: 'mcp_server',
+        })
+      }
+    }
+  }
+
   private async fetchTables(
     api: XanoApi,
     results: RemoteObject[],
@@ -233,6 +281,24 @@ static flags = {
           localPath: localPaths.get(`task:${t.id}`),
           name: t.name,
           type: 'task',
+        })
+      }
+    }
+  }
+
+  private async fetchTools(
+    api: XanoApi,
+    results: RemoteObject[],
+    localPaths: Map<string, string>
+  ): Promise<void> {
+    const response = await api.listTools(1, 1000)
+    if (response.ok && response.data?.items) {
+      for (const tool of response.data.items) {
+        results.push({
+          id: tool.id,
+          localPath: localPaths.get(`tool:${tool.id}`),
+          name: tool.name,
+          type: 'tool',
         })
       }
     }
@@ -352,15 +418,21 @@ static flags = {
 
     // Direct type name mapping
     const directMapping: Record<string, XanoObjectType> = {
+      'agent': 'agent',
+      'agents': 'agent',
       'api': 'api_endpoint',
       'api_endpoint': 'api_endpoint',
       'apis': 'api_endpoint',
       'function': 'function',
       'functions': 'function',
+      'mcp_server': 'mcp_server',
+      'mcp_servers': 'mcp_server',
       'table': 'table',
       'tables': 'table',
       'task': 'task',
       'tasks': 'task',
+      'tool': 'tool',
+      'tools': 'tool',
       'workflow_test': 'workflow_test',
       'workflow_tests': 'workflow_test',
     }
@@ -377,6 +449,9 @@ static flags = {
       [config.paths.apis, 'api_endpoint'],
       [config.paths.tasks, 'task'],
       [config.paths.workflowTests, 'workflow_test'],
+      [config.paths.agents, 'agent'],
+      [config.paths.tools, 'tool'],
+      [config.paths.mcpServers, 'mcp_server'],
     ]
 
     for (const [prefix, type] of pathPrefixes) {

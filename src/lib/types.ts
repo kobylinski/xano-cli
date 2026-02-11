@@ -260,6 +260,82 @@ export interface XanoApiMiddleware {
   xanoscript?: string | { status?: string; value: string }
 }
 
+// AI Tool - custom tool for AI agents
+export interface XanoApiTool {
+  branch?: string
+  created_at: number | string
+  description?: string
+  docs?: string
+  draft_updated_at?: null | string
+  guid: string
+  id: number
+  input?: Array<{
+    access?: string
+    default?: string
+    description?: string
+    format?: string
+    name: string
+    nullable?: boolean
+    required?: boolean
+    style?: string
+    type: string
+  }>
+  instructions?: string
+  name: string
+  tag?: string[]
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
+}
+
+// AI Agent - AI agent configuration
+export interface XanoApiAgent {
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  llm?: string
+  name: string
+  tag?: string[]
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
+}
+
+// MCP Server - Model Context Protocol server
+export interface XanoApiMcpServer {
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  name: string
+  tag?: string[]
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
+}
+
+// Agent Trigger - trigger attached to an AI agent
+export interface XanoApiAgentTrigger {
+  agent_id: number
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  name: string
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
+}
+
+// MCP Server Trigger - trigger attached to an MCP server
+export interface XanoApiMcpServerTrigger {
+  created_at: number | string
+  description?: string
+  guid: string
+  id: number
+  mcp_server_id: number
+  name: string
+  updated_at: number | string
+  xanoscript?: string | { status?: string; value: string }
+}
+
 export interface XanoDataSource {
   color: string
   label: string

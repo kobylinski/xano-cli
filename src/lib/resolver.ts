@@ -137,13 +137,31 @@ function getTypesForPathKey(key: string): null | XanoObjectType[] {
     case 'addOns': { return ['addon']
     }
 
+    case 'agents': { return ['agent']
+    }
+
+    case 'agentTriggers': { return ['agent_trigger']
+    }
+
     case 'apis': { return ['api_endpoint', 'api_group']
     }
 
     case 'functions': { return ['function']
     }
 
+    case 'mcpServers': { return ['mcp_server']
+    }
+
+    case 'mcpServerTriggers': { return ['mcp_server_trigger']
+    }
+
     case 'middlewares': { return ['middleware']
+    }
+
+    case 'realtimeChannels': { return ['realtime_channel']
+    }
+
+    case 'realtimeTriggers': { return ['realtime_trigger']
     }
 
     case 'tables': { return ['table']
@@ -153,6 +171,9 @@ function getTypesForPathKey(key: string): null | XanoObjectType[] {
     }
 
     case 'tasks': { return ['task']
+    }
+
+    case 'tools': { return ['tool']
     }
 
     case 'workflowTests': { return ['workflow_test']

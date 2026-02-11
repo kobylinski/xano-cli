@@ -286,8 +286,9 @@ export function resolveVerbosity(
     return VERBOSITY.SILENT
   }
 
-  // Verbose flag (can be stacked: -v, -vv, -vvv)
+  // Verbose flag (can be stacked: -v, -vv, -vvv) - count flag returns number of occurrences
   if (flagVerbose !== undefined && flagVerbose > 0) {
+    // Cap at 3 (trace level)
     return Math.min(flagVerbose, 3) as VerbosityLevel
   }
 

@@ -76,6 +76,15 @@ export function detectType(content: string): null | XanoObjectType {
     if (cleanLine.startsWith('addon ')) return 'addon'
     if (cleanLine.startsWith('task ')) return 'task'
     if (cleanLine.startsWith('workflow_test ')) return 'workflow_test'
+    // AI-related types
+    if (cleanLine.startsWith('agent ')) return 'agent'
+    if (cleanLine.startsWith('agent_trigger ')) return 'agent_trigger'
+    if (cleanLine.startsWith('tool ')) return 'tool'
+    if (cleanLine.startsWith('mcp_server ')) return 'mcp_server'
+    if (cleanLine.startsWith('mcp_server_trigger ')) return 'mcp_server_trigger'
+    // Realtime types
+    if (cleanLine.startsWith('realtime_channel ')) return 'realtime_channel'
+    if (cleanLine.startsWith('realtime_trigger ')) return 'realtime_trigger'
 
     // No match on first significant line
     return null
@@ -809,6 +818,15 @@ const BLOCK_KEYWORDS = [
   'addon',
   'task',
   'workflow_test',
+  // AI-related types
+  'agent',
+  'agent_trigger',
+  'tool',
+  'mcp_server',
+  'mcp_server_trigger',
+  // Realtime types
+  'realtime_channel',
+  'realtime_trigger',
 ]
 
 /**
@@ -904,7 +922,7 @@ export function validateSingleBlock(content: string): null | string {
   const blocks = countBlocks(content)
 
   if (blocks.length === 0) {
-    return 'No valid XanoScript block found. File must start with a keyword like function, table, query, task, workflow_test, etc.'
+    return 'No valid XanoScript block found. File must start with a keyword like function, table, query, task, agent, tool, mcp_server, etc.'
   }
 
   if (blocks.length > 1) {

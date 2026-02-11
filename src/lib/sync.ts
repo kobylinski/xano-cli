@@ -61,12 +61,35 @@ export interface SyncResult {
 type LogFn = (message: string) => void
 
 /**
- * Fetch all objects from Xano API
+ * Options for fetching objects
+ */
+export interface FetchOptions {
+  /** Optional logger function */
+  log?: LogFn
+  /** Optional filter to fetch only specific object types */
+  types?: XanoObjectType[]
+}
+
+/**
+ * Check if a type should be fetched based on filter
+ */
+function shouldFetch(type: XanoObjectType, types?: XanoObjectType[]): boolean {
+  return !types || types.includes(type)
+}
+
+/**
+ * Fetch objects from Xano API
+ * @param api - XanoApi instance
+ * @param options - Fetch options (log function, types filter)
  */
 export async function fetchAllObjects(
   api: XanoApi,
-  log?: LogFn
+  options: FetchOptions | LogFn = {}
 ): Promise<FetchResult> {
+  // Support legacy signature: fetchAllObjects(api, log)
+  const opts: FetchOptions = typeof options === 'function' ? { log: options } : options
+  const { log, types } = opts
+
   const allObjects: FetchedObject[] = []
   const apiGroupsFile: ApiGroupsFile = {}
   const endpointsFile: EndpointsFile = {}
@@ -75,215 +98,368 @@ export async function fetchAllObjects(
   // Track canonical IDs for each API group (by ID)
   const apiGroupCanonicals = new Map<number, string>()
 
-  // Fetch API groups first for endpoint grouping AND as objects to sync
+  // API groups are always fetched if we need endpoints (for apigroup_id mapping)
+  // or if explicitly requested
+  const needApiGroups = shouldFetch('api_group', types) || shouldFetch('api_endpoint', types)
   const apiGroups = new Map<number, string>()
-  print('Fetching API groups...')
-  const groupsResponse = await api.listApiGroups(1, 1000)
-  if (groupsResponse.ok && groupsResponse.data?.items) {
-    for (const group of groupsResponse.data.items) {
-      apiGroups.set(group.id, group.name)
 
-      // Fetch canonical ID for live API calls (different from guid)
-      // eslint-disable-next-line no-await-in-loop -- Sequential API calls for rate limiting
-      const groupDetails = await api.getApiGroupWithCanonical(group.id)
-      const canonical = groupDetails.data?.canonical || group.guid
+  if (needApiGroups) {
+    print('Fetching API groups...')
+    const groupsResponse = await api.listApiGroups(1, 1000)
+    if (groupsResponse.ok && groupsResponse.data?.items) {
+      for (const group of groupsResponse.data.items) {
+        apiGroups.set(group.id, group.name)
 
-      // Store group info with canonical for groups.json
-      apiGroupsFile[group.name] = {
-        canonical,
-        id: group.id,
-      }
+        // Use guid as canonical - avoids N extra API calls
+        const canonical = group.guid
 
-      // Track canonical for endpoint lookup
-      apiGroupCanonicals.set(group.id, canonical)
-      // Add api_group to allObjects if it has xanoscript
-      const xs = extractXanoscript(group.xanoscript)
-      if (xs) {
-        allObjects.push({
+        // Store group info with canonical for groups.json
+        apiGroupsFile[group.name] = {
+          canonical,
           id: group.id,
-          name: group.name,
-          type: 'api_group',
-          xanoscript: xs,
-        })
-      }
-    }
+        }
 
-    print(`  Found ${apiGroups.size} API groups`)
+        // Track canonical for endpoint lookup
+        apiGroupCanonicals.set(group.id, canonical)
+
+        // Add api_group to allObjects if requested and has xanoscript
+        if (shouldFetch('api_group', types)) {
+          const xs = extractXanoscript(group.xanoscript)
+          if (xs) {
+            allObjects.push({
+              id: group.id,
+              name: group.name,
+              type: 'api_group',
+              xanoscript: xs,
+            })
+          }
+        }
+      }
+
+      print(`  Found ${apiGroups.size} API groups`)
+    }
   }
 
   // Fetch functions
-  print('Fetching functions...')
-  const functionsResponse = await api.listFunctions(1, 1000)
-  if (functionsResponse.ok && functionsResponse.data?.items) {
-    for (const fn of functionsResponse.data.items) {
-      const xs = extractXanoscript(fn.xanoscript)
-      if (xs) {
-        allObjects.push({
-          id: fn.id,
-          name: fn.name,
-          type: 'function',
-          xanoscript: xs,
-        })
+  if (shouldFetch('function', types)) {
+    print('Fetching functions...')
+    const functionsResponse = await api.listFunctions(1, 1000)
+    if (functionsResponse.ok && functionsResponse.data?.items) {
+      let withXs = 0
+      let withoutXs = 0
+      for (const fn of functionsResponse.data.items) {
+        const xs = extractXanoscript(fn.xanoscript)
+        if (xs) {
+          withXs++
+          allObjects.push({
+            id: fn.id,
+            name: fn.name,
+            type: 'function',
+            xanoscript: xs,
+          })
+        } else {
+          withoutXs++
+        }
       }
-    }
 
-    print(`  Found ${functionsResponse.data.items.length} functions`)
+      print(`  Found ${functionsResponse.data.items.length} functions (${withXs} with xanoscript, ${withoutXs} without)`)
+    }
   }
 
   // Fetch API endpoints
-  print('Fetching API endpoints...')
-  const apisResponse = await api.listApiEndpoints(1, 1000)
-  if (apisResponse.ok && apisResponse.data?.items) {
-    for (const endpoint of apisResponse.data.items) {
-      const xs = extractXanoscript(endpoint.xanoscript)
-      if (xs) {
-        allObjects.push({
-          apigroup_id: endpoint.apigroup_id, // eslint-disable-line camelcase
-          apigroup_name: apiGroups.get(endpoint.apigroup_id), // eslint-disable-line camelcase
-          id: endpoint.id,
-          name: endpoint.name,
-          path: endpoint.name,
-          type: 'api_endpoint',
-          verb: endpoint.verb,
-          xanoscript: xs,
-        })
-      }
-
-      // Add to endpoints.json (for all endpoints, not just those with xanoscript)
-      const verb = endpoint.verb.toUpperCase()
-      const canonical = apiGroupCanonicals.get(endpoint.apigroup_id)
-      if (canonical) {
-        if (!endpointsFile[verb]) {
-          endpointsFile[verb] = []
+  if (shouldFetch('api_endpoint', types)) {
+    print('Fetching API endpoints...')
+    const apisResponse = await api.listApiEndpoints(1, 1000)
+    if (apisResponse.ok && apisResponse.data?.items) {
+      let epWithXs = 0
+      let epWithoutXs = 0
+      for (const endpoint of apisResponse.data.items) {
+        const xs = extractXanoscript(endpoint.xanoscript)
+        if (xs) {
+          epWithXs++
+          allObjects.push({
+            apigroup_id: endpoint.apigroup_id, // eslint-disable-line camelcase
+            apigroup_name: apiGroups.get(endpoint.apigroup_id), // eslint-disable-line camelcase
+            id: endpoint.id,
+            name: endpoint.name,
+            path: endpoint.name,
+            type: 'api_endpoint',
+            verb: endpoint.verb,
+            xanoscript: xs,
+          })
+        } else {
+          epWithoutXs++
         }
 
-        endpointsFile[verb].push({
-          canonical,
-          id: endpoint.id,
-          pattern: endpoint.name, // endpoint.name is the path pattern like "devices/{device_id}"
-        })
-      }
-    }
+        // Add to endpoints.json (for all endpoints, not just those with xanoscript)
+        const verb = endpoint.verb.toUpperCase()
+        const canonical = apiGroupCanonicals.get(endpoint.apigroup_id)
+        if (canonical) {
+          if (!endpointsFile[verb]) {
+            endpointsFile[verb] = []
+          }
 
-    print(`  Found ${apisResponse.data.items.length} API endpoints`)
+          endpointsFile[verb].push({
+            canonical,
+            id: endpoint.id,
+            pattern: endpoint.name,
+          })
+        }
+      }
+
+      print(`  Found ${apisResponse.data.items.length} API endpoints (${epWithXs} with xanoscript, ${epWithoutXs} without)`)
+    }
   }
 
-  // Fetch tables and their triggers
-  print('Fetching tables...')
-  const tablesResponse = await api.listTables(1, 1000)
+  // Tables are always fetched if we need table_trigger (for table_id mapping)
+  const needTables = shouldFetch('table', types) || shouldFetch('table_trigger', types)
   const tableMap = new Map<number, string>()
-  if (tablesResponse.ok && tablesResponse.data?.items) {
-    for (const table of tablesResponse.data.items) {
-      tableMap.set(table.id, table.name)
-      const xs = extractXanoscript(table.xanoscript)
-      if (xs) {
-        allObjects.push({
-          id: table.id,
-          name: table.name,
-          type: 'table',
-          xanoscript: xs,
-        })
-      }
-    }
 
-    print(`  Found ${tablesResponse.data.items.length} tables`)
+  if (needTables) {
+    print('Fetching tables...')
+    const tablesResponse = await api.listTables(1, 1000)
+    if (tablesResponse.ok && tablesResponse.data?.items) {
+      let tblWithXs = 0
+      let tblWithoutXs = 0
+      for (const table of tablesResponse.data.items) {
+        tableMap.set(table.id, table.name)
+
+        // Add table to allObjects if requested
+        if (shouldFetch('table', types)) {
+          const xs = extractXanoscript(table.xanoscript)
+          if (xs) {
+            tblWithXs++
+            allObjects.push({
+              id: table.id,
+              name: table.name,
+              type: 'table',
+              xanoscript: xs,
+            })
+          } else {
+            tblWithoutXs++
+          }
+        }
+      }
+
+      print(`  Found ${tablesResponse.data.items.length} tables${shouldFetch('table', types) ? ` (${tblWithXs} with xanoscript, ${tblWithoutXs} without)` : ''}`)
+    }
   }
 
-  // Fetch all table triggers
-  print('Fetching table triggers...')
-  const triggersResponse = await api.listTableTriggers(1, 1000)
-  if (triggersResponse.ok && triggersResponse.data?.items) {
-    for (const trigger of triggersResponse.data.items) {
-      const xs = extractXanoscript(trigger.xanoscript)
-      if (xs) {
-        allObjects.push({
-          id: trigger.id,
-          name: trigger.name,
-          table_id: trigger.table_id, // eslint-disable-line camelcase
-          table_name: tableMap.get(trigger.table_id) || 'unknown', // eslint-disable-line camelcase
-          type: 'table_trigger',
-          xanoscript: xs,
-        })
+  // Fetch table triggers
+  if (shouldFetch('table_trigger', types)) {
+    print('Fetching table triggers...')
+    const triggersResponse = await api.listTableTriggers(1, 1000)
+    if (triggersResponse.ok && triggersResponse.data?.items) {
+      for (const trigger of triggersResponse.data.items) {
+        const xs = extractXanoscript(trigger.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: trigger.id,
+            name: trigger.name,
+            table_id: trigger.table_id, // eslint-disable-line camelcase
+            table_name: tableMap.get(trigger.table_id) || 'unknown', // eslint-disable-line camelcase
+            type: 'table_trigger',
+            xanoscript: xs,
+          })
+        }
       }
-    }
 
-    print(`  Found ${triggersResponse.data.items.length} table triggers`)
+      print(`  Found ${triggersResponse.data.items.length} table triggers`)
+    }
   }
 
   // Fetch tasks
-  print('Fetching tasks...')
-  const tasksResponse = await api.listTasks(1, 1000)
-  if (tasksResponse.ok && tasksResponse.data?.items) {
-    for (const task of tasksResponse.data.items) {
-      const xs = extractXanoscript(task.xanoscript)
-      if (xs) {
-        allObjects.push({
-          id: task.id,
-          name: task.name,
-          type: 'task',
-          xanoscript: xs,
-        })
+  if (shouldFetch('task', types)) {
+    print('Fetching tasks...')
+    const tasksResponse = await api.listTasks(1, 1000)
+    if (tasksResponse.ok && tasksResponse.data?.items) {
+      let taskWithXs = 0
+      let taskWithoutXs = 0
+      for (const task of tasksResponse.data.items) {
+        const xs = extractXanoscript(task.xanoscript)
+        if (xs) {
+          taskWithXs++
+          allObjects.push({
+            id: task.id,
+            name: task.name,
+            type: 'task',
+            xanoscript: xs,
+          })
+        } else {
+          taskWithoutXs++
+        }
       }
-    }
 
-    print(`  Found ${tasksResponse.data.items.length} tasks`)
+      print(`  Found ${tasksResponse.data.items.length} tasks (${taskWithXs} with xanoscript, ${taskWithoutXs} without)`)
+    }
   }
 
   // Fetch workflow tests
-  print('Fetching workflow tests...')
-  const workflowTestsResponse = await api.listWorkflowTests(1, 1000)
-  if (workflowTestsResponse.ok && workflowTestsResponse.data?.items) {
-    for (const test of workflowTestsResponse.data.items) {
-      const xs = extractXanoscript(test.xanoscript)
-      if (xs) {
-        allObjects.push({
-          id: test.id,
-          name: test.name,
-          type: 'workflow_test',
-          xanoscript: xs,
-        })
+  if (shouldFetch('workflow_test', types)) {
+    print('Fetching workflow tests...')
+    const workflowTestsResponse = await api.listWorkflowTests(1, 1000)
+    if (workflowTestsResponse.ok && workflowTestsResponse.data?.items) {
+      for (const test of workflowTestsResponse.data.items) {
+        const xs = extractXanoscript(test.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: test.id,
+            name: test.name,
+            type: 'workflow_test',
+            xanoscript: xs,
+          })
+        }
       }
-    }
 
-    print(`  Found ${workflowTestsResponse.data.items.length} workflow tests`)
+      print(`  Found ${workflowTestsResponse.data.items.length} workflow tests`)
+    }
   }
 
   // Fetch addons
-  print('Fetching addons...')
-  const addonsResponse = await api.listAddons(1, 1000)
-  if (addonsResponse.ok && addonsResponse.data?.items) {
-    for (const addon of addonsResponse.data.items) {
-      const xs = extractXanoscript(addon.xanoscript)
-      if (xs) {
-        allObjects.push({
-          id: addon.id,
-          name: addon.name,
-          type: 'addon',
-          xanoscript: xs,
-        })
+  if (shouldFetch('addon', types)) {
+    print('Fetching addons...')
+    const addonsResponse = await api.listAddons(1, 1000)
+    if (addonsResponse.ok && addonsResponse.data?.items) {
+      for (const addon of addonsResponse.data.items) {
+        const xs = extractXanoscript(addon.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: addon.id,
+            name: addon.name,
+            type: 'addon',
+            xanoscript: xs,
+          })
+        }
       }
-    }
 
-    print(`  Found ${addonsResponse.data.items.length} addons`)
+      print(`  Found ${addonsResponse.data.items.length} addons`)
+    }
   }
 
   // Fetch middlewares
-  print('Fetching middlewares...')
-  const middlewaresResponse = await api.listMiddlewares(1, 1000)
-  if (middlewaresResponse.ok && middlewaresResponse.data?.items) {
-    for (const middleware of middlewaresResponse.data.items) {
-      const xs = extractXanoscript(middleware.xanoscript)
-      if (xs) {
-        allObjects.push({
-          id: middleware.id,
-          name: middleware.name,
-          type: 'middleware',
-          xanoscript: xs,
-        })
+  if (shouldFetch('middleware', types)) {
+    print('Fetching middlewares...')
+    const middlewaresResponse = await api.listMiddlewares(1, 1000)
+    if (middlewaresResponse.ok && middlewaresResponse.data?.items) {
+      for (const middleware of middlewaresResponse.data.items) {
+        const xs = extractXanoscript(middleware.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: middleware.id,
+            name: middleware.name,
+            type: 'middleware',
+            xanoscript: xs,
+          })
+        }
       }
-    }
 
-    print(`  Found ${middlewaresResponse.data.items.length} middlewares`)
+      print(`  Found ${middlewaresResponse.data.items.length} middlewares`)
+    }
+  }
+
+  // Fetch AI agents
+  if (shouldFetch('agent', types)) {
+    print('Fetching agents...')
+    const agentsResponse = await api.listAgents(1, 1000)
+    if (agentsResponse.ok && agentsResponse.data?.items) {
+      for (const agent of agentsResponse.data.items) {
+        const xs = extractXanoscript(agent.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: agent.id,
+            name: agent.name,
+            type: 'agent',
+            xanoscript: xs,
+          })
+        }
+      }
+
+      print(`  Found ${agentsResponse.data.items.length} agents`)
+    }
+  }
+
+  // Fetch agent triggers
+  if (shouldFetch('agent_trigger', types)) {
+    print('Fetching agent triggers...')
+    const agentTriggersResponse = await api.listAgentTriggers(1, 1000)
+    if (agentTriggersResponse.ok && agentTriggersResponse.data?.items) {
+      for (const trigger of agentTriggersResponse.data.items) {
+        const xs = extractXanoscript(trigger.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: trigger.id,
+            name: trigger.name,
+            type: 'agent_trigger',
+            xanoscript: xs,
+          })
+        }
+      }
+
+      print(`  Found ${agentTriggersResponse.data.items.length} agent triggers`)
+    }
+  }
+
+  // Fetch AI tools
+  if (shouldFetch('tool', types)) {
+    print('Fetching tools...')
+    const toolsResponse = await api.listTools(1, 1000)
+    if (toolsResponse.ok && toolsResponse.data?.items) {
+      for (const tool of toolsResponse.data.items) {
+        const xs = extractXanoscript(tool.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: tool.id,
+            name: tool.name,
+            type: 'tool',
+            xanoscript: xs,
+          })
+        }
+      }
+
+      print(`  Found ${toolsResponse.data.items.length} tools`)
+    }
+  }
+
+  // Fetch MCP servers
+  if (shouldFetch('mcp_server', types)) {
+    print('Fetching MCP servers...')
+    const mcpServersResponse = await api.listMcpServers(1, 1000)
+    if (mcpServersResponse.ok && mcpServersResponse.data?.items) {
+      for (const mcpServer of mcpServersResponse.data.items) {
+        const xs = extractXanoscript(mcpServer.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: mcpServer.id,
+            name: mcpServer.name,
+            type: 'mcp_server',
+            xanoscript: xs,
+          })
+        }
+      }
+
+      print(`  Found ${mcpServersResponse.data.items.length} MCP servers`)
+    }
+  }
+
+  // Fetch MCP server triggers
+  if (shouldFetch('mcp_server_trigger', types)) {
+    print('Fetching MCP server triggers...')
+    const mcpServerTriggersResponse = await api.listMcpServerTriggers(1, 1000)
+    if (mcpServerTriggersResponse.ok && mcpServerTriggersResponse.data?.items) {
+      for (const trigger of mcpServerTriggersResponse.data.items) {
+        const xs = extractXanoscript(trigger.xanoscript)
+        if (xs) {
+          allObjects.push({
+            id: trigger.id,
+            name: trigger.name,
+            type: 'mcp_server_trigger',
+            xanoscript: xs,
+          })
+        }
+      }
+
+      print(`  Found ${mcpServerTriggersResponse.data.items.length} MCP server triggers`)
+    }
   }
 
   return {
@@ -469,6 +645,11 @@ export function cleanLocalFiles(
     paths.tables,
     paths.tasks,
     paths.workflowTests,
+    paths.agents,
+    paths.agentTriggers,
+    paths.tools,
+    paths.mcpServers,
+    paths.mcpServerTriggers,
   ].filter((d): d is string => d !== undefined)
 
   let deletedCount = 0
