@@ -842,7 +842,7 @@ export default class Push extends BaseCommand {
     }
 
     const existingObj = findObjectByPath(objects, filePath)
-    let newId: number
+    let newId!: number // Will be assigned in all code paths before use
     let objectType: XanoObjectType
 
     if (existingObj?.id) {
@@ -867,7 +867,56 @@ export default class Push extends BaseCommand {
         }
       }
 
-      const response = await api.updateObject(objectType, existingObj.id, content, updateOptions)
+      let response = await api.updateObject(objectType, existingObj.id, content, updateOptions)
+      let wasRecreated = false
+
+      // Workaround for Xano bug: "name is already being used" on update
+      // This happens when updating agents/tools/mcp_servers - delete and recreate
+      const nameConflictTypes: XanoObjectType[] = ['agent', 'agent_trigger', 'tool', 'mcp_server', 'mcp_server_trigger']
+      if (!response.ok && response.error?.includes('name is already being used') && nameConflictTypes.includes(objectType)) {
+        // Delete the existing object
+        const deleteResponse = await api.deleteObject(objectType, existingObj.id)
+        if (!deleteResponse.ok) {
+          return {
+            error: `Failed to delete for recreate: ${deleteResponse.error}`,
+            objects,
+            success: false,
+          }
+        }
+
+        // Create new object with same content
+        const createResponse = await api.createObject(objectType, content)
+        if (!createResponse.ok) {
+          return {
+            error: `Deleted but failed to recreate: ${createResponse.error}`,
+            objects,
+            success: false,
+          }
+        }
+
+        if (!createResponse.data?.id) {
+          return { error: 'No ID returned after recreate', objects, success: false }
+        }
+
+        // Update newId with the newly created object's ID
+        newId = createResponse.data.id
+        wasRecreated = true
+
+        // Write back the xanoscript returned by Xano (includes real canonical, etc.)
+        const responseData = createResponse.data as { id: number; xanoscript?: string | { status?: string; value: string } }
+        if (responseData.xanoscript) {
+          const xsValue = typeof responseData.xanoscript === 'string'
+            ? responseData.xanoscript
+            : responseData.xanoscript.value
+          if (xsValue) {
+            writeFileSync(fullPath, xsValue, 'utf8')
+            content = xsValue
+          }
+        }
+
+        // Skip the normal error handling below
+        response = createResponse
+      }
 
       if (!response.ok) {
         // Provide helpful error message for common issues
@@ -908,7 +957,10 @@ export default class Push extends BaseCommand {
         return { error: response.error || 'Update failed', objects, success: false }
       }
 
-      newId = existingObj.id
+      // Only set newId if we didn't already set it in the workaround above
+      if (!wasRecreated) {
+        newId = existingObj.id
+      }
     } else {
       // Create new object - detect type from content
       const detectedType = detectType(content)

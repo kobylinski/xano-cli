@@ -377,13 +377,39 @@ export async function pushFiles(
       }
 
       // eslint-disable-next-line no-await-in-loop -- Sequential for rate limiting
-      const response = await api.updateObject(objectType, existingObj.id, content, updateOptions)
-      if (!response.ok) {
+      let response = await api.updateObject(objectType, existingObj.id, content, updateOptions)
+
+      // Workaround for Xano bug: "name is already being used" on update
+      // This happens when updating agents/tools/mcp_servers - delete and recreate
+      const nameConflictTypes: XanoObjectType[] = ['agent', 'agent_trigger', 'tool', 'mcp_server', 'mcp_server_trigger']
+      if (!response.ok && response.error?.includes('name is already being used') && nameConflictTypes.includes(objectType)) {
+        // eslint-disable-next-line no-await-in-loop -- Sequential for workaround
+        const deleteResponse = await api.deleteObject(objectType, existingObj.id)
+        if (!deleteResponse.ok) {
+          failed.push({ error: `Failed to delete for recreate: ${deleteResponse.error}`, path: file })
+          continue
+        }
+
+        // eslint-disable-next-line no-await-in-loop -- Sequential for workaround
+        const createResponse = await api.createObject(objectType, content)
+        if (!createResponse.ok) {
+          failed.push({ error: `Deleted but failed to recreate: ${createResponse.error}`, path: file })
+          continue
+        }
+
+        if (!createResponse.data?.id) {
+          failed.push({ error: 'No ID returned after recreate', path: file })
+          continue
+        }
+
+        newId = createResponse.data.id
+        response = createResponse
+      } else if (!response.ok) {
         failed.push({ error: response.error || 'Update failed', path: file })
         continue
+      } else {
+        newId = existingObj.id
       }
-
-      newId = existingObj.id
     } else {
       // Create new object
       const detectedType = detectType(content)
