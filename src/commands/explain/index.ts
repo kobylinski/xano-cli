@@ -7,7 +7,7 @@ import type { XsInputEntry } from '../../lib/xs-language.js'
 import BaseCommand, { isAgentMode } from '../../base-command.js'
 import { detectType, extractName } from '../../lib/detector.js'
 import { findProjectRoot } from '../../lib/project.js'
-import { resolveAllRefs, resolveIdentifier } from '../../lib/xs-resolver.js'
+import { findUsages, resolveAllRefs, resolveIdentifier } from '../../lib/xs-resolver.js'
 
 // Lazy-loaded heavy module (~2s startup cost)
 let xsLanguage: null | typeof import('../../lib/xs-language.js') = null
@@ -231,9 +231,11 @@ export default class Explain extends BaseCommand {
     timing = false,
   ): Promise<void> {
     const {
+      extractAgentRunRefs,
       extractDbRefs,
       extractFunctionCalls,
       extractFunctionRunRefs,
+      extractToolRefs,
       parseXanoScript,
     } = await getXsLanguage()
     if (timing) console.error(`[timing] xs-language load: ${getXsLanguageLoadTime().toFixed(0)}ms`)
@@ -251,13 +253,30 @@ export default class Explain extends BaseCommand {
     const t1 = timing ? performance.now() : 0
     const dbRefs = extractDbRefs(result.rawTokens)
     const functionRunRefs = extractFunctionRunRefs(result.rawTokens)
+    const agentRunRefs = extractAgentRunRefs(result.rawTokens)
+    const toolRefs = extractToolRefs(result.rawTokens)
     if (timing) console.error(`[timing] extractRefs: ${(performance.now() - t1).toFixed(0)}ms`)
 
     const t2 = timing ? performance.now() : 0
     const { dbPaths, functionPaths } = resolveAllRefs(dbRefs, functionRunRefs, projectRoot)
     if (timing) console.error(`[timing] resolveAllRefs: ${(performance.now() - t2).toFixed(0)}ms`)
 
+    // Find incoming references (what uses THIS object)
+    const t3 = timing ? performance.now() : 0
+    const usages = await findUsages(objectName, objectType, projectRoot, (fileContent) => {
+      const parsed = parseXanoScript(fileContent)
+      return {
+        agentRunRefs: extractAgentRunRefs(parsed.rawTokens),
+        dbRefs: extractDbRefs(parsed.rawTokens),
+        functionRunRefs: extractFunctionRunRefs(parsed.rawTokens),
+        toolRefs: extractToolRefs(parsed.rawTokens),
+      }
+    })
+    if (timing) console.error(`[timing] findUsages: ${(performance.now() - t3).toFixed(0)}ms`)
+
     const { errors, hints, warnings } = result.diagnostics
+    const hasIncomingRefs = usages.functionRefs.length > 0 || usages.dbRefs.length > 0 ||
+                           usages.agentRefs.length > 0 || usages.toolRefs.length > 0
 
     if (json) {
       this.log(JSON.stringify({
@@ -266,6 +285,8 @@ export default class Explain extends BaseCommand {
           ...ref,
           resolvedPath: dbPaths.get(i) ?? null,
         })),
+        agentRunRefs,
+        toolRefs,
         diagnostics: result.diagnostics,
         file: resolved.filePath,
         functionRunRefs: functionRunRefs.map((ref, i) => ({
@@ -277,6 +298,12 @@ export default class Explain extends BaseCommand {
         name: objectName,
         type: objectType,
         variables: result.symbolTable.var,
+        usedBy: {
+          functions: usages.functionRefs,
+          tables: usages.dbRefs,
+          agents: usages.agentRefs,
+          tools: usages.toolRefs,
+        },
       }, null, 2))
       return
     }
@@ -322,6 +349,39 @@ export default class Explain extends BaseCommand {
         }
       }
 
+      if (agentRunRefs.length > 0) {
+        this.log('AGENT_AGENT_REFS:')
+        for (const ref of agentRunRefs) {
+          this.log(`- ai.agent.run "${ref.name}" (line ${ref.line})`)
+        }
+      }
+
+      if (toolRefs.length > 0) {
+        this.log('AGENT_TOOL_REFS:')
+        for (const ref of toolRefs) {
+          this.log(`- tool "${ref.name}" (line ${ref.line})`)
+        }
+      }
+
+      if (hasIncomingRefs) {
+        this.log('AGENT_USED_BY:')
+        for (const ref of usages.functionRefs) {
+          this.log(`- function.run from ${ref.filePath}:${ref.line}`)
+        }
+
+        for (const ref of usages.dbRefs) {
+          this.log(`- db access from ${ref.filePath}:${ref.line}`)
+        }
+
+        for (const ref of usages.agentRefs) {
+          this.log(`- ai.agent.run from ${ref.filePath}:${ref.line}`)
+        }
+
+        for (const ref of usages.toolRefs) {
+          this.log(`- tool ref from ${ref.filePath}:${ref.line}`)
+        }
+      }
+
       this.log('AGENT_COMPLETE: explain_resolved')
       return
     }
@@ -349,19 +409,50 @@ export default class Explain extends BaseCommand {
       }
     }
 
-    if (dbRefs.length > 0 || functionRunRefs.length > 0) {
+    const hasOutgoingRefs = dbRefs.length > 0 || functionRunRefs.length > 0 ||
+                           agentRunRefs.length > 0 || toolRefs.length > 0
+
+    if (hasOutgoingRefs) {
       this.log('')
-      this.log('Cross-References:')
+      this.log('Dependencies (what this uses):')
       for (const [i, ref] of dbRefs.entries()) {
         const path = dbPaths.get(i)
-        const arrow = path ? ` \u2192 ${path}` : ''
+        const arrow = path ? ` → ${path}` : ''
         this.log(`  db.${ref.operation} ${ref.table} (line ${ref.line})${arrow}`)
       }
 
       for (const [i, ref] of functionRunRefs.entries()) {
         const path = functionPaths.get(i)
-        const arrow = path ? ` \u2192 ${path}` : ''
+        const arrow = path ? ` → ${path}` : ''
         this.log(`  function.run "${ref.name}" (line ${ref.line})${arrow}`)
+      }
+
+      for (const ref of agentRunRefs) {
+        this.log(`  ai.agent.run "${ref.name}" (line ${ref.line})`)
+      }
+
+      for (const ref of toolRefs) {
+        this.log(`  tool "${ref.name}" (line ${ref.line})`)
+      }
+    }
+
+    if (hasIncomingRefs) {
+      this.log('')
+      this.log('Used By (what references this):')
+      for (const ref of usages.functionRefs) {
+        this.log(`  ${ref.filePath}:${ref.line} (function.run)`)
+      }
+
+      for (const ref of usages.dbRefs) {
+        this.log(`  ${ref.filePath}:${ref.line} (db access)`)
+      }
+
+      for (const ref of usages.agentRefs) {
+        this.log(`  ${ref.filePath}:${ref.line} (ai.agent.run)`)
+      }
+
+      for (const ref of usages.toolRefs) {
+        this.log(`  ${ref.filePath}:${ref.line} (tool ref)`)
       }
     }
 

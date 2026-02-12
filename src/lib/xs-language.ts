@@ -84,6 +84,18 @@ export interface XsFunctionRunRef {
   name: string
 }
 
+export interface XsAgentRunRef {
+  column: number
+  line: number
+  name: string
+}
+
+export interface XsToolRef {
+  column: number
+  line: number
+  name: string
+}
+
 export interface XsDocEntry {
   body: string
   category: 'filter' | 'function' | 'input_filter' | 'query_filter'
@@ -459,6 +471,119 @@ export function extractFunctionRunRefs(rawTokens: any[]): XsFunctionRunRef[] { /
         line: token.startLine ?? 0,
         name,
       })
+    }
+  }
+
+  return refs
+}
+
+/**
+ * Extract ai.agent.run references from raw lexer tokens.
+ * Walks tokens looking for `ai` `.` `agent` `.` `run` `"name"` patterns.
+ */
+export function extractAgentRunRefs(rawTokens: any[]): XsAgentRunRef[] { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const refs: XsAgentRunRef[] = []
+
+  for (let i = 0; i < rawTokens.length; i++) {
+    const token = rawTokens[i]
+    if (token.image !== 'ai') continue
+
+    // Expect: ai . agent . run "name"
+    const dot1 = rawTokens[i + 1]
+    if (!dot1 || dot1.image !== '.') continue
+
+    const agentToken = rawTokens[i + 2]
+    if (!agentToken || agentToken.image !== 'agent') continue
+
+    const dot2 = rawTokens[i + 3]
+    if (!dot2 || dot2.image !== '.') continue
+
+    const runToken = rawTokens[i + 4]
+    if (!runToken || runToken.image !== 'run') continue
+
+    // Find the next string literal token
+    let nameToken = null
+    for (let j = i + 5; j < rawTokens.length && j <= i + 8; j++) {
+      const t = rawTokens[j]
+      if (!t.image || t.image.trim() === '') continue
+      if (t.image.startsWith('"') && t.image.endsWith('"') && t.image.length > 1) {
+        nameToken = t
+        break
+      }
+
+      break
+    }
+
+    if (nameToken) {
+      const name = nameToken.image.slice(1, -1) // Strip quotes
+      refs.push({
+        column: token.startColumn ?? 0,
+        line: token.startLine ?? 0,
+        name,
+      })
+    }
+  }
+
+  return refs
+}
+
+/**
+ * Extract tool references from agent's tools array.
+ * Looks for `tools` `=` `[` ... `{` `name` `:` `"toolname"` `}` ... `]` patterns.
+ */
+export function extractToolRefs(rawTokens: any[]): XsToolRef[] { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const refs: XsToolRef[] = []
+  let inToolsArray = false
+  let bracketDepth = 0
+
+  for (let i = 0; i < rawTokens.length; i++) {
+    const token = rawTokens[i]
+
+    // Look for `tools` `=` `[`
+    if (token.image === 'tools') {
+      const eq = rawTokens[i + 1]
+      const bracket = rawTokens[i + 2]
+      if (eq?.image === '=' && bracket?.image === '[') {
+        inToolsArray = true
+        bracketDepth = 1
+        i += 2
+        continue
+      }
+    }
+
+    if (!inToolsArray) continue
+
+    // Track bracket depth
+    if (token.image === '[') {
+      bracketDepth++
+    } else if (token.image === ']') {
+      bracketDepth--
+      if (bracketDepth === 0) {
+        inToolsArray = false
+      }
+    }
+
+    // Look for `name` `:` `"toolname"` inside tools array
+    if (token.image === 'name') {
+      const colon = rawTokens[i + 1]
+      if (colon?.image === ':') {
+        // Find the string value
+        for (let j = i + 2; j < rawTokens.length && j <= i + 4; j++) {
+          const t = rawTokens[j]
+          if (!t.image || t.image.trim() === '') continue
+          if (t.image.startsWith('"') && t.image.endsWith('"') && t.image.length > 1) {
+            const name = t.image.slice(1, -1) // Strip quotes
+            refs.push({
+              column: token.startColumn ?? 0,
+              line: token.startLine ?? 0,
+              name,
+            })
+            break
+          }
+
+          break
+        }
+      }
     }
   }
 

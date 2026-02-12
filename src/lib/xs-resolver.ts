@@ -7,7 +7,7 @@ import { basename } from 'node:path'
 
 import type { SearchIndexData } from './objects.js'
 import type { XanoObject, XanoObjectsFile, XanoObjectType } from './types.js'
-import type { XsDbRef, XsFunctionRunRef } from './xs-language.js'
+import type { XsAgentRunRef, XsDbRef, XsFunctionRunRef, XsToolRef } from './xs-language.js'
 
 import { sanitize, sanitizePath, snakeCase } from './detector.js'
 import { loadObjects, loadSearchIndex } from './objects.js'
@@ -402,4 +402,133 @@ function resolveAllRefsFast(
   }
 
   return { dbPaths, functionPaths }
+}
+
+// ── Incoming References (Find Usages) ───────────────────────────────
+
+export interface IncomingRef {
+  column: number
+  filePath: string
+  line: number
+  refType: 'agent_run' | 'db' | 'function_run' | 'tool'
+}
+
+export interface UsageResult {
+  agentRefs: IncomingRef[]    // Files that call this agent via ai.agent.run
+  dbRefs: IncomingRef[]       // Files that access this table
+  functionRefs: IncomingRef[] // Files that call this function
+  toolRefs: IncomingRef[]     // Agents that use this tool
+}
+
+/**
+ * Find all files that reference a given object.
+ * This provides "incoming references" - what calls/uses this object.
+ *
+ * @param objectName - Name of the object to find usages for
+ * @param objectType - Type of the object (function, table, agent, tool)
+ * @param projectRoot - Project root directory
+ * @param parseFile - Function to parse a file and extract refs
+ */
+export async function findUsages(
+  objectName: string,
+  objectType: string | null,
+  projectRoot: string,
+  parseFile: (content: string) => {
+    agentRunRefs: XsAgentRunRef[]
+    dbRefs: XsDbRef[]
+    functionRunRefs: XsFunctionRunRef[]
+    toolRefs: XsToolRef[]
+  }
+): Promise<UsageResult> {
+  const { existsSync, readFileSync } = await import('node:fs')
+  const { join } = await import('node:path')
+
+  const result: UsageResult = {
+    agentRefs: [],
+    dbRefs: [],
+    functionRefs: [],
+    toolRefs: [],
+  }
+
+  const objects = loadObjects(projectRoot)
+  const normalizedName = objectName.toLowerCase()
+  const sanitizedName = sanitize(objectName).toLowerCase()
+
+  for (const obj of objects) {
+    const fullPath = join(projectRoot, obj.path)
+    if (!existsSync(fullPath)) continue
+
+    try {
+      const content = readFileSync(fullPath, 'utf8')
+      const refs = parseFile(content)
+
+      // Check function.run references (for functions)
+      if (!objectType || objectType === 'function') {
+        for (const ref of refs.functionRunRefs) {
+          const refName = ref.name.toLowerCase()
+          const refSanitized = sanitize(ref.name).toLowerCase()
+          if (refName === normalizedName || refSanitized === sanitizedName ||
+              refName.endsWith('/' + normalizedName) || refSanitized.endsWith('/' + sanitizedName)) {
+            result.functionRefs.push({
+              column: ref.column,
+              filePath: obj.path,
+              line: ref.line,
+              refType: 'function_run',
+            })
+          }
+        }
+      }
+
+      // Check db references (for tables)
+      if (!objectType || objectType === 'table') {
+        for (const ref of refs.dbRefs) {
+          const refTable = ref.table.toLowerCase()
+          const refSanitized = sanitize(ref.table).toLowerCase()
+          if (refTable === normalizedName || refSanitized === sanitizedName) {
+            result.dbRefs.push({
+              column: ref.column,
+              filePath: obj.path,
+              line: ref.line,
+              refType: 'db',
+            })
+          }
+        }
+      }
+
+      // Check ai.agent.run references (for agents)
+      if (!objectType || objectType === 'agent') {
+        for (const ref of refs.agentRunRefs) {
+          const refName = ref.name.toLowerCase()
+          if (refName === normalizedName) {
+            result.agentRefs.push({
+              column: ref.column,
+              filePath: obj.path,
+              line: ref.line,
+              refType: 'agent_run',
+            })
+          }
+        }
+      }
+
+      // Check tool references in agents (for tools)
+      if (!objectType || objectType === 'tool') {
+        for (const ref of refs.toolRefs) {
+          const refName = ref.name.toLowerCase()
+          const refSanitized = sanitize(ref.name).toLowerCase()
+          if (refName === normalizedName || refSanitized === sanitizedName) {
+            result.toolRefs.push({
+              column: ref.column,
+              filePath: obj.path,
+              line: ref.line,
+              refType: 'tool',
+            })
+          }
+        }
+      }
+    } catch {
+      // Skip files that can't be parsed
+    }
+  }
+
+  return result
 }

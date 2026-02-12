@@ -110,7 +110,7 @@ export function extractName(content: string): null | string {
     }
 
     // Match: keyword name { or keyword name ( or keyword "name"
-    const match = cleanLine.match(/^(function|table|table_trigger|query|api_group|middleware|addon|task|workflow_test)\s+(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))/i)
+    const match = cleanLine.match(/^(function|table|table_trigger|query|api_group|middleware|addon|task|workflow_test|agent|agent_trigger|tool|mcp_server|mcp_server_trigger|realtime_channel|realtime_trigger)\s+(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))/i)
     if (match) {
       return match[2] || match[3]
     }
