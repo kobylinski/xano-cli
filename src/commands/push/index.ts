@@ -1034,27 +1034,12 @@ export default class Push extends BaseCommand {
       const response = await api.createObject(objectType, content, createOptions)
 
       if (!response.ok) {
-        if (response.status === 409 || response.error?.includes('already exists') || response.error?.includes('Duplicate record')) {
-          // Provide context about which endpoint is duplicated
-          if (objectType === 'api_endpoint' && endpointDetails) {
-            return {
-              error: `Endpoint ${endpointDetails.verb} /${endpointDetails.path} already exists on Xano. Run "xano pull --sync" to update mappings, then delete the duplicate local file.`,
-              objects,
-              success: false,
-            }
-          }
-
-          // Provide context about which workflow test is duplicated
-          if (objectType === 'workflow_test' && workflowTestName) {
-            return {
-              error: `Workflow test "${workflowTestName}" already exists on Xano (Xano uses NAME for uniqueness). Run "xano pull --sync" to update mappings, then rename or delete the duplicate.`,
-              objects,
-              success: false,
-            }
-          }
-
+        // Handle name conflict - object exists on Xano but not tracked locally
+        if (response.status === 409 || response.error?.includes('already exists') ||
+            response.error?.includes('Duplicate record') || response.error?.includes('name is already being used')) {
+          const objectName = extractName(content) || 'unknown'
           return {
-            error: 'Object already exists on Xano. Run "xano pull --sync" to update mappings.',
+            error: `${objectType} "${objectName}" already exists on Xano but is not tracked locally. Run "xano pull --sync" to refresh mappings.`,
             objects,
             success: false,
           }

@@ -434,6 +434,16 @@ export async function pushFiles(
       // eslint-disable-next-line no-await-in-loop -- Sequential for rate limiting
       const response = await api.createObject(objectType, content, createOptions)
       if (!response.ok) {
+        // Handle name conflict - object exists on Xano but not tracked locally
+        if (response.status === 409 || response.error?.includes('already exists') ||
+            response.error?.includes('Duplicate record') || response.error?.includes('name is already being used')) {
+          failed.push({
+            error: `Object already exists on Xano but is not tracked locally. Run "xano pull --sync" to refresh mappings.`,
+            path: file,
+          })
+          continue
+        }
+
         failed.push({ error: response.error || 'Create failed', path: file })
         continue
       }
