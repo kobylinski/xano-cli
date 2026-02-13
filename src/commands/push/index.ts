@@ -871,8 +871,8 @@ export default class Push extends BaseCommand {
       let wasRecreated = false
 
       // Workaround for Xano bug: "name is already being used" on update
-      // This happens when updating agents/tools/mcp_servers - delete and recreate
-      const nameConflictTypes: XanoObjectType[] = ['agent', 'agent_trigger', 'tool', 'mcp_server', 'mcp_server_trigger']
+      // This happens when updating various object types - delete and recreate
+      const nameConflictTypes: XanoObjectType[] = ['agent', 'agent_trigger', 'tool', 'mcp_server', 'mcp_server_trigger', 'function', 'task', 'middleware', 'addon']
       if (!response.ok && response.error?.includes('name is already being used') && nameConflictTypes.includes(objectType)) {
         // Delete the existing object
         const deleteResponse = await api.deleteObject(objectType, existingObj.id)

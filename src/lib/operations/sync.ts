@@ -380,8 +380,8 @@ export async function pushFiles(
       let response = await api.updateObject(objectType, existingObj.id, content, updateOptions)
 
       // Workaround for Xano bug: "name is already being used" on update
-      // This happens when updating agents/tools/mcp_servers - delete and recreate
-      const nameConflictTypes: XanoObjectType[] = ['agent', 'agent_trigger', 'tool', 'mcp_server', 'mcp_server_trigger']
+      // This happens when updating various object types - delete and recreate
+      const nameConflictTypes: XanoObjectType[] = ['agent', 'agent_trigger', 'tool', 'mcp_server', 'mcp_server_trigger', 'function', 'task', 'middleware', 'addon']
       if (!response.ok && response.error?.includes('name is already being used') && nameConflictTypes.includes(objectType)) {
         // eslint-disable-next-line no-await-in-loop -- Sequential for workaround
         const deleteResponse = await api.deleteObject(objectType, existingObj.id)
