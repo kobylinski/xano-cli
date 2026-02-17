@@ -1,6 +1,7 @@
 *-debug.log
 *-error.log
 **/.DS_Store
+/.backup
 /.idea
 /dist
 /tmp

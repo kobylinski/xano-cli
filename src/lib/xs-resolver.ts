@@ -431,7 +431,7 @@ export interface UsageResult {
  */
 export async function findUsages(
   objectName: string,
-  objectType: string | null,
+  objectType: null | string,
   projectRoot: string,
   parseFile: (content: string) => {
     agentRunRefs: XsAgentRunRef[]

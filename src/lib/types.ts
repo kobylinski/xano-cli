@@ -77,6 +77,7 @@ export interface XanoPaths {
 
 // xano.json - versioned project config
 export interface XanoProjectConfig {
+  branch?: string                       // Default branch for the project
   datasources?: DatasourcePermissions  // Datasource access permissions (default: read-only)
   defaultDatasource?: string           // Default datasource for data commands (default: 'live')
   instance: string
@@ -117,7 +118,8 @@ export interface XanoLocalConfig {
   branch: string
   datasources?: DatasourcePermissions  // Datasource access permissions (default: read-only)
   defaultDatasource?: string           // Default datasource for data commands (default: 'live')
-  instanceName: string
+  instanceDisplay?: string             // Human-readable instance name (e.g., "Deligo")
+  instanceName: string                 // Canonical instance ID (e.g., "x8yf-zrk9-qtux")
   naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths
   profile?: string     // Profile name from ~/.xano/credentials.yaml

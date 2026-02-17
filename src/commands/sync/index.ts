@@ -19,6 +19,7 @@ import {
   computeSha256,
   encodeBase64,
   loadObjects,
+  saveEndpoints,
   saveGroups,
   saveObjects,
   upsertObject,
@@ -155,6 +156,7 @@ private customResolver?: PathResolver
     // Save metadata files
     saveObjects(projectRoot, objects)
     saveGroups(projectRoot, fetchResult.apiGroups)
+    saveEndpoints(projectRoot, fetchResult.endpoints)
 
     // Summary
     this.log('')

@@ -25,11 +25,13 @@ export function sanitize(name: string): string {
  * VSCode-compatible snake_case conversion (matches lodash.snakeCase)
  * "MyFunctionName" → "my_function_name"
  * "API Endpoint" → "api_endpoint"
+ * "phase4" → "phase_4" (underscore before digits)
  */
 export function snakeCase(str: string): string {
   return str
     .replaceAll(/([a-z])([A-Z])/g, '$1_$2')     // camelCase → snake_case
     .replaceAll(/([A-Z]+)([A-Z][a-z])/g, '$1_$2') // ABCDef → ABC_Def
+    .replaceAll(/([a-zA-Z])(\d)/g, '$1_$2')     // letter before digit → underscore (phase4 → phase_4)
     .replaceAll(/[\s\-./]+/g, '_')              // spaces, hyphens, dots, slashes → underscore
     .replaceAll(/[^a-zA-Z0-9_]/g, '')           // remove other invalid chars
     .toLowerCase()
@@ -148,6 +150,33 @@ export function extractApiDetails(content: string): null | { group?: string; pat
     }
 
     break
+  }
+
+  return null
+}
+
+/**
+ * Extract canonical value from XanoScript api_group content
+ * Parses content like: api_group Name { canonical = "538SmIk8" }
+ * Returns the canonical string or null if not found
+ */
+export function extractCanonical(content: string): null | string {
+  const trimmed = content.trim()
+  const lines = trimmed.split('\n')
+
+  for (const line of lines) {
+    const cleanLine = line.trim()
+
+    // Skip comments and empty lines
+    if (cleanLine.startsWith('//') || cleanLine === '') {
+      continue
+    }
+
+    // Match: canonical = "value"
+    const match = cleanLine.match(/^\s*canonical\s*=\s*"([^"]+)"/)
+    if (match) {
+      return match[1]
+    }
   }
 
   return null

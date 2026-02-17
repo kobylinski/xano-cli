@@ -404,11 +404,11 @@ export async function pushFiles(
 
         newId = createResponse.data.id
         response = createResponse
-      } else if (!response.ok) {
+      } else if (response.ok) {
+        newId = existingObj.id
+      } else {
         failed.push({ error: response.error || 'Update failed', path: file })
         continue
-      } else {
-        newId = existingObj.id
       }
     } else {
       // Create new object

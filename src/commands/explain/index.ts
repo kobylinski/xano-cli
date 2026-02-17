@@ -280,13 +280,12 @@ export default class Explain extends BaseCommand {
 
     if (json) {
       this.log(JSON.stringify({
+        agentRunRefs,
         calls,
         dbRefs: dbRefs.map((ref, i) => ({
           ...ref,
           resolvedPath: dbPaths.get(i) ?? null,
         })),
-        agentRunRefs,
-        toolRefs,
         diagnostics: result.diagnostics,
         file: resolved.filePath,
         functionRunRefs: functionRunRefs.map((ref, i) => ({
@@ -296,14 +295,15 @@ export default class Explain extends BaseCommand {
         inputs: result.symbolTable.input,
         matchType: 'workspace',
         name: objectName,
+        toolRefs,
         type: objectType,
-        variables: result.symbolTable.var,
         usedBy: {
+          agents: usages.agentRefs,
           functions: usages.functionRefs,
           tables: usages.dbRefs,
-          agents: usages.agentRefs,
           tools: usages.toolRefs,
         },
+        variables: result.symbolTable.var,
       }, null, 2))
       return
     }

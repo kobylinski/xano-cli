@@ -1,22 +1,23 @@
 /**
  * Objects file management
- * Handles .xano/objects.json (VSCode compatible)
+ * Handles .xano/branches/{branch}/objects.json (VSCode compatible)
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
 import type { XanoObject, XanoObjectsFile, XanoObjectType } from './types.js'
 
 import { sanitize, sanitizePath, snakeCase } from './detector.js'
 import { logger } from './logger.js'
-import { ensureXanoDir, getXanoDirPath } from './project.js'
+import { ensureXanoDir, getXanoDirPath, loadLocalConfig } from './project.js'
 
 const OBJECTS_JSON = 'objects.json'
 const GROUPS_JSON = 'groups.json'
 const ENDPOINTS_JSON = 'endpoints.json'
 const SEARCH_JSON = 'search.json'
+const BRANCHES_DIR = 'branches'
 
 /**
  * API group info stored in groups.json
@@ -47,10 +48,38 @@ export interface EndpointEntry {
 export type EndpointsFile = Record<string, EndpointEntry[]>
 
 /**
- * Get path to .xano/objects.json
+ * Get path to .xano/branches/{branch}/objects.json (VSCode compatible)
+ * Falls back to .xano/objects.json if branch is not specified (legacy)
  */
-export function getObjectsJsonPath(projectRoot: string): string {
-  return join(getXanoDirPath(projectRoot), OBJECTS_JSON)
+export function getObjectsJsonPath(projectRoot: string, branch?: string): string {
+  const xanoDir = getXanoDirPath(projectRoot)
+
+  // If branch specified, use branch-namespaced path
+  if (branch) {
+    return join(xanoDir, BRANCHES_DIR, branch, OBJECTS_JSON)
+  }
+
+  // Try to get branch from config
+  const config = loadLocalConfig(projectRoot)
+  if (config?.branch) {
+    return join(xanoDir, BRANCHES_DIR, config.branch, OBJECTS_JSON)
+  }
+
+  // Legacy fallback: .xano/objects.json
+  return join(xanoDir, OBJECTS_JSON)
+}
+
+/**
+ * Ensure .xano/branches/{branch}/ directory exists
+ */
+export function ensureBranchDir(projectRoot: string, branch: string): string {
+  const branchDir = join(getXanoDirPath(projectRoot), BRANCHES_DIR, branch)
+
+  if (!existsSync(branchDir)) {
+    mkdirSync(branchDir, { recursive: true })
+  }
+
+  return branchDir
 }
 
 /**
@@ -61,12 +90,23 @@ export function getGroupsJsonPath(projectRoot: string): string {
 }
 
 /**
- * Load .xano/objects.json
+ * Load .xano/branches/{branch}/objects.json
  */
-export function loadObjects(projectRoot: string): XanoObjectsFile {
-  const filePath = getObjectsJsonPath(projectRoot)
+export function loadObjects(projectRoot: string, branch?: string): XanoObjectsFile {
+  const filePath = getObjectsJsonPath(projectRoot, branch)
 
   if (!existsSync(filePath)) {
+    // Try legacy path as fallback
+    const legacyPath = join(getXanoDirPath(projectRoot), OBJECTS_JSON)
+    if (existsSync(legacyPath)) {
+      try {
+        const content = readFileSync(legacyPath, 'utf8')
+        return JSON.parse(content) as XanoObjectsFile
+      } catch {
+        return []
+      }
+    }
+
     return []
   }
 
@@ -79,12 +119,25 @@ export function loadObjects(projectRoot: string): XanoObjectsFile {
 }
 
 /**
- * Save .xano/objects.json
+ * Save .xano/branches/{branch}/objects.json
  */
-export function saveObjects(projectRoot: string, objects: XanoObjectsFile): void {
+export function saveObjects(projectRoot: string, objects: XanoObjectsFile, branch?: string): void {
   ensureXanoDir(projectRoot)
-  const filePath = getObjectsJsonPath(projectRoot)
-  logger.fileOp('write', '.xano/objects.json')
+
+  // Determine branch from parameter or config
+  const config = loadLocalConfig(projectRoot)
+  const effectiveBranch = branch || config?.branch
+
+  if (effectiveBranch) {
+    ensureBranchDir(projectRoot, effectiveBranch)
+  }
+
+  const filePath = getObjectsJsonPath(projectRoot, effectiveBranch)
+  const relativePath = effectiveBranch
+    ? `.xano/branches/${effectiveBranch}/objects.json`
+    : '.xano/objects.json'
+
+  logger.fileOp('write', relativePath)
   logger.dataStored('objects', { count: objects.length })
   writeFileSync(filePath, JSON.stringify(objects, null, 2) + '\n', 'utf8')
   saveSearchIndex(projectRoot, objects)
@@ -614,6 +667,7 @@ export function decodeBase64(base64: string): string {
 
 /**
  * Add or update object in objects list
+ * Field order matches VS Code extension: id, type, path, status, staged, sha256, original
  */
 export function upsertObject(
   objects: XanoObjectsFile,
@@ -623,15 +677,18 @@ export function upsertObject(
   const existingIndex = objects.findIndex((obj) => obj.path === filePath)
   const fileContent = existsSync(filePath) ? readFileSync(filePath, 'utf8') : ''
 
+  // Field order matches VS Code extension expectation
+  /* eslint-disable perfectionist/sort-objects */
   const newObject: XanoObject = {
     id: data.id,
-    original: data.original ?? encodeBase64(fileContent),
-    path: filePath,
-    sha256: data.sha256 ?? computeSha256(fileContent),
-    staged: false, // always false, kept for VSCode extension compatibility
-    status: data.status ?? 'unchanged',
     type: data.type,
+    path: filePath,
+    status: data.status ?? 'unchanged',
+    staged: false, // always false, kept for VSCode extension compatibility
+    sha256: data.sha256 ?? computeSha256(fileContent),
+    original: data.original ?? encodeBase64(fileContent),
   }
+  /* eslint-enable perfectionist/sort-objects */
 
   if (existingIndex === -1) {
     objects.push(newObject)

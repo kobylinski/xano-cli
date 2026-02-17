@@ -147,7 +147,7 @@ private customResolver?: PathResolver
     let fetchedObjects: FetchedObject[] | null = null
 
     // Resolve types from input paths (for filtered fetching)
-    let typesToFetch: XanoObjectType[] | undefined
+    let typesToFetch: undefined | XanoObjectType[]
     if (!pullAllFiles && !needsSync) {
       // Collect types for all input paths
       const allTypes = new Set<XanoObjectType>()

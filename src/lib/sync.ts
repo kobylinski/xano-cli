@@ -16,6 +16,7 @@ import type {
 
 import { XanoApi } from './api.js'
 import {
+  extractCanonical,
   generateFilePath,
   type PathResolverObject,
 } from './detector.js'
@@ -110,8 +111,9 @@ export async function fetchAllObjects(
       for (const group of groupsResponse.data.items) {
         apiGroups.set(group.id, group.name)
 
-        // Use guid as canonical - avoids N extra API calls
-        const canonical = group.guid
+        // Extract canonical from XanoScript content, fall back to guid
+        const xs = extractXanoscript(group.xanoscript)
+        const canonical = (xs ? extractCanonical(xs) : null) || group.guid
 
         // Store group info with canonical for groups.json
         apiGroupsFile[group.name] = {
