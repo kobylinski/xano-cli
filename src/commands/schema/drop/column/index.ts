@@ -4,6 +4,7 @@ import { dirname, isAbsolute, resolve } from 'node:path'
 import * as readline from 'node:readline'
 
 import {
+  getMissingProfileError,
   getProfile,
   XanoApi,
 } from '../../../../lib/api.js'
@@ -19,7 +20,8 @@ import {
   findProjectRoot,
   getDefaultPaths,
   isInitialized,
-  loadLocalConfig,
+  loadCliConfig,
+  loadEffectiveConfig,
 } from '../../../../lib/project.js'
 import { generateObjectPath } from '../../../../lib/sync.js'
 
@@ -78,14 +80,23 @@ export default class SchemaDropColumn extends Command {
       this.error('Project not initialized. Run "xano init" first.')
     }
 
-    const localConfig = loadLocalConfig(projectRoot)
+    const localConfig = loadEffectiveConfig(projectRoot)
     if (!localConfig) {
       this.error('Failed to load .xano/config.json')
     }
 
-    const profile = getProfile(flags.profile, localConfig.profile)
+    // Profile is ONLY read from .xano/cli.json - no flag overrides
+    const cliConfig = loadCliConfig(projectRoot)
+    const cliProfile = cliConfig?.profile
+
+    const profileError = getMissingProfileError(cliProfile)
+    if (profileError) {
+      this.error(profileError.humanOutput)
+    }
+
+    const profile = getProfile(cliProfile)
     if (!profile) {
-      this.error('No profile found. Run "xano init" first.')
+      this.error('Profile not found in credentials. Run "xano init" to configure.')
     }
 
     const api = new XanoApi(profile, localConfig.workspaceId, localConfig.branch)

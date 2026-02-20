@@ -24,9 +24,11 @@ export interface XanoDatasourcesConfig {
 }
 
 // .xano/cli.json - CLI-only settings (not used by VSCode extension)
+// IMPORTANT: This is the ONLY place where profile should be defined.
+// Profile is mandatory for CLI operations and must be set per-workstation.
 export interface XanoCliConfig {
   naming?: NamingMode  // File naming mode
-  profile?: string     // Profile name from ~/.xano/credentials.yaml
+  profile?: string     // Profile name from ~/.xano/credentials.yaml (REQUIRED for CLI operations)
 }
 
 // Context passed to custom resolver functions (sanitize, resolvePath)
@@ -75,7 +77,8 @@ export interface XanoPaths {
   workflowTests: string
 }
 
-// xano.json - versioned project config
+// xano.json - versioned project config (shared across team)
+// NOTE: profile is NOT stored here - use .xano/cli.json for profile (per-workstation)
 export interface XanoProjectConfig {
   branch?: string                       // Default branch for the project
   datasources?: DatasourcePermissions  // Datasource access permissions (default: read-only)
@@ -83,7 +86,6 @@ export interface XanoProjectConfig {
   instance: string
   naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths
-  profile?: string     // Profile name from ~/.xano/credentials.yaml
   workspace?: string   // Workspace name (optional - may be missing in older configs or VSCode-created configs)
   workspaceId: number
 }
@@ -114,15 +116,16 @@ export interface XanoDynamicConfig extends XanoProjectConfig {
 }
 
 // .xano/config.json - VSCode compatible local config
+// NOTE: profile is NOT stored here - use .xano/cli.json for profile (per-workstation)
 export interface XanoLocalConfig {
   branch: string
   datasources?: DatasourcePermissions  // Datasource access permissions (default: read-only)
   defaultDatasource?: string           // Default datasource for data commands (default: 'live')
   instanceDisplay?: string             // Human-readable instance name (e.g., "Deligo")
   instanceName: string                 // Canonical instance ID (e.g., "x8yf-zrk9-qtux")
+  instanceOrigin?: string              // Full instance URL (e.g., "https://x8yf-zrk9-qtux.xano.io") - needed by VSCode
   naming?: NamingMode  // File naming mode (default: 'vscode' for auto-detect)
   paths: XanoPaths
-  profile?: string     // Profile name from ~/.xano/credentials.yaml
   workspaceId: number
   workspaceName: string
 }

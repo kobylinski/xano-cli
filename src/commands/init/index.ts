@@ -23,7 +23,10 @@ import {
   getDefaultPaths,
   getXanoJsonPath,
   isXanoGitignored,
+  loadCliConfig,
+  loadLocalConfig,
   loadXanoJson,
+  saveCliConfig,
   saveDatasourcesConfig,
   saveLocalConfig,
   saveXanoJson,
@@ -1410,11 +1413,40 @@ static flags = {
     // Check if already initialized
     const hasConfigJson = existsSync(getConfigJsonPath(projectRoot))
     if (hasConfigJson && !force && !dryRun) {
-      engine.complete({
-        filesCreated: [],
-        success: true,
-        warnings: ['Project already initialized. Use --force to reinitialize.'],
-      })
+      // If --profile is specified, update cli.json with the new profile
+      const profileFlag = flags.profile as string | undefined
+      if (profileFlag) {
+        const credentials = CredentialsManager.load()
+        const profile = credentials.get(profileFlag)
+        if (!profile) {
+          this.error(`Profile "${profileFlag}" not found. Run "xano profile:list" to see available profiles.`)
+        }
+
+        // Update cli.json with the new profile
+        saveCliConfig(projectRoot, { profile: profileFlag })
+
+        // Load existing config for display
+        const existingConfig = loadLocalConfig(projectRoot)
+
+        this.log('')
+        this.log(`Profile updated to: ${profileFlag}`)
+        this.log(`  Workspace: ${existingConfig?.workspaceName} (${existingConfig?.workspaceId})`)
+        this.log(`  Branch: ${existingConfig?.branch}`)
+        this.log('')
+        this.log("Run 'xano pull' to fetch files from Xano.")
+        return
+      }
+
+      // No profile flag, show warning about reinitializing
+      const existingConfig = loadLocalConfig(projectRoot)
+      const existingCliConfig = loadCliConfig(projectRoot)
+      this.log('')
+      this.log('Project already initialized:')
+      this.log(`  Profile: ${existingCliConfig?.profile || '(not set)'}`)
+      this.log(`  Workspace: ${existingConfig?.workspaceName} (${existingConfig?.workspaceId})`)
+      this.log(`  Branch: ${existingConfig?.branch}`)
+      this.log('')
+      this.warn('Use --force to reinitialize, or --profile=<name> to change profile.')
       return
     }
 
@@ -1553,13 +1585,12 @@ static flags = {
     const filesCreated: string[] = []
     const preview: FilePreview[] = []
 
-    // Prepare xano.json content
+    // Prepare xano.json content (versioned, shared - NO profile here)
     const xanoJsonContent: XanoProjectConfig = {
       branch: config.branch,
       instance: config.instance!,
       naming: config.naming,
       paths: config.paths!,
-      profile: config.profile,
       workspaceId: config.workspace!,
       ...(config.datasources && { datasources: config.datasources }),
       ...(config.datasource && config.datasource !== 'live' && { defaultDatasource: config.datasource }),
@@ -1572,6 +1603,7 @@ static flags = {
       branch: config.branch,
       instanceDisplay: config.profile || config.instanceDisplay,
       instanceName: config.instanceName,
+      instanceOrigin: config.instanceOrigin,
       paths: config.paths,
       workspaceId: config.workspace,
       workspaceName: config.workspaceName,
@@ -1588,6 +1620,12 @@ static flags = {
       warnings.push('.xano/ directory is not in .gitignore. Add it to prevent committing local state.')
     }
 
+    // Prepare cli.json content (profile is REQUIRED and stored ONLY here)
+    const cliJsonContent = {
+      ...(config.naming && { naming: config.naming }),
+      profile: config.profile,  // MANDATORY - single source of truth for profile
+    }
+
     if (engine.isDryRun()) {
       // Dry run - build preview
       preview.push({
@@ -1598,6 +1636,10 @@ static flags = {
         action: 'create',
         content: configJsonContent,
         path: '.xano/config.json',
+      }, {
+        action: 'create',
+        content: cliJsonContent,
+        path: '.xano/cli.json',
       })
 
       if (datasourcesContent) {
@@ -1628,11 +1670,16 @@ static flags = {
       branch: config.branch!,
       instanceDisplay: config.profile || config.instanceDisplay,
       instanceName: config.instanceName!,
+      instanceOrigin: config.instanceOrigin,
       paths: config.paths!,
       workspaceId: config.workspace!,
       workspaceName: config.workspaceName!,
     })
     filesCreated.push('.xano/config.json')
+
+    // Save cli.json - MANDATORY for CLI operations (contains profile)
+    saveCliConfig(projectRoot, cliJsonContent)
+    filesCreated.push('.xano/cli.json')
 
     if (datasourcesContent) {
       saveDatasourcesConfig(projectRoot, datasourcesContent)

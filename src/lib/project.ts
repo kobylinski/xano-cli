@@ -239,6 +239,7 @@ export function createLocalConfig(
 /**
  * Create CLI config from project config
  * Contains CLI-only settings that would be overwritten by VSCode extension
+ * NOTE: profile is NOT copied from projectConfig - it must be set explicitly per workstation
  */
 export function createCliConfig(projectConfig: XanoProjectConfig): XanoCliConfig {
   const config: XanoCliConfig = {}
@@ -247,19 +248,21 @@ export function createCliConfig(projectConfig: XanoProjectConfig): XanoCliConfig
     config.naming = projectConfig.naming
   }
 
-  if (projectConfig.profile) {
-    config.profile = projectConfig.profile
-  }
+  // NOTE: profile is intentionally NOT copied from projectConfig
+  // Profile must be set explicitly in cli.json for each workstation
 
   return config
 }
 
 /**
  * Load effective config by merging configs with priority:
- * 1. .xano/cli.json (highest for CLI-only settings: naming, profile)
+ * 1. .xano/cli.json (highest for CLI-only settings: naming)
  * 2. .xano/datasources.json (highest for datasource settings)
  * 3. .xano/config.json (VSCode compatible)
  * 4. xano.json (lowest, provides defaults)
+ *
+ * NOTE: profile is NOT merged from any source here - use getCliProfile() from credentials.ts
+ * to get the profile. Profile MUST be set in .xano/cli.json explicitly.
  */
 export function loadEffectiveConfig(projectRoot: string): null | XanoLocalConfig {
   const localConfig = loadLocalConfig(projectRoot)
@@ -274,23 +277,22 @@ export function loadEffectiveConfig(projectRoot: string): null | XanoLocalConfig
   // Start with local config (VSCode compatible keys only)
   let result = { ...localConfig }
 
-  // Apply defaults from xano.json for fields not set
+  // Apply defaults from xano.json for fields not set (except profile - that's cli.json only)
   if (projectConfig) {
     result = {
       ...result,
       ...(projectConfig.datasources && !result.datasources && { datasources: projectConfig.datasources }),
       ...(projectConfig.defaultDatasource && !result.defaultDatasource && { defaultDatasource: projectConfig.defaultDatasource }),
       ...(projectConfig.naming && !result.naming && { naming: projectConfig.naming }),
-      ...(projectConfig.profile && !result.profile && { profile: projectConfig.profile }),
     }
   }
 
   // Apply cli.json with high priority (CLI-only settings that VSCode would overwrite)
+  // NOTE: profile from cli.json is NOT merged here - use getCliProfile() directly
   if (cliConfig) {
     result = {
       ...result,
       ...(cliConfig.naming && { naming: cliConfig.naming }),
-      ...(cliConfig.profile && { profile: cliConfig.profile }),
     }
   }
 

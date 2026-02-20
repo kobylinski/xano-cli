@@ -66,6 +66,7 @@ async function loadJsConfig(filePath: string): Promise<LoadedConfig | null> {
         ...getDefaultPaths(),
         ...exported.paths,
       },
+      // NOTE: profile is NOT loaded from xano.js - use .xano/cli.json instead
       workspace: exported.workspace || '',
       workspaceId: exported.workspaceId,
     }
@@ -103,6 +104,7 @@ function loadJsonConfig(filePath: string): LoadedConfig | null {
         ...getDefaultPaths(),
         ...parsed.paths,
       },
+      // NOTE: profile is NOT loaded from xano.json - use .xano/cli.json instead
       workspace: parsed.workspace || '',
       workspaceId: parsed.workspaceId,
     }

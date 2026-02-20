@@ -15,8 +15,8 @@ import type {
 
 import BaseCommand, { isAgentMode } from '../../base-command.js'
 import {
+  getMissingProfileError,
   getProfile,
-  getProfileWarning,
   XanoApi,
 } from '../../lib/api.js'
 import { loadConfig } from '../../lib/config.js'
@@ -36,6 +36,7 @@ import {
   findProjectRoot,
   getDefaultPaths,
   isInitialized,
+  loadCliConfig,
   loadLocalConfig,
 } from '../../lib/project.js'
 import {
@@ -209,35 +210,40 @@ export default class Push extends BaseCommand {
     }
 
     // Load dynamic config (xano.js) if available
+    // Precedence: defaults → xano.json → .xano/config.json
     const dynamicConfig = await loadConfig(projectRoot)
     if (dynamicConfig) {
       this.customResolver = dynamicConfig.resolvePath
       this.customResolveType = dynamicConfig.resolveType
       this.customSanitize = dynamicConfig.sanitize
-      this.paths = { ...getDefaultPaths(), ...dynamicConfig.config.paths }
-      this.naming = dynamicConfig.config.naming || config.naming
-    } else {
-      this.paths = { ...getDefaultPaths(), ...config.paths }
-      this.naming = config.naming
     }
+
+    this.paths = { ...getDefaultPaths(), ...dynamicConfig?.config.paths, ...config.paths }
+    this.naming = config.naming || dynamicConfig?.config.naming
 
     // Set validation options from flags
     this.skipBlockValidation = flags['no-validate-blocks']
 
-    const profile = getProfile(flags.profile, config.profile)
-    if (!profile) {
-      this.error('No profile found. Run "xano init" first.')
+    // Profile is ONLY read from .xano/cli.json - no flag overrides
+    const cliConfig = loadCliConfig(projectRoot)
+    const cliProfile = cliConfig?.profile
+    const agentMode = isAgentMode(flags.agent)
+
+    // Check for missing profile - this is now an error
+    const profileError = getMissingProfileError(cliProfile)
+    if (profileError) {
+      if (agentMode) {
+        this.log(profileError.agentOutput)
+      } else {
+        this.error(profileError.humanOutput)
+      }
+
+      return
     }
 
-    // Warn if multiple profiles exist but none specified in project config
-    const agentMode = isAgentMode(flags.agent)
-    const profileWarning = getProfileWarning(flags.profile, config.profile, agentMode)
-    if (profileWarning) {
-      if (agentMode) {
-        this.log(profileWarning)
-      } else {
-        this.warn(profileWarning)
-      }
+    const profile = getProfile(cliProfile)
+    if (!profile) {
+      this.error('Profile not found in credentials. Run "xano init" to configure.')
     }
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)
@@ -735,6 +741,91 @@ export default class Push extends BaseCommand {
   }
 
   /**
+   * Find object ID by name on Xano
+   * Used when local ID doesn't match (404) but object exists with different ID
+   */
+  private async findObjectIdByName(
+    api: XanoApi,
+    objectType: XanoObjectType,
+    objectName: string
+  ): Promise<null | number> {
+    // Query the appropriate list endpoint based on type
+    let items: Array<{ id: number; name?: string }> = []
+
+    switch (objectType) {
+      case 'addon': {
+        const res = await api.listAddons(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'agent': {
+        const res = await api.listAgents(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'agent_trigger': {
+        const res = await api.listAgentTriggers(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'function': {
+        const res = await api.listFunctions(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'mcp_server': {
+        const res = await api.listMcpServers(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'mcp_server_trigger': {
+        const res = await api.listMcpServerTriggers(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'middleware': {
+        const res = await api.listMiddlewares(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'task': {
+        const res = await api.listTasks(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'tool': {
+        const res = await api.listTools(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      case 'workflow_test': {
+        const res = await api.listWorkflowTests(1, 1000)
+        if (res.ok && res.data?.items) items = res.data.items
+        break
+      }
+
+      default: {
+        // For other types (table, api_group, api_endpoint, table_trigger), name lookup is more complex
+        return null
+      }
+    }
+
+    // Find matching item by name (case-insensitive)
+    const normalizedName = objectName.toLowerCase()
+    const found = items.find(item => item.name?.toLowerCase() === normalizedName)
+    return found?.id ?? null
+  }
+
+  /**
    * Find objects in objects.json whose local files have been deleted
    */
   private findOrphanObjects(projectRoot: string, objects: XanoObjectsFile): XanoObjectsFile {
@@ -869,6 +960,142 @@ export default class Push extends BaseCommand {
 
       let response = await api.updateObject(objectType, existingObj.id, content, updateOptions)
       let wasRecreated = false
+
+      // Handle 404: Object exists in objects.json but not on Xano (deleted externally, or different branch)
+      // Fall back to creating the object instead of failing
+      if (!response.ok && response.status === 404) {
+        // Create new object with same content
+        const createResponse = await api.createObject(objectType, content, updateOptions)
+
+        if (createResponse.ok) {
+          if (!createResponse.data?.id) {
+            return { error: 'No ID returned after fallback create', objects, success: false }
+          }
+
+          // Update newId with the newly created object's ID
+          newId = createResponse.data.id
+          wasRecreated = true
+
+          // Write back the xanoscript returned by Xano (includes real canonical, etc.)
+          const responseData = createResponse.data as { id: number; xanoscript?: string | { status?: string; value: string } }
+          if (responseData.xanoscript) {
+            const xsValue = typeof responseData.xanoscript === 'string'
+              ? responseData.xanoscript
+              : responseData.xanoscript.value
+            if (xsValue) {
+              writeFileSync(fullPath, xsValue, 'utf8')
+              content = xsValue
+            }
+          }
+
+          // Skip the normal error handling below
+          response = createResponse
+        } else if (createResponse.status === 409 || createResponse.error?.includes('already exists') ||
+            createResponse.error?.includes('Duplicate record') || createResponse.error?.includes('name is already being used')) {
+          // If create fails with conflict, the object exists with a different ID
+          // Try to find the object by name and update that one instead
+          const objectName = extractName(content)
+          if (objectName) {
+            // Try to find the object by name and update it
+            const foundId = await this.findObjectIdByName(api, objectType, objectName)
+            if (foundId) {
+              // Update the found object
+              const updateFoundResponse = await api.updateObject(objectType, foundId, content, updateOptions)
+
+              // Workaround for Xano bug: "name is already being used" on update (even for same object)
+              // Delete and recreate the object
+              const nameConflictTypes: XanoObjectType[] = ['agent', 'agent_trigger', 'tool', 'mcp_server', 'mcp_server_trigger', 'function', 'task', 'middleware', 'addon']
+              const isNameConflict = !updateFoundResponse.ok &&
+                updateFoundResponse.error?.includes('name is already being used') &&
+                nameConflictTypes.includes(objectType)
+
+              if (updateFoundResponse.ok) {
+                newId = foundId
+                wasRecreated = true
+
+                // Write back the xanoscript returned by Xano
+                const responseData = updateFoundResponse.data as { id: number; xanoscript?: string | { status?: string; value: string } }
+                if (responseData?.xanoscript) {
+                  const xsValue = typeof responseData.xanoscript === 'string'
+                    ? responseData.xanoscript
+                    : responseData.xanoscript.value
+                  if (xsValue) {
+                    writeFileSync(fullPath, xsValue, 'utf8')
+                    content = xsValue
+                  }
+                }
+
+                response = updateFoundResponse
+              } else if (isNameConflict) {
+                // Delete the found object
+                const deleteResponse = await api.deleteObject(objectType, foundId)
+                if (!deleteResponse.ok) {
+                  return {
+                    error: `Found ${objectType} "${objectName}" with ID ${foundId}, but delete for recreate failed: ${deleteResponse.error}`,
+                    objects,
+                    success: false,
+                  }
+                }
+
+                // Create new object with same content
+                const recreateResponse = await api.createObject(objectType, content, updateOptions)
+                if (!recreateResponse.ok) {
+                  return {
+                    error: `Found ${objectType} "${objectName}" with ID ${foundId}, deleted but recreate failed: ${recreateResponse.error}`,
+                    objects,
+                    success: false,
+                  }
+                }
+
+                if (!recreateResponse.data?.id) {
+                  return { error: 'No ID returned after delete-recreate', objects, success: false }
+                }
+
+                newId = recreateResponse.data.id
+                wasRecreated = true
+
+                // Write back the xanoscript returned by Xano
+                const responseData = recreateResponse.data as { id: number; xanoscript?: string | { status?: string; value: string } }
+                if (responseData?.xanoscript) {
+                  const xsValue = typeof responseData.xanoscript === 'string'
+                    ? responseData.xanoscript
+                    : responseData.xanoscript.value
+                  if (xsValue) {
+                    writeFileSync(fullPath, xsValue, 'utf8')
+                    content = xsValue
+                  }
+                }
+
+                response = recreateResponse
+              } else {
+                return {
+                  error: `Found ${objectType} "${objectName}" with ID ${foundId}, but update failed: ${updateFoundResponse.error}`,
+                  objects,
+                  success: false,
+                }
+              }
+            } else {
+              return {
+                error: `Object not found on Xano (404) but ${objectType} "${objectName}" already exists with different ID. Could not locate it. Run "xano pull --sync" to refresh mappings.`,
+                objects,
+                success: false,
+              }
+            }
+          } else {
+            return {
+              error: `Object not found on Xano (404) and cannot determine object name to look it up. Run "xano pull --sync" to refresh mappings.`,
+              objects,
+              success: false,
+            }
+          }
+        } else {
+          return {
+            error: `Object not found (404), fallback create failed: ${createResponse.error}`,
+            objects,
+            success: false,
+          }
+        }
+      }
 
       // Workaround for Xano bug: "name is already being used" on update
       // This happens when updating various object types - delete and recreate

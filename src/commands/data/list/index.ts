@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from 'node:path'
 
 import { isAgentMode } from '../../../base-command.js'
 import {
+  getMissingProfileError,
   getProfile,
   XanoApi,
 } from '../../../lib/api.js'
@@ -16,6 +17,7 @@ import { detectType, extractName } from '../../../lib/detector.js'
 import {
   findProjectRoot,
   isInitialized,
+  loadCliConfig,
   loadEffectiveConfig,
 } from '../../../lib/project.js'
 import {
@@ -206,9 +208,18 @@ export default class DataList extends Command {
       this.error('Failed to load .xano/config.json')
     }
 
-    const profile = getProfile(flags.profile, config.profile)
+    // Profile is ONLY read from .xano/cli.json - no flag overrides
+    const cliConfig = loadCliConfig(projectRoot)
+    const cliProfile = cliConfig?.profile
+
+    const profileError = getMissingProfileError(cliProfile)
+    if (profileError) {
+      this.error(profileError.humanOutput)
+    }
+
+    const profile = getProfile(cliProfile)
     if (!profile) {
-      this.error('No profile found. Run "xano init" first.')
+      this.error('Profile not found in credentials. Run "xano init" to configure.')
     }
 
     // Resolve effective datasource (handles agent protection)

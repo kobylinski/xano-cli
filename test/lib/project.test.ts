@@ -212,7 +212,6 @@ describe('lib/project', () => {
           tasks: 'tasks',
           workflowTests: 'workflow_tests',
         },
-        profile: 'myprofile',
         workspace: 'Test Workspace',
         workspaceId: 123,
       }
@@ -222,7 +221,6 @@ describe('lib/project', () => {
       // These CLI-only settings should NOT be in config.json (stored in cli.json/datasources.json)
       expect(localConfig.datasources).to.be.undefined
       expect(localConfig.naming).to.be.undefined
-      expect(localConfig.profile).to.be.undefined
     })
 
     it('handles missing datasources configuration', () => {

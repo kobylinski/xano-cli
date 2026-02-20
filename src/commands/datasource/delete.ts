@@ -1,13 +1,15 @@
 import { Args, Command, Flags } from '@oclif/core'
 
 import {
+  getMissingProfileError,
   getProfile,
   XanoApi,
 } from '../../lib/api.js'
 import {
   findProjectRoot,
   isInitialized,
-  loadLocalConfig,
+  loadCliConfig,
+  loadEffectiveConfig,
 } from '../../lib/project.js'
 
 export default class DataSourceDelete extends Command {
@@ -52,12 +54,21 @@ export default class DataSourceDelete extends Command {
       this.error('Project not initialized. Run "xano init" first.')
     }
 
-    const config = loadLocalConfig(projectRoot)
+    const config = loadEffectiveConfig(projectRoot)
     if (!config) {
       this.error('Failed to load .xano/config.json')
     }
 
-    const profile = getProfile(flags.profile, config.profile)
+    // Profile is ONLY read from .xano/cli.json - no flag overrides
+    const cliConfig = loadCliConfig(projectRoot)
+    const cliProfile = cliConfig?.profile
+
+    const profileError = getMissingProfileError(cliProfile)
+    if (profileError) {
+      this.error(profileError.humanOutput)
+    }
+
+    const profile = getProfile(cliProfile)
     if (!profile) {
       this.error('No profile found. Run "xano init" first.')
     }

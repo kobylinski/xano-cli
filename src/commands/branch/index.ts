@@ -6,6 +6,7 @@ import type { XanoObjectsFile } from '../../lib/types.js'
 
 import BaseCommand, { isAgentMode } from '../../base-command.js'
 import {
+  getMissingProfileError,
   getProfile,
   XanoApi,
 } from '../../lib/api.js'
@@ -13,7 +14,8 @@ import { computeSha256, loadObjects } from '../../lib/objects.js'
 import {
   findProjectRoot,
   isInitialized,
-  loadLocalConfig,
+  loadCliConfig,
+  loadEffectiveConfig,
   saveLocalConfig,
 } from '../../lib/project.js'
 import { fetchAllObjects } from '../../lib/sync.js'
@@ -74,25 +76,9 @@ private jsonMode = false
     this.jsonMode = flags.json
     this.agentMode = !flags.json && isAgentMode(flags.agent)
 
-    // Standalone mode: list branches with --profile and --workspace (no project needed)
-    const isListMode = args.branch === 'list' || flags.list
-    if (isListMode && flags.workspace) {
-      const profile = getProfile(flags.profile)
-      if (!profile) {
-        if (this.jsonMode) {
-          this.log(JSON.stringify({ error: 'No profile found', success: false }, null, 2))
-          this.exit(1)
-        }
-
-        this.error('No profile found. Run "xano init" first.')
-      }
-
-      await this.listBranchesStandalone(profile, flags.workspace)
-      return
-    }
-
-    // Project-based mode
+    // All operations require a project with cli.json configured
     const projectRoot = findProjectRoot()
+    const isListMode = args.branch === 'list' || flags.list
     if (!projectRoot) {
       if (this.jsonMode) {
         this.log(JSON.stringify({ error: 'Not in a xano project', success: false }, null, 2))
@@ -111,19 +97,39 @@ private jsonMode = false
       this.error('Project not initialized. Run "xano init" first.')
     }
 
-    const config = loadLocalConfig(projectRoot)
+    const config = loadEffectiveConfig(projectRoot)
     if (!config) {
       this.error('Failed to load .xano/config.json')
     }
 
-    const profile = getProfile(flags.profile, config.profile)
-    if (!profile) {
+    // Profile is ONLY read from .xano/cli.json - no flag overrides
+    const cliConfig = loadCliConfig(projectRoot)
+    const cliProfile = cliConfig?.profile
+
+    // Check for missing profile - this is now an error
+    const profileError = getMissingProfileError(cliProfile)
+    if (profileError) {
       if (this.jsonMode) {
-        this.log(JSON.stringify({ error: 'No profile found', success: false }, null, 2))
+        this.log(JSON.stringify({ error: 'Profile not configured in .xano/cli.json', success: false }, null, 2))
         this.exit(1)
       }
 
-      this.error('No profile found. Run "xano init" first.')
+      if (this.agentMode) {
+        this.log(profileError.agentOutput)
+        return
+      }
+
+      this.error(profileError.humanOutput)
+    }
+
+    const profile = getProfile(cliProfile)
+    if (!profile) {
+      if (this.jsonMode) {
+        this.log(JSON.stringify({ error: 'Profile not found in credentials', success: false }, null, 2))
+        this.exit(1)
+      }
+
+      this.error('Profile not found in credentials. Run "xano init" to configure.')
     }
 
     // Determine action
@@ -164,7 +170,7 @@ private jsonMode = false
 
   private async checkSyncStatus(
     projectRoot: string,
-    config: ReturnType<typeof loadLocalConfig>,
+    config: ReturnType<typeof loadEffectiveConfig>,
     profile: ReturnType<typeof getProfile>
   ): Promise<{
     inSync: boolean
@@ -250,7 +256,7 @@ private jsonMode = false
   }
 
   private async listBranches(
-    config: ReturnType<typeof loadLocalConfig>,
+    config: ReturnType<typeof loadEffectiveConfig>,
     profile: ReturnType<typeof getProfile>
   ): Promise<void> {
     if (!config || !profile) return
@@ -387,7 +393,7 @@ private jsonMode = false
 
   private async switchBranch(
     projectRoot: string,
-    config: ReturnType<typeof loadLocalConfig>,
+    config: ReturnType<typeof loadEffectiveConfig>,
     profile: ReturnType<typeof getProfile>,
     branchName: string,
     force: boolean,
@@ -557,7 +563,7 @@ private jsonMode = false
   private async syncBranch(
     projectRoot: string,
     api: XanoApi,
-    config: ReturnType<typeof loadLocalConfig>
+    config: ReturnType<typeof loadEffectiveConfig>
   ): Promise<void> {
     if (!config) return
 

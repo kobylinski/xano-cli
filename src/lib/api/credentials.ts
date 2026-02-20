@@ -9,6 +9,8 @@ import { join } from 'node:path'
 
 import type { XanoCredentials, XanoProfile } from '../types.js'
 
+import { loadCliConfig } from '../project.js'
+
 const CREDENTIALS_PATH = join(homedir(), '.xano', 'credentials.yaml')
 
 /**
@@ -28,55 +30,98 @@ export function loadCredentials(): null | XanoCredentials {
 }
 
 /**
- * Get profile by name or default
- * Priority: flagProfile (--profile/XANO_PROFILE) > projectProfile (xano.json) > credentials.default > 'default'
+ * Get profile by name from .xano/cli.json
+ *
+ * IMPORTANT: Profile MUST be set in .xano/cli.json for CLI operations.
+ * This is the ONLY source of truth - no flag overrides allowed.
  */
-export function getProfile(flagProfile?: string, projectProfile?: string): null | XanoProfile {
+export function getProfile(cliProfile?: string): null | XanoProfile {
   const credentials = loadCredentials()
   if (!credentials) return null
 
-  const name = flagProfile || projectProfile || credentials.default || 'default'
-  return credentials.profiles[name] || null
+  if (!cliProfile) return null
+
+  return credentials.profiles[cliProfile] || null
 }
 
 /**
- * Check if a warning should be shown about missing profile in project config
- * Returns warning message if:
- * - Multiple profiles exist in credentials.yaml
- * - No profile specified via flag, env, or project config
- *
- * In agent mode, returns structured output for AI agents
+ * Profile requirement error info
  */
-export function getProfileWarning(flagProfile?: string, projectProfile?: string, agentMode?: boolean): null | string {
-  // If profile explicitly specified, no warning needed
-  if (flagProfile || projectProfile) return null
+export interface ProfileRequirementError {
+  agentOutput: string    // Structured output for AI agents
+  humanOutput: string    // Human-readable error message
+  profiles: string[]     // Available profile names
+}
+
+/**
+ * Check if profile is properly configured and return error info if not.
+ *
+ * Profile MUST be set in .xano/cli.json for CLI operations.
+ * This is the ONLY source of truth - no flag overrides allowed.
+ *
+ * Returns null if profile is properly configured, error info otherwise.
+ */
+export function getMissingProfileError(cliProfile?: string): null | ProfileRequirementError {
+  // If profile is set in cli.json, no error
+  if (cliProfile) return null
 
   const credentials = loadCredentials()
-  if (!credentials) return null
+  const profileNames = credentials ? Object.keys(credentials.profiles) : []
 
-  const profileNames = Object.keys(credentials.profiles)
+  // Build human-readable error
+  let humanOutput = 'Profile not configured in .xano/cli.json\n\n'
+  humanOutput += 'The CLI requires a profile to be set in .xano/cli.json to prevent\n'
+  humanOutput += 'accidental operations on the wrong workspace.\n\n'
 
-  // Single profile or no profiles - no ambiguity
-  if (profileNames.length <= 1) return null
+  if (profileNames.length > 0) {
+    humanOutput += 'Available profiles:\n'
+    for (const name of profileNames) {
+      humanOutput += `  - ${name}\n`
+    }
 
-  const usedProfile = credentials.default || 'default'
-
-  if (agentMode) {
-    // Structured output for AI agents
-    const lines = [
-      'AGENT_WARNING: profile_not_configured',
-      'AGENT_MESSAGE: Multiple Xano profiles found but project has no profile configured.',
-      'AGENT_ACTION: Remind the user to configure a profile in xano.json for this project.',
-      `AGENT_CURRENT: ${usedProfile}`,
-      'AGENT_PROFILES:',
-      ...profileNames.map(name => `- ${name}${name === usedProfile ? ' (currently used)' : ''}${name === credentials.default ? ' (default)' : ''}`),
-      'AGENT_SUGGEST: Ask user which profile to use, then run: xano init --profile=<selected_profile>',
-    ]
-    return lines.join('\n')
+    humanOutput += '\n'
   }
 
-  return `Multiple profiles found but no profile specified in xano.json.\n` +
-    `Using '${usedProfile}' profile. Consider adding "profile": "${usedProfile}" to xano.json.`
+  humanOutput += 'To configure a profile for this project, run:\n'
+  humanOutput += '  xano init --profile=<profile_name>\n\n'
+  humanOutput += 'Or create .xano/cli.json manually:\n'
+  humanOutput += '  {"profile": "<profile_name>"}'
+
+  // Build agent-mode structured output
+  const agentLines = [
+    'AGENT_ERROR: profile_not_configured',
+    'AGENT_MESSAGE: Profile is not configured in .xano/cli.json. This is required for CLI operations.',
+    'AGENT_REASON: Each project must have its profile explicitly set to prevent accidental operations on wrong workspace.',
+  ]
+
+  if (profileNames.length > 0) {
+    agentLines.push('AGENT_PROFILES:')
+    for (const name of profileNames) {
+      agentLines.push(`- ${name}`)
+    }
+  }
+
+  agentLines.push(
+    'AGENT_ACTION: Ask user which profile to use for this project, then run:',
+    'AGENT_COMMAND: xano init --profile=<selected_profile>',
+    'AGENT_ALTERNATIVE: Or create .xano/cli.json with {"profile": "<profile_name>"}'
+  )
+
+  return {
+    agentOutput: agentLines.join('\n'),
+    humanOutput,
+    profiles: profileNames,
+  }
+}
+
+/**
+ * @deprecated Use getMissingProfileError instead
+ * Kept for backwards compatibility during transition
+ */
+export function getProfileWarning(cliProfile?: string, agentMode?: boolean): null | string {
+  const error = getMissingProfileError(cliProfile)
+  if (!error) return null
+  return agentMode ? error.agentOutput : error.humanOutput
 }
 
 /**
@@ -94,4 +139,13 @@ export function listProfileNames(): string[] {
   const credentials = loadCredentials()
   if (!credentials) return []
   return Object.keys(credentials.profiles)
+}
+
+/**
+ * Get profile name from project configuration
+ * Profile is ONLY read from .xano/cli.json - the single source of truth
+ */
+export function getCliProfile(projectRoot: string): string | undefined {
+  const cliConfig = loadCliConfig(projectRoot)
+  return cliConfig?.profile
 }

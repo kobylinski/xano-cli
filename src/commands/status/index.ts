@@ -16,8 +16,8 @@ import type {
 
 import BaseCommand, { isAgentMode } from '../../base-command.js'
 import {
+  getMissingProfileError,
   getProfile,
-  getProfileWarning,
   XanoApi,
 } from '../../lib/api.js'
 import { loadConfig } from '../../lib/config.js'
@@ -31,6 +31,7 @@ import {
   findProjectRoot,
   getDefaultPaths,
   isInitialized,
+  loadCliConfig,
   loadLocalConfig,
 } from '../../lib/project.js'
 import {
@@ -105,32 +106,37 @@ private customResolver?: PathResolver
     }
 
     // Load dynamic config (xano.js) if available
+    // Precedence: defaults → xano.json → .xano/config.json
     const dynamicConfig = await loadConfig(projectRoot)
     if (dynamicConfig) {
       this.customResolver = dynamicConfig.resolvePath
       this.customResolveType = dynamicConfig.resolveType
       this.customSanitize = dynamicConfig.sanitize
-      this.paths = { ...getDefaultPaths(), ...dynamicConfig.config.paths }
-      this.naming = dynamicConfig.config.naming || config.naming
-    } else {
-      this.paths = { ...getDefaultPaths(), ...config.paths }
-      this.naming = config.naming
     }
 
-    const profile = getProfile(flags.profile, config.profile)
-    if (!profile) {
-      this.error('No profile found. Run "xano init" first.')
-    }
+    this.paths = { ...getDefaultPaths(), ...dynamicConfig?.config.paths, ...config.paths }
+    this.naming = config.naming || dynamicConfig?.config.naming
 
-    // Warn if multiple profiles exist but none specified in project config
+    // Profile is ONLY read from .xano/cli.json - no flag overrides
+    const cliConfig = loadCliConfig(projectRoot)
+    const cliProfile = cliConfig?.profile
     const agentMode = isAgentMode(flags.agent)
-    const profileWarning = getProfileWarning(flags.profile, config.profile, agentMode)
-    if (profileWarning) {
+
+    // Check for missing profile - this is now an error
+    const profileError = getMissingProfileError(cliProfile)
+    if (profileError) {
       if (agentMode) {
-        this.log(profileWarning)
+        this.log(profileError.agentOutput)
       } else {
-        this.warn(profileWarning)
+        this.error(profileError.humanOutput)
       }
+
+      return
+    }
+
+    const profile = getProfile(cliProfile)
+    if (!profile) {
+      this.error('Profile not found in credentials. Run "xano init" to configure.')
     }
 
     const api = new XanoApi(profile, config.workspaceId, config.branch)

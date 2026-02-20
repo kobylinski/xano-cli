@@ -33,12 +33,17 @@ import { getProfile } from './credentials.js'
 
 // Re-export credentials functions
 export {
+  getCliProfile,
   getDefaultProfileName,
+  getMissingProfileError,
   getProfile,
   getProfileWarning,
   listProfileNames,
   loadCredentials,
 } from './credentials.js'
+
+// Re-export credentials types
+export type { ProfileRequirementError } from './credentials.js'
 
 // Import domain APIs
 import { AddonsApi } from './addons.js'

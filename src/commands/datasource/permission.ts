@@ -1,9 +1,10 @@
 import { Args, Flags } from '@oclif/core'
 
-import type { DatasourceAccessLevel, DatasourcePermissions } from '../../lib/types.js'
+import type { DatasourceAccessLevel, DatasourcePermissions, XanoProfile } from '../../lib/types.js'
 
 import BaseCommand, { isAgentMode } from '../../base-command.js'
 import {
+  getMissingProfileError,
   getProfile,
   XanoApi,
 } from '../../lib/api.js'
@@ -11,6 +12,7 @@ import { describeAccessLevel } from '../../lib/datasource.js'
 import {
   findProjectRoot,
   isInitialized,
+  loadCliConfig,
   loadDatasourcesConfig,
   loadEffectiveConfig,
   loadLocalConfig,
@@ -75,9 +77,23 @@ export default class DataSourcePermission extends BaseCommand {
     // Load effective config for reading (merges xano.json defaults)
     const effectiveConfig = loadEffectiveConfig(projectRoot)!
 
+    // Profile is ONLY read from .xano/cli.json - no flag overrides
+    const cliConfig = loadCliConfig(projectRoot)
+    const cliProfile = cliConfig?.profile
+
+    const profileError = getMissingProfileError(cliProfile)
+    if (profileError) {
+      this.error(profileError.humanOutput)
+    }
+
+    const profile = getProfile(cliProfile)
+    if (!profile) {
+      this.error('Profile not found in credentials. Run "xano init" to configure.')
+    }
+
     // List mode (no name provided)
     if (!args.name) {
-      await this.listPermissions(effectiveConfig.datasources, flags.profile, effectiveConfig, flags.json)
+      await this.listPermissions(effectiveConfig.datasources, profile, effectiveConfig, flags.json)
       return
     }
 
@@ -146,11 +162,6 @@ export default class DataSourcePermission extends BaseCommand {
     }
 
     // Set mode - validate datasource exists
-    const profile = getProfile(flags.profile, config.profile)
-    if (!profile) {
-      this.error('No profile found. Run "xano init" first.')
-    }
-
     const api = new XanoApi(profile, config.workspaceId, config.branch)
     const response = await api.listDataSources()
 
@@ -198,16 +209,11 @@ export default class DataSourcePermission extends BaseCommand {
 
   private async listPermissions(
     permissions: DatasourcePermissions | undefined,
-    profileFlag: string | undefined,
-    config: { branch: string; profile?: string; workspaceId: number },
+    profile: XanoProfile,
+    config: { branch: string; workspaceId: number },
     jsonOutput: boolean
   ): Promise<void> {
     // Get actual datasources from API
-    const profile = getProfile(profileFlag, config.profile)
-    if (!profile) {
-      this.error('No profile found. Run "xano init" first.')
-    }
-
     const api = new XanoApi(profile, config.workspaceId, config.branch)
     const response = await api.listDataSources()
 

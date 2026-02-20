@@ -8,7 +8,7 @@
 import type { XanoLocalConfig } from '../types.js'
 
 import { getProfile, XanoApi } from '../api.js'
-import { findProjectRoot, loadEffectiveConfig } from '../project.js'
+import { findProjectRoot, loadCliConfig, loadEffectiveConfig } from '../project.js'
 
 /**
  * Shared context for operations across all interfaces
@@ -67,8 +67,10 @@ export function createContext(options: CreateContextOptions = {}): OperationCont
   const projectRoot = resolveProjectRoot(options.projectRoot)
   const config = projectRoot ? loadEffectiveConfig(projectRoot) : null
 
-  const profileName = options.profileName ?? config?.profile
-  const profile = getProfile(profileName, config?.profile)
+  // Profile is ONLY read from .xano/cli.json - no overrides
+  const cliConfig = projectRoot ? loadCliConfig(projectRoot) : null
+  const profileName = cliConfig?.profile
+  const profile = getProfile(profileName)
   const api = profile && config ? new XanoApi(profile, config.workspaceId, config.branch) : null
 
   return {
@@ -87,7 +89,8 @@ export function createContext(options: CreateContextOptions = {}): OperationCont
  * Call this after changing profileName to update the API client.
  */
 export function reinitializeApi(ctx: OperationContext): void {
-  const profile = getProfile(ctx.profileName, ctx.config?.profile)
+  // Profile is ONLY read from cli.json (stored in ctx.profileName)
+  const profile = getProfile(ctx.profileName)
   ctx.api = profile && ctx.config
     ? new XanoApi(profile, ctx.config.workspaceId, ctx.config.branch)
     : null
